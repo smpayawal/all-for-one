@@ -126,6 +126,54 @@ describe("apply_patch tool", () => {
 		expect(readFileSync(join(cwd, "..config"), "utf-8")).toBe("after\n");
 	});
 
+	it("rejects lexical aliases for the same target before mutation", async () => {
+		writeFileSync(join(cwd, "alias.txt"), "before\n");
+
+		await expect(
+			createApplyPatchTool(cwd).execute("call-alias", {
+				patch: [
+					"*** Begin Patch",
+					"*** Update File: alias.txt",
+					"@@",
+					"-before",
+					"+first",
+					"*** Update File: ./alias.txt",
+					"@@",
+					"-before",
+					"+second",
+					"*** End Patch",
+				].join("\n"),
+			}),
+		).rejects.toThrow("same target");
+		expect(readFileSync(join(cwd, "alias.txt"), "utf-8")).toBe("before\n");
+	});
+
+	it("rejects symlink aliases for the same in-workspace target", async () => {
+		const targetDirectory = join(cwd, "target");
+		mkdirSync(targetDirectory);
+		writeFileSync(join(targetDirectory, "shared.txt"), "before\n");
+		symlinkSync(targetDirectory, join(cwd, "alias-one"), process.platform === "win32" ? "junction" : "dir");
+		symlinkSync(targetDirectory, join(cwd, "alias-two"), process.platform === "win32" ? "junction" : "dir");
+
+		await expect(
+			createApplyPatchTool(cwd).execute("call-symlink-alias", {
+				patch: [
+					"*** Begin Patch",
+					"*** Update File: alias-one/shared.txt",
+					"@@",
+					"-before",
+					"+first",
+					"*** Update File: alias-two/shared.txt",
+					"@@",
+					"-before",
+					"+second",
+					"*** End Patch",
+				].join("\n"),
+			}),
+		).rejects.toThrow("same target");
+		expect(readFileSync(join(targetDirectory, "shared.txt"), "utf-8")).toBe("before\n");
+	});
+
 	it("preserves a UTF-8 BOM and CRLF line endings in updated files", async () => {
 		writeFileSync(join(cwd, "windows.txt"), "\uFEFFalpha\r\nbeta\r\n");
 		await createApplyPatchTool(cwd).execute("call-6", {
@@ -182,6 +230,17 @@ describe("apply_patch tool", () => {
 			),
 		).rejects.toThrow("Operation aborted");
 		expect(readFileSync(join(cwd, "cancel.txt"), "utf-8")).toBe("before\n");
+	});
+
+	it("bounds aggregate original-file bytes retained during preflight", async () => {
+		writeFileSync(join(cwd, "large.txt"), "123456789\n");
+
+		await expect(
+			createApplyPatchTool(cwd, { maxPreflightBytes: 4 }).execute("call-preflight-limit", {
+				patch: "*** Begin Patch\n*** Update File: large.txt\n@@\n-123456789\n+changed\n*** End Patch",
+			}),
+		).rejects.toThrow("preflight exceeds the 4 byte limit");
+		expect(readFileSync(join(cwd, "large.txt"), "utf-8")).toBe("123456789\n");
 	});
 
 	it("serializes concurrent patches that target the same file", async () => {

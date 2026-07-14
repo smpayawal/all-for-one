@@ -251,7 +251,8 @@ export function createChangesToolDefinition(
 			}
 
 			const maxFiles = options?.maxFiles ?? DEFAULT_MAX_FILES;
-			const parsedFiles = filterFiles(parseGitStatus(status.stdout), staged);
+			const fileScope = view === "diff" && staged === undefined ? false : staged;
+			const parsedFiles = filterFiles(parseGitStatus(status.stdout), fileScope);
 			const filesTruncated = status.stdoutTruncated || parsedFiles.length > maxFiles;
 			const files = parsedFiles.slice(0, maxFiles);
 			if (view === "summary") {

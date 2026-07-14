@@ -79,7 +79,7 @@ By default, pi gives the model six tools:
 - `read` - read files
 - `write` - create or overwrite files
 - `edit` - patch files
-- `apply_patch` - apply validated multi-file patches atomically
+- `apply_patch` - preflight coherent multi-file patches with best-effort rollback
 - `changes` - inspect bounded git status summaries and diffs
 - `bash` - run shell commands
 

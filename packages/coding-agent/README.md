@@ -580,7 +580,7 @@ cat README.md | pi -p "Summarize this text"
 
 Available built-in tools: `read`, `bash`, `edit`, `write`, `apply_patch`, `changes`, `grep`, `find`, `ls`
 
-`apply_patch` applies validated multi-file patches atomically. `changes` reports bounded git status summaries and diffs without using a shell. When `bash` is active, pi also inspects root project manifests and adds concise guidance for likely validation commands; inferred commands are labeled and are never run automatically.
+`apply_patch` preflights coherent multi-file patches and uses best-effort rollback if a later write fails. `changes` reports bounded git status summaries and diffs without using a shell. When `bash` is active, pi also inspects root project manifests and adds concise guidance for likely validation commands; inferred commands are labeled and are never run automatically.
 
 ### Resource Options
 

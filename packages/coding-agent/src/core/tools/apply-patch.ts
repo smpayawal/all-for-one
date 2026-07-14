@@ -1,5 +1,5 @@
-import { lstat, mkdir, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep, win32 } from "node:path";
+import { lstat, mkdir, readFile, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative, resolve, sep, win32 } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.ts";
@@ -9,6 +9,7 @@ import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
 const MAX_PATCH_BYTES = 1024 * 1024;
 const DEFAULT_MAX_OPERATIONS = 100;
+const DEFAULT_MAX_PREFLIGHT_BYTES = 64 * 1024 * 1024;
 
 const applyPatchSchema = Type.Object({
 	patch: Type.String({
@@ -29,6 +30,8 @@ export interface ApplyPatchToolDetails {
 export interface ApplyPatchToolOptions {
 	/** Maximum file operations accepted in one patch. Default: 100. */
 	maxOperations?: number;
+	/** Maximum aggregate size of existing files retained during preflight. Default: 64 MiB. */
+	maxPreflightBytes?: number;
 }
 
 type PatchHunk = {
@@ -198,25 +201,33 @@ function isPathInside(root: string, target: string): boolean {
 	);
 }
 
-async function nearestExistingRealPath(path: string): Promise<string> {
+async function canonicalTargetPath(path: string): Promise<string> {
 	let current = path;
+	const missingSegments: string[] = [];
 	while (true) {
 		try {
-			return await realpath(current);
+			const canonicalCurrent = await realpath(current);
+			return missingSegments.length === 0 ? canonicalCurrent : resolve(canonicalCurrent, ...missingSegments);
 		} catch (error) {
 			if (!isMissingPathError(error)) throw error;
 			const parent = dirname(current);
 			if (parent === current) throw error;
+			missingSegments.unshift(basename(current));
 			current = parent;
 		}
 	}
 }
 
-async function assertRealPathInsideWorkspace(path: string, cwd: string): Promise<void> {
-	const [realRoot, realTargetOrParent] = await Promise.all([realpath(cwd), nearestExistingRealPath(path)]);
-	if (!isPathInside(realRoot, realTargetOrParent)) {
+function canonicalTargetKey(path: string): string {
+	return process.platform === "win32" ? path.toLowerCase() : path;
+}
+
+async function assertRealPathInsideWorkspace(path: string, cwd: string): Promise<string> {
+	const [realRoot, canonicalTarget] = await Promise.all([realpath(cwd), canonicalTargetPath(path)]);
+	if (!isPathInside(realRoot, canonicalTarget)) {
 		throw new Error(`Unsafe patch path escapes the workspace through a symbolic link: ${path}`);
 	}
+	return canonicalTarget;
 }
 
 function findHunkMatch(lines: string[], oldLines: string[], start: number): number[] {
@@ -256,9 +267,11 @@ async function withPatchMutationQueues<T>(paths: string[], fn: () => Promise<T>,
 async function planPatchOperations(
 	operations: ResolvedPatchOperation[],
 	cwd: string,
+	maxPreflightBytes: number,
 	signal?: AbortSignal,
 ): Promise<PlannedPatchOperation[]> {
 	const planned: PlannedPatchOperation[] = [];
+	let preflightBytes = 0;
 	const throwIfAborted = (): void => {
 		if (signal?.aborted) throw new Error("Operation aborted");
 	};
@@ -281,12 +294,20 @@ async function planPatchOperations(
 
 		let original: Buffer;
 		try {
+			const fileStats = await stat(operation.absolutePath);
+			if (fileStats.size > maxPreflightBytes - preflightBytes) {
+				throw new Error(`Patch preflight exceeds the ${maxPreflightBytes} byte limit at ${operation.path}.`);
+			}
 			original = await readFile(operation.absolutePath);
 		} catch (error) {
 			if (isMissingPathError(error)) {
 				throw new Error(`Cannot ${operation.type} ${operation.path}: file does not exist.`);
 			}
 			throw error;
+		}
+		preflightBytes += original.byteLength;
+		if (preflightBytes > maxPreflightBytes) {
+			throw new Error(`Patch preflight exceeds the ${maxPreflightBytes} byte limit at ${operation.path}.`);
 		}
 		throwIfAborted();
 
@@ -365,7 +386,7 @@ export function createApplyPatchToolDefinition(
 		name: "apply_patch",
 		label: "apply_patch",
 		description:
-			"Apply a coherent patch that adds, updates, or deletes one or more files. The complete patch is validated before any file is changed.",
+			"Apply a coherent patch that adds, updates, or deletes one or more files. The complete patch is preflighted before any file is changed; later write failures trigger best-effort rollback.",
 		promptSnippet: "Apply coherent add, update, or delete operations across files",
 		promptGuidelines: ["Use apply_patch when a coherent patch is more convenient, especially across multiple files."],
 		parameters: applyPatchSchema,
@@ -373,14 +394,24 @@ export function createApplyPatchToolDefinition(
 		async execute(_toolCallId, { patch }: ApplyPatchToolInput, signal?: AbortSignal) {
 			if (signal?.aborted) throw new Error("Operation aborted");
 			const parsed = parsePatch(patch, options?.maxOperations ?? DEFAULT_MAX_OPERATIONS);
-			const resolved: ResolvedPatchOperation[] = parsed.map((operation) => ({
-				...operation,
-				absolutePath: resolvePatchPath(operation.path, cwd),
-			}));
+			const resolved: ResolvedPatchOperation[] = [];
+			const canonicalTargets = new Set<string>();
+			for (const operation of parsed) {
+				if (signal?.aborted) throw new Error("Operation aborted");
+				const absolutePath = resolvePatchPath(operation.path, cwd);
+				const canonicalTarget = await assertRealPathInsideWorkspace(absolutePath, cwd);
+				const targetKey = canonicalTargetKey(canonicalTarget);
+				if (canonicalTargets.has(targetKey)) {
+					throw new Error(`Patch contains multiple operations for the same target: ${operation.path}.`);
+				}
+				canonicalTargets.add(targetKey);
+				resolved.push({ ...operation, absolutePath });
+			}
 			const queuePaths = [...new Set(resolved.map((operation) => operation.absolutePath))].sort();
+			const maxPreflightBytes = options?.maxPreflightBytes ?? DEFAULT_MAX_PREFLIGHT_BYTES;
 
 			return withPatchMutationQueues(queuePaths, async () => {
-				const planned = await planPatchOperations(resolved, cwd, signal);
+				const planned = await planPatchOperations(resolved, cwd, maxPreflightBytes, signal);
 				// Cancellation is honored through preflight. Once commit starts, finish or roll back
 				// so an abort cannot leave a silently partial multi-file patch.
 				await commitPatchOperations(planned);

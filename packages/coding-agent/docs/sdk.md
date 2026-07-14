@@ -500,7 +500,7 @@ Specify which built-in tools to enable:
 - `noTools: "builtin"` disables default built-ins while keeping extension and custom tools enabled
 - `excludeTools` disables specific built-in, extension, or custom tool names after any `tools` allowlist is applied
 
-The `edit` tool returns `details.diff` for Pi's TUI display and `details.patch` as a standard unified patch for SDK consumers. `apply_patch` validates and commits a bounded multi-file patch atomically. `changes` provides bounded git summaries and diffs without invoking a shell.
+The `edit` tool returns `details.diff` for Pi's TUI display and `details.patch` as a standard unified patch for SDK consumers. `apply_patch` preflights and commits a bounded multi-file patch, using best-effort rollback if a later write fails. Its `maxPreflightBytes` option bounds aggregate original-file data retained during preflight (64 MiB by default). `changes` provides bounded git summaries and diffs without invoking a shell.
 
 ```typescript
 import { createAgentSession } from "@earendil-works/pi-coding-agent";

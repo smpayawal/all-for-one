@@ -106,8 +106,10 @@ describe("changes tool", () => {
 		expect(unstaged.diff).toContain("+unstaged");
 		expect(unstaged.diff).not.toContain("staged.txt");
 		expect(unstaged.diff).not.toContain("secret untracked body");
+		expect(unstaged.files.map((file) => file.path)).toEqual(["modified.txt", "untracked.txt"]);
 		expect(staged.diff).toContain("staged.txt");
 		expect(staged.diff).toContain("+staged");
+		expect(staged.files.map((file) => file.path)).toEqual(["staged.txt"]);
 	});
 
 	it("handles non-Git directories cleanly", async () => {
