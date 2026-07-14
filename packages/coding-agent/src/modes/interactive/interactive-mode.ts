@@ -128,6 +128,17 @@ import {
 	OAuthSelectorComponent,
 } from "./components/oauth-selector.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
+import {
+	ALL_FOR_ONE_MAX_RAIL_WIDTH,
+	ALL_FOR_ONE_MIN_RAIL_WIDTH,
+	getAllForOneLayout,
+	parseRailProgress,
+	ResponsiveViewport,
+	SessionRailComponent,
+	type SessionRailLifecycle,
+	type SessionRailProgress,
+	type SessionRailToolEvent,
+} from "./components/session-rail.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
 import { SettingsSelectorComponent } from "./components/settings-selector.ts";
 import { SkillInvocationMessageComponent } from "./components/skill-invocation-message.ts";
@@ -340,6 +351,17 @@ export interface InteractiveModeOptions {
 export class InteractiveMode {
 	private runtimeHost: AgentSessionRuntime;
 	private ui: TUI;
+	private mainContentContainer: Container;
+	private viewport: ResponsiveViewport;
+	private bottomContainer: Container;
+	private footerContainer: Container;
+	private sessionRail: SessionRailComponent;
+	private sessionRailLifecycle: SessionRailLifecycle = { kind: "idle" };
+	private sessionRailActiveTools = new Map<string, string>();
+	private sessionRailRecentTools: SessionRailToolEvent[] = [];
+	private sessionRailProgress: SessionRailProgress | undefined;
+	private sessionRailCompletedTools = 0;
+	private sessionRailFailedTools = 0;
 	private loadedResourcesContainer: Container;
 	private chatContainer: Container;
 	private pendingMessagesContainer: Container;
@@ -435,6 +457,9 @@ export class InteractiveMode {
 	// Custom footer from extension (undefined = use built-in footer)
 	private customFooter: (Component & { dispose?(): void }) | undefined = undefined;
 
+	// Overlay handles owned by extension custom UI. Keep them separate from the passive rail overlays.
+	private extensionOverlayHandles = new Set<OverlayHandle>();
+
 	// Header container that holds the built-in or custom header
 	private headerContainer: Container;
 
@@ -475,6 +500,13 @@ export class InteractiveMode {
 		this.version = VERSION;
 		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
+		this.mainContentContainer = new Container();
+		this.bottomContainer = new Container();
+		this.viewport = new ResponsiveViewport(
+			this.mainContentContainer,
+			this.bottomContainer,
+			() => this.ui.terminal.rows,
+		);
 		this.headerContainer = new Container();
 		this.loadedResourcesContainer = new Container();
 		this.chatContainer = new Container();
@@ -496,6 +528,29 @@ export class InteractiveMode {
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
 		this.footer = new FooterComponent(this.session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
+		this.footerContainer = new Container();
+		this.footerContainer.addChild(this.footer);
+		this.sessionRail = new SessionRailComponent({
+			shortcutSummary: this.getSessionRailShortcutSummary(),
+			agents: [],
+			skills: [],
+			lifecycle: this.sessionRailLifecycle,
+			activeTools: [],
+			recentTools: [],
+			completedTools: 0,
+			failedTools: 0,
+			getAvailableHeight: () => this.viewport.getAvailableMainHeight(this.ui.terminal.columns),
+		});
+		// TUI overlays use fixed widths. Keep one passive entry per supported rail width so
+		// resizing remains responsive without changing the public overlay API.
+		for (let railWidth = ALL_FOR_ONE_MIN_RAIL_WIDTH; railWidth <= ALL_FOR_ONE_MAX_RAIL_WIDTH; railWidth += 1) {
+			this.ui.showOverlay(this.sessionRail, {
+				anchor: "top-right",
+				nonCapturing: true,
+				visible: (width) => getAllForOneLayout(width).railWidth === railWidth,
+				width: railWidth,
+			});
+		}
 
 		// Load hide thinking block setting
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
@@ -721,19 +776,19 @@ export class InteractiveMode {
 			console.log(theme.fg("dim", `Model scope: ${modelList}${cycleHint}`));
 		}
 
-		// Add header container as first child. Populate it after applying theme settings.
-		// Keep loaded resources before chat so restored session messages never precede them.
-		this.ui.addChild(this.headerContainer);
-		this.ui.addChild(this.loadedResourcesContainer);
-
-		this.ui.addChild(this.chatContainer);
-		this.ui.addChild(this.pendingMessagesContainer);
-		this.ui.addChild(this.statusContainer);
+		// Keep the conversation stack in the responsive main column and preserve the bottom controls at full width.
+		// Loaded resources remain before chat so restored session messages never precede their diagnostics.
+		this.mainContentContainer.addChild(this.headerContainer);
+		this.mainContentContainer.addChild(this.loadedResourcesContainer);
+		this.mainContentContainer.addChild(this.chatContainer);
+		this.mainContentContainer.addChild(this.pendingMessagesContainer);
+		this.mainContentContainer.addChild(this.statusContainer);
 		this.renderWidgets(); // Initialize with default spacer
-		this.ui.addChild(this.widgetContainerAbove);
-		this.ui.addChild(this.editorContainer);
-		this.ui.addChild(this.widgetContainerBelow);
-		this.ui.addChild(this.footer);
+		this.mainContentContainer.addChild(this.widgetContainerAbove);
+		this.bottomContainer.addChild(this.editorContainer);
+		this.bottomContainer.addChild(this.widgetContainerBelow);
+		this.bottomContainer.addChild(this.footerContainer);
+		this.ui.addChild(this.viewport);
 		this.ui.setFocus(this.editor);
 
 		this.setupKeyHandlers();
@@ -747,8 +802,6 @@ export class InteractiveMode {
 
 		// Add header with keybindings from config (unless silenced)
 		if (this.options.verbose || !this.settingsManager.getQuietStartup()) {
-			const logo = theme.bold(theme.fg("accent", APP_NAME)) + theme.fg("dim", ` v${this.version}`);
-
 			// Build startup instructions using keybinding hint helpers
 			const hint = (keybinding: AppKeybinding, description: string) => keyHint(keybinding, description);
 
@@ -773,33 +826,16 @@ export class InteractiveMode {
 				hint("app.clipboard.pasteImage", "to paste image (with text fallback)"),
 				rawKeyHint("drop files", "to attach"),
 			].join("\n");
-			const compactInstructions = [
-				hint("app.interrupt", "interrupt"),
-				rawKeyHint(`${keyText("app.clear")}/${keyText("app.exit")}`, "clear/exit"),
-				rawKeyHint("/", "commands"),
-				rawKeyHint("!", "bash"),
-				hint("app.tools.expand", "more"),
-			].join(theme.fg("muted", " · "));
-			const compactOnboarding = theme.fg(
-				"dim",
-				`Press ${keyText("app.tools.expand")} to show full startup help and loaded resources.`,
-			);
-			const onboarding = theme.fg(
-				"dim",
-				`Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.`,
-			);
 			this.builtInHeader = new ExpandableText(
-				() => `${logo}\n${compactInstructions}\n${compactOnboarding}\n\n${onboarding}`,
-				() => `${logo}\n${expandedInstructions}\n\n${onboarding}`,
+				() => "",
+				() => expandedInstructions,
 				this.getStartupExpansionState(),
-				1,
+				0,
 				0,
 			);
 
 			// Setup UI layout
-			this.headerContainer.addChild(new Spacer(1));
 			this.headerContainer.addChild(this.builtInHeader);
-			this.headerContainer.addChild(new Spacer(1));
 		} else {
 			// Minimal header when silenced
 			this.builtInHeader = new Text("", 0, 0);
@@ -822,6 +858,7 @@ export class InteractiveMode {
 
 		// Set up git branch watcher (uses provider instead of footer)
 		this.footerDataProvider.onBranchChange(() => {
+			this.updateSessionRail();
 			this.ui.requestRender();
 		});
 
@@ -1059,12 +1096,6 @@ export class InteractiveMode {
 		return result;
 	}
 
-	private formatExtensionDisplayPath(path: string): string {
-		let result = this.formatDisplayPath(path);
-		result = result.replace(/\/index\.ts$/, "").replace(/\/index\.js$/, "");
-		return result;
-	}
-
 	private formatContextPath(p: string): string {
 		const cwd = path.resolve(this.sessionManager.getCwd());
 		const absolutePath = path.isAbsolute(p) ? path.resolve(p) : path.resolve(cwd, p);
@@ -1074,6 +1105,12 @@ export class InteractiveMode {
 		}
 
 		return this.formatDisplayPath(absolutePath);
+	}
+
+	private formatExtensionDisplayPath(path: string): string {
+		let result = this.formatDisplayPath(path);
+		result = result.replace(/\/index\.ts$/, "").replace(/\/index\.js$/, "");
+		return result;
 	}
 
 	private getStartupExpansionState(): boolean {
@@ -1412,6 +1449,66 @@ export class InteractiveMode {
 		return lines.join("\n");
 	}
 
+	private updateSessionRail(lifecycle?: SessionRailLifecycle): void {
+		if (lifecycle) {
+			this.sessionRailLifecycle = lifecycle;
+		}
+		const resourceLoader = this.session.resourceLoader;
+		this.sessionRailProgress = Array.from(this.footerDataProvider.getExtensionStatuses())
+			.map(([key, text]) => parseRailProgress(key, text))
+			.find((value): value is SessionRailProgress => value !== undefined);
+		this.sessionRail.setData({
+			shortcutSummary: this.getSessionRailShortcutSummary(),
+			agents: resourceLoader.getAgentsFiles().agentsFiles.map((file) => file.path),
+			skills: resourceLoader.getSkills().skills.map((skill) => skill.name),
+			...(this.sessionRailProgress ? { progress: this.sessionRailProgress } : {}),
+			lifecycle: this.sessionRailLifecycle,
+			activeTools: Array.from(this.sessionRailActiveTools.values()),
+			recentTools: this.sessionRailRecentTools,
+			completedTools: this.sessionRailCompletedTools,
+			failedTools: this.sessionRailFailedTools,
+			getAvailableHeight: () => this.viewport.getAvailableMainHeight(this.ui.terminal.columns),
+		});
+	}
+
+	private getSessionRailShortcutSummary(): string {
+		return [
+			`${keyText("app.interrupt")} interrupt`,
+			`${keyText("app.clear")}/${keyText("app.exit")} clear/exit`,
+			"/ commands",
+			"! bash",
+			`${keyText("app.tools.expand")} more`,
+		].join(" · ");
+	}
+
+	private resetSessionRailTurn(): void {
+		this.sessionRailActiveTools.clear();
+		this.sessionRailRecentTools = [];
+		this.sessionRailCompletedTools = 0;
+		this.sessionRailFailedTools = 0;
+		this.sessionRailLifecycle = { kind: "agent" };
+		this.updateSessionRail();
+	}
+
+	private startSessionRailTool(toolCallId: string, toolName: string): void {
+		this.sessionRailLifecycle = { kind: "agent" };
+		this.sessionRailActiveTools.set(toolCallId, toolName);
+		this.updateSessionRail();
+	}
+
+	private finishSessionRailTool(toolCallId: string, toolName: string, isError: boolean): void {
+		this.sessionRailActiveTools.delete(toolCallId);
+		const toolEvent: SessionRailToolEvent = { toolName, status: isError ? "error" : "success" };
+		this.sessionRailRecentTools = [...this.sessionRailRecentTools, toolEvent].slice(-4);
+		if (isError) {
+			this.sessionRailFailedTools += 1;
+		} else {
+			this.sessionRailCompletedTools += 1;
+		}
+		this.sessionRailLifecycle = this.session.isStreaming ? { kind: "agent" } : { kind: "idle" };
+		this.updateSessionRail();
+	}
+
 	private showLoadedResources(options?: {
 		extensions?: Array<{ path: string; sourceInfo?: SourceInfo }>;
 		force?: boolean;
@@ -1420,11 +1517,15 @@ export class InteractiveMode {
 		// Resource rendering is idempotent; chat clears no longer clear this separate container.
 		this.loadedResourcesContainer.clear();
 
-		const showListing = options?.force || this.options.verbose || !this.settingsManager.getQuietStartup();
-		const showDiagnostics = showListing || options?.showDiagnosticsWhenQuiet === true;
-		if (!showListing && !showDiagnostics) {
-			return;
-		}
+		const terminalWidth = this.ui?.terminal?.columns ?? 0;
+		const railVisible = getAllForOneLayout(terminalWidth).railVisible;
+		const showListing =
+			options?.force === true ||
+			this.options.verbose ||
+			this.getStartupExpansionState() ||
+			(!railVisible && !this.settingsManager.getQuietStartup());
+		// Diagnostics remain eligible at every width; an empty diagnostic set adds no transcript lines.
+		const showDiagnostics = true;
 
 		const sectionHeader = (name: string, color: ThemeColor = "mdHeading") => theme.fg(color, `[${name}]`);
 		const formatCompactList = (items: string[], options?: { sort?: boolean }): string => {
@@ -1454,6 +1555,7 @@ export class InteractiveMode {
 		const skillsResult = this.session.resourceLoader.getSkills();
 		const promptsResult = this.session.resourceLoader.getPrompts();
 		const themesResult = this.session.resourceLoader.getThemes();
+		this.updateSessionRail();
 		const extensions =
 			options?.extensions ??
 			this.session.resourceLoader.getExtensions().extensions.map((extension) => ({
@@ -1487,7 +1589,7 @@ export class InteractiveMode {
 			if (contextFiles.length > 0) {
 				this.loadedResourcesContainer.addChild(new Spacer(1));
 				const contextList = contextFiles
-					.map((f) => theme.fg("dim", `  ${this.formatDisplayPath(f.path)}`))
+					.map((file) => theme.fg("dim", `  ${this.formatDisplayPath(file.path)}`))
 					.join("\n");
 				const contextCompactList = formatCompactList(
 					contextFiles.map((contextFile) => this.formatContextPath(contextFile.path)),
@@ -1825,6 +1927,7 @@ export class InteractiveMode {
 	 */
 	private setExtensionStatus(key: string, text: string | undefined): void {
 		this.footerDataProvider.setExtensionStatus(key, text);
+		this.updateSessionRail();
 		this.ui.requestRender();
 	}
 
@@ -1955,7 +2058,10 @@ export class InteractiveMode {
 		if (this.extensionEditor) {
 			this.hideExtensionEditor();
 		}
-		this.ui.hideOverlay();
+		for (const handle of this.extensionOverlayHandles) {
+			handle.hide();
+		}
+		this.extensionOverlayHandles.clear();
 		this.clearExtensionTerminalInputListeners();
 		this.setExtensionFooter(undefined);
 		this.setExtensionHeader(undefined);
@@ -1967,6 +2073,7 @@ export class InteractiveMode {
 		this.setupAutocompleteProvider();
 		this.defaultEditor.onExtensionShortcut = undefined;
 		this.updateTerminalTitle();
+		this.updateSessionRail();
 		this.workingMessage = undefined;
 		this.workingVisible = true;
 		this.setWorkingIndicator();
@@ -2027,21 +2134,17 @@ export class InteractiveMode {
 			this.customFooter.dispose();
 		}
 
-		// Remove current footer from UI
-		if (this.customFooter) {
-			this.ui.removeChild(this.customFooter);
-		} else {
-			this.ui.removeChild(this.footer);
-		}
+		// Swap the footer inside its full-width slot. It is nested below the viewport, not mounted at the TUI root.
+		this.footerContainer.clear();
 
 		if (factory) {
 			// Create and add custom footer, passing the data provider
 			this.customFooter = factory(this.ui, theme, this.footerDataProvider);
-			this.ui.addChild(this.customFooter);
+			this.footerContainer.addChild(this.customFooter);
 		} else {
 			// Restore built-in footer
 			this.customFooter = undefined;
-			this.ui.addChild(this.footer);
+			this.footerContainer.addChild(this.footer);
 		}
 
 		this.ui.requestRender();
@@ -2461,13 +2564,16 @@ export class InteractiveMode {
 
 		return new Promise((resolve, reject) => {
 			let component: Component & { dispose?(): void };
+			let overlayHandle: OverlayHandle | undefined;
 			let closed = false;
 
 			const close = (result: T) => {
 				if (closed) return;
 				closed = true;
-				if (isOverlay) this.ui.hideOverlay();
-				else restoreEditor();
+				if (isOverlay) {
+					overlayHandle?.hide();
+					if (overlayHandle) this.extensionOverlayHandles.delete(overlayHandle);
+				} else restoreEditor();
 				// Note: both branches above already call requestRender
 				resolve(result);
 				try {
@@ -2496,6 +2602,8 @@ export class InteractiveMode {
 							return w ? { width: w } : undefined;
 						};
 						const handle = this.ui.showOverlay(component, resolveOptions());
+						overlayHandle = handle;
+						this.extensionOverlayHandles.add(handle);
 						// Expose handle to caller for visibility control
 						options?.onHandle?.(handle);
 					} else {
@@ -2835,6 +2943,7 @@ export class InteractiveMode {
 
 		switch (event.type) {
 			case "agent_start":
+				this.resetSessionRailTurn();
 				this.pendingTools.clear();
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
@@ -2872,6 +2981,7 @@ export class InteractiveMode {
 				break;
 
 			case "session_info_changed":
+				this.updateSessionRail();
 				this.updateTerminalTitle();
 				this.footer.invalidate();
 				this.ui.requestRender();
@@ -2981,6 +3091,7 @@ export class InteractiveMode {
 				break;
 
 			case "tool_execution_start": {
+				this.startSessionRailTool(event.toolCallId, event.toolName);
 				let component = this.pendingTools.get(event.toolCallId);
 				if (!component) {
 					component = new ToolExecutionComponent(
@@ -3020,10 +3131,13 @@ export class InteractiveMode {
 					this.pendingTools.delete(event.toolCallId);
 					this.ui.requestRender();
 				}
+				this.finishSessionRailTool(event.toolCallId, event.toolName, event.isError);
 				break;
 			}
 
 			case "agent_end":
+				this.sessionRailActiveTools.clear();
+				this.updateSessionRail({ kind: "idle" });
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(false);
 				}
@@ -3043,6 +3157,7 @@ export class InteractiveMode {
 				break;
 
 			case "compaction_start": {
+				this.updateSessionRail({ kind: "compaction" });
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -3057,6 +3172,7 @@ export class InteractiveMode {
 			}
 
 			case "compaction_end": {
+				this.updateSessionRail({ kind: "idle" });
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(false);
 				}
@@ -3096,6 +3212,7 @@ export class InteractiveMode {
 			}
 
 			case "auto_retry_start": {
+				this.updateSessionRail({ kind: "retry", attempt: event.attempt, maxAttempts: event.maxAttempts });
 				// Set up escape to abort retry
 				this.retryEscapeHandler = this.defaultEditor.onEscape;
 				this.defaultEditor.onEscape = () => {
@@ -3109,6 +3226,7 @@ export class InteractiveMode {
 			}
 
 			case "auto_retry_end": {
+				this.updateSessionRail(this.session.isStreaming ? { kind: "agent" } : { kind: "idle" });
 				// Restore escape handler
 				if (this.retryEscapeHandler) {
 					this.defaultEditor.onEscape = this.retryEscapeHandler;

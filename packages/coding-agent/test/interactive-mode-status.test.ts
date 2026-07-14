@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import * as path from "node:path";
-import { type AutocompleteProvider, CombinedAutocompleteProvider } from "@earendil-works/pi-tui";
+import { type AutocompleteProvider, CombinedAutocompleteProvider, Text } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
@@ -225,6 +225,7 @@ describe("InteractiveMode.showExtensionCustom", () => {
 			editor,
 			editorContainer,
 			keybindings: {},
+			extensionOverlayHandles: new Set(),
 			ui,
 		};
 		const showExtensionCustom = <T>(
@@ -495,10 +496,13 @@ describe("InteractiveMode.showLoadedResources", () => {
 		skills?: Array<{ filePath: string; name: string }>;
 		skillDiagnostics?: Array<{ type: "warning" | "error" | "collision"; message: string }>;
 		useRealScopeGroups?: boolean;
+		terminalWidth?: number;
 	}) {
 		const fakeThis: any = {
 			options: { verbose: options.verbose ?? false },
 			toolOutputExpanded: options.toolOutputExpanded ?? false,
+			ui: { terminal: { columns: options.terminalWidth ?? 100 } },
+			updateSessionRail: vi.fn(),
 			loadedResourcesContainer: new Container(),
 			chatContainer: new Container(),
 			settingsManager: {
@@ -526,9 +530,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 				},
 			},
 			formatDisplayPath: (p: string) => (InteractiveMode as any).prototype.formatDisplayPath.call(fakeThis, p),
+			formatContextPath: (p: string) => (InteractiveMode as any).prototype.formatContextPath.call(fakeThis, p),
 			formatExtensionDisplayPath: (p: string) =>
 				(InteractiveMode as any).prototype.formatExtensionDisplayPath.call(fakeThis, p),
-			formatContextPath: (p: string) => (InteractiveMode as any).prototype.formatContextPath.call(fakeThis, p),
 			getStartupExpansionState: () => (InteractiveMode as any).prototype.getStartupExpansionState.call(fakeThis),
 			buildScopeGroups: () => [],
 			formatScopeGroups: () => "resource-list",
@@ -668,9 +672,10 @@ describe("InteractiveMode.showLoadedResources", () => {
 		];
 	}
 
-	test("shows a compact resource listing by default", () => {
+	test("hides skills from the transcript on wide compact startup", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
+			terminalWidth: 200,
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
@@ -679,15 +684,16 @@ describe("InteractiveMode.showLoadedResources", () => {
 		});
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
-		expect(output).toContain("[Skills]");
-		expect(output).toContain("commit");
+		expect(output).not.toContain("[Skills]");
+		expect(output).not.toContain("commit");
 		expect(output).not.toContain("resource-list");
 	});
 
-	test("shows full resource listing when expanded", () => {
+	test("restores skills to the transcript when startup output expands", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			toolOutputExpanded: true,
+			terminalWidth: 200,
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
@@ -698,14 +704,14 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Skills]");
 		expect(output).toContain("resource-list");
-		expect(output).not.toContain("commit");
 	});
 
-	test("shows full resource listing on verbose startup even when tool output is collapsed", () => {
+	test("shows skills on verbose startup", () => {
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: true,
 			verbose: true,
 			toolOutputExpanded: false,
+			terminalWidth: 200,
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
@@ -716,7 +722,22 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Skills]");
 		expect(output).toContain("resource-list");
-		expect(output).not.toContain("commit");
+	});
+
+	test("restores context and skills in the narrow vanilla layout", () => {
+		const fakeThis = createShowLoadedResourcesThis({
+			quietStartup: false,
+			terminalWidth: 127,
+			contextFiles: [{ path: "/tmp/project/AGENTS.md" }],
+			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
+		});
+
+		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, { force: false });
+
+		const output = renderAll(fakeThis.loadedResourcesContainer);
+		expect(output).toContain("[Context]");
+		expect(output).toContain("[Skills]");
+		expect(output).toContain("commit");
 	});
 
 	test("abbreviates extensions in compact listing", () => {
@@ -1049,11 +1070,12 @@ describe("InteractiveMode.showLoadedResources", () => {
     /tmp/temp/cli-extension.ts"`);
 	});
 
-	test("shows context paths relative to cwd while preserving full external paths", () => {
+	test("hides context paths from the transcript on wide compact startup", () => {
 		const home = homedir();
 		const cwd = path.join(home, "Development", "pi-mono");
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
+			terminalWidth: 200,
 			cwd,
 			contextFiles: [{ path: path.join(home, ".pi", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
 		});
@@ -1063,17 +1085,18 @@ describe("InteractiveMode.showLoadedResources", () => {
 		});
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
-		expect(output).toContain("[Context]");
-		expect(output).toContain("~/.pi/agent/AGENTS.md, AGENTS.md");
+		expect(output).not.toContain("[Context]");
+		expect(output).not.toContain("~/.pi/agent/AGENTS.md, AGENTS.md");
 		expect(output).not.toContain(`${cwd.replace(/\\/g, "/")}/AGENTS.md`);
 	});
 
-	test("shows full context paths when expanded", () => {
+	test("restores context paths when startup output expands", () => {
 		const home = homedir();
 		const cwd = path.join(home, "Development", "pi-mono");
 		const fakeThis = createShowLoadedResourcesThis({
 			quietStartup: false,
 			toolOutputExpanded: true,
+			terminalWidth: 200,
 			cwd,
 			contextFiles: [{ path: path.join(home, ".pi", "agent", "AGENTS.md") }, { path: path.join(cwd, "AGENTS.md") }],
 		});
@@ -1086,7 +1109,6 @@ describe("InteractiveMode.showLoadedResources", () => {
 		expect(output).toContain("[Context]");
 		expect(output).toContain("~/.pi/agent/AGENTS.md");
 		expect(output).toContain("~/Development/pi-mono/AGENTS.md");
-		expect(output).not.toContain("~/.pi/agent/AGENTS.md, AGENTS.md");
 	});
 
 	test("does not show verbose listing on quiet startup during reload", () => {
@@ -1119,5 +1141,30 @@ describe("InteractiveMode.showLoadedResources", () => {
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Skill conflicts]");
 		expect(output).not.toContain("[Skills]");
+	});
+});
+
+describe("InteractiveMode.setExtensionFooter", () => {
+	beforeAll(() => {
+		initTheme("dark");
+	});
+
+	test("keeps custom and built-in footers in the full-width footer slot", () => {
+		const footer = new Text("BUILT-IN FOOTER");
+		const fakeThis = {
+			customFooter: undefined,
+			footer,
+			footerContainer: new Container(),
+			ui: { requestRender: vi.fn(), addChild: vi.fn(), removeChild: vi.fn() },
+		};
+		const customFooter = new Text("CUSTOM FOOTER");
+
+		(InteractiveMode as any).prototype.setExtensionFooter.call(fakeThis, () => customFooter);
+		expect(fakeThis.footerContainer.children).toEqual([customFooter]);
+		expect(fakeThis.ui.addChild).not.toHaveBeenCalled();
+
+		(InteractiveMode as any).prototype.setExtensionFooter.call(fakeThis, undefined);
+		expect(fakeThis.footerContainer.children).toEqual([footer]);
+		expect(fakeThis.ui.addChild).not.toHaveBeenCalled();
 	});
 });
