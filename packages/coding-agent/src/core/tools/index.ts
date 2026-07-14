@@ -1,4 +1,11 @@
 export {
+	type ApplyPatchToolDetails,
+	type ApplyPatchToolInput,
+	type ApplyPatchToolOptions,
+	createApplyPatchTool,
+	createApplyPatchToolDefinition,
+} from "./apply-patch.ts";
+export {
 	type BashOperations,
 	type BashSpawnContext,
 	type BashSpawnHook,
@@ -9,6 +16,15 @@ export {
 	createBashToolDefinition,
 	createLocalBashOperations,
 } from "./bash.ts";
+export {
+	type ChangedFile,
+	type ChangeStatus,
+	type ChangesToolDetails,
+	type ChangesToolInput,
+	type ChangesToolOptions,
+	createChangesTool,
+	createChangesToolDefinition,
+} from "./changes.ts";
 export {
 	createEditTool,
 	createEditToolDefinition,
@@ -70,7 +86,9 @@ export {
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { ToolDefinition } from "../extensions/types.ts";
+import { type ApplyPatchToolOptions, createApplyPatchTool, createApplyPatchToolDefinition } from "./apply-patch.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
+import { type ChangesToolOptions, createChangesTool, createChangesToolDefinition } from "./changes.ts";
 import { createEditTool, createEditToolDefinition, type EditToolOptions } from "./edit.ts";
 import { createFindTool, createFindToolDefinition, type FindToolOptions } from "./find.ts";
 import { createGrepTool, createGrepToolDefinition, type GrepToolOptions } from "./grep.ts";
@@ -80,8 +98,18 @@ import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } fro
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls";
-export const allToolNames: Set<ToolName> = new Set(["read", "bash", "edit", "write", "grep", "find", "ls"]);
+export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "apply_patch" | "changes";
+export const allToolNames: Set<ToolName> = new Set([
+	"read",
+	"bash",
+	"edit",
+	"write",
+	"grep",
+	"find",
+	"ls",
+	"apply_patch",
+	"changes",
+]);
 
 export interface ToolsOptions {
 	read?: ReadToolOptions;
@@ -91,6 +119,8 @@ export interface ToolsOptions {
 	grep?: GrepToolOptions;
 	find?: FindToolOptions;
 	ls?: LsToolOptions;
+	applyPatch?: ApplyPatchToolOptions;
+	changes?: ChangesToolOptions;
 }
 
 export function createToolDefinition(toolName: ToolName, cwd: string, options?: ToolsOptions): ToolDef {
@@ -109,6 +139,10 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createFindToolDefinition(cwd, options?.find);
 		case "ls":
 			return createLsToolDefinition(cwd, options?.ls);
+		case "apply_patch":
+			return createApplyPatchToolDefinition(cwd, options?.applyPatch);
+		case "changes":
+			return createChangesToolDefinition(cwd, options?.changes);
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -130,6 +164,10 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return createFindTool(cwd, options?.find);
 		case "ls":
 			return createLsTool(cwd, options?.ls);
+		case "apply_patch":
+			return createApplyPatchTool(cwd, options?.applyPatch);
+		case "changes":
+			return createChangesTool(cwd, options?.changes);
 		default:
 			throw new Error(`Unknown tool name: ${toolName}`);
 	}
@@ -141,6 +179,8 @@ export function createCodingToolDefinitions(cwd: string, options?: ToolsOptions)
 		createBashToolDefinition(cwd, options?.bash),
 		createEditToolDefinition(cwd, options?.edit),
 		createWriteToolDefinition(cwd, options?.write),
+		createApplyPatchToolDefinition(cwd, options?.applyPatch),
+		createChangesToolDefinition(cwd, options?.changes),
 	];
 }
 
@@ -150,6 +190,7 @@ export function createReadOnlyToolDefinitions(cwd: string, options?: ToolsOption
 		createGrepToolDefinition(cwd, options?.grep),
 		createFindToolDefinition(cwd, options?.find),
 		createLsToolDefinition(cwd, options?.ls),
+		createChangesToolDefinition(cwd, options?.changes),
 	];
 }
 
@@ -162,6 +203,8 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		grep: createGrepToolDefinition(cwd, options?.grep),
 		find: createFindToolDefinition(cwd, options?.find),
 		ls: createLsToolDefinition(cwd, options?.ls),
+		apply_patch: createApplyPatchToolDefinition(cwd, options?.applyPatch),
+		changes: createChangesToolDefinition(cwd, options?.changes),
 	};
 }
 
@@ -171,6 +214,8 @@ export function createCodingTools(cwd: string, options?: ToolsOptions): Tool[] {
 		createBashTool(cwd, options?.bash),
 		createEditTool(cwd, options?.edit),
 		createWriteTool(cwd, options?.write),
+		createApplyPatchTool(cwd, options?.applyPatch),
+		createChangesTool(cwd, options?.changes),
 	];
 }
 
@@ -180,6 +225,7 @@ export function createReadOnlyTools(cwd: string, options?: ToolsOptions): Tool[]
 		createGrepTool(cwd, options?.grep),
 		createFindTool(cwd, options?.find),
 		createLsTool(cwd, options?.ls),
+		createChangesTool(cwd, options?.changes),
 	];
 }
 
@@ -192,5 +238,7 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		grep: createGrepTool(cwd, options?.grep),
 		find: createFindTool(cwd, options?.find),
 		ls: createLsTool(cwd, options?.ls),
+		apply_patch: createApplyPatchTool(cwd, options?.applyPatch),
+		changes: createChangesTool(cwd, options?.changes),
 	};
 }

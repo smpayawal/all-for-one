@@ -494,20 +494,20 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 
 Specify which built-in tools to enable:
 
-- Built-in tool names: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`
-- Default built-ins: `read`, `bash`, `edit`, `write`
+- Built-in tool names: `read`, `bash`, `edit`, `write`, `apply_patch`, `changes`, `grep`, `find`, `ls`
+- Default built-ins: `read`, `bash`, `edit`, `write`, `apply_patch`, `changes`
 - `noTools: "all"` disables all tools
 - `noTools: "builtin"` disables default built-ins while keeping extension and custom tools enabled
 - `excludeTools` disables specific built-in, extension, or custom tool names after any `tools` allowlist is applied
 
-The `edit` tool returns `details.diff` for Pi's TUI display and `details.patch` as a standard unified patch for SDK consumers.
+The `edit` tool returns `details.diff` for Pi's TUI display and `details.patch` as a standard unified patch for SDK consumers. `apply_patch` validates and commits a bounded multi-file patch atomically. `changes` provides bounded git summaries and diffs without invoking a shell.
 
 ```typescript
 import { createAgentSession } from "@earendil-works/pi-coding-agent";
 
 // Read-only mode
 const { session } = await createAgentSession({
-  tools: ["read", "grep", "find", "ls"],
+  tools: ["read", "changes", "grep", "find", "ls"],
 });
 
 // Pick specific tools

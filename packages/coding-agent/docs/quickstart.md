@@ -74,14 +74,16 @@ Once pi starts, type a request and press Enter:
 Summarize this repository and tell me how to run its checks.
 ```
 
-By default, pi gives the model four tools:
+By default, pi gives the model six tools:
 
 - `read` - read files
 - `write` - create or overwrite files
 - `edit` - patch files
+- `apply_patch` - apply validated multi-file patches atomically
+- `changes` - inspect bounded git status summaries and diffs
 - `bash` - run shell commands
 
-Additional built-in read-only tools (`grep`, `find`, `ls`) are available through tool options. Pi runs in your current working directory and can modify files there. Use git or another checkpointing workflow if you want easy rollback.
+Additional built-in read-only tools (`grep`, `find`, `ls`) are available through tool options. When `bash` is active, pi inspects root project manifests and adds guidance for likely validation commands; inferred commands are labeled and nothing is run automatically. Pi runs in your current working directory and can modify files there. Use git or another checkpointing workflow if you want easy rollback.
 
 ## Give pi project instructions
 

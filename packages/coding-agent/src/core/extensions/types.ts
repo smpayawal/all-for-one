@@ -64,8 +64,12 @@ import type { BuildSystemPromptOptions } from "../system-prompt.ts";
 import type { BashOperations } from "../tools/bash.ts";
 import type { EditToolDetails } from "../tools/edit.ts";
 import type {
+	ApplyPatchToolDetails,
+	ApplyPatchToolInput,
 	BashToolDetails,
 	BashToolInput,
+	ChangesToolDetails,
+	ChangesToolInput,
 	EditToolInput,
 	FindToolDetails,
 	FindToolInput,
@@ -846,6 +850,16 @@ export interface BashToolCallEvent extends ToolCallEventBase {
 	input: BashToolInput;
 }
 
+export interface ApplyPatchToolCallEvent extends ToolCallEventBase {
+	toolName: "apply_patch";
+	input: ApplyPatchToolInput;
+}
+
+export interface ChangesToolCallEvent extends ToolCallEventBase {
+	toolName: "changes";
+	input: ChangesToolInput;
+}
+
 export interface ReadToolCallEvent extends ToolCallEventBase {
 	toolName: "read";
 	input: ReadToolInput;
@@ -889,6 +903,8 @@ export interface CustomToolCallEvent extends ToolCallEventBase {
  */
 export type ToolCallEvent =
 	| BashToolCallEvent
+	| ApplyPatchToolCallEvent
+	| ChangesToolCallEvent
 	| ReadToolCallEvent
 	| EditToolCallEvent
 	| WriteToolCallEvent
@@ -908,6 +924,16 @@ interface ToolResultEventBase {
 export interface BashToolResultEvent extends ToolResultEventBase {
 	toolName: "bash";
 	details: BashToolDetails | undefined;
+}
+
+export interface ApplyPatchToolResultEvent extends ToolResultEventBase {
+	toolName: "apply_patch";
+	details: ApplyPatchToolDetails | undefined;
+}
+
+export interface ChangesToolResultEvent extends ToolResultEventBase {
+	toolName: "changes";
+	details: ChangesToolDetails | undefined;
 }
 
 export interface ReadToolResultEvent extends ToolResultEventBase {
@@ -948,6 +974,8 @@ export interface CustomToolResultEvent extends ToolResultEventBase {
 /** Fired after a tool executes. Can modify result. */
 export type ToolResultEvent =
 	| BashToolResultEvent
+	| ApplyPatchToolResultEvent
+	| ChangesToolResultEvent
 	| ReadToolResultEvent
 	| EditToolResultEvent
 	| WriteToolResultEvent
@@ -959,6 +987,12 @@ export type ToolResultEvent =
 // Type guards for ToolResultEvent
 export function isBashToolResult(e: ToolResultEvent): e is BashToolResultEvent {
 	return e.toolName === "bash";
+}
+export function isApplyPatchToolResult(e: ToolResultEvent): e is ApplyPatchToolResultEvent {
+	return e.toolName === "apply_patch";
+}
+export function isChangesToolResult(e: ToolResultEvent): e is ChangesToolResultEvent {
+	return e.toolName === "changes";
 }
 export function isReadToolResult(e: ToolResultEvent): e is ReadToolResultEvent {
 	return e.toolName === "read";
@@ -1000,6 +1034,8 @@ export function isLsToolResult(e: ToolResultEvent): e is LsToolResultEvent {
  * CustomToolCallEvent.toolName is `string` which overlaps with all literals.
  */
 export function isToolCallEventType(toolName: "bash", event: ToolCallEvent): event is BashToolCallEvent;
+export function isToolCallEventType(toolName: "apply_patch", event: ToolCallEvent): event is ApplyPatchToolCallEvent;
+export function isToolCallEventType(toolName: "changes", event: ToolCallEvent): event is ChangesToolCallEvent;
 export function isToolCallEventType(toolName: "read", event: ToolCallEvent): event is ReadToolCallEvent;
 export function isToolCallEventType(toolName: "edit", event: ToolCallEvent): event is EditToolCallEvent;
 export function isToolCallEventType(toolName: "write", event: ToolCallEvent): event is WriteToolCallEvent;

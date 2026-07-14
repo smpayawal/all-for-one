@@ -351,8 +351,8 @@ describe("parseArgs", () => {
 		});
 
 		test("parses --tools flag", () => {
-			const result = parseArgs(["--tools", "read,bash"]);
-			expect(result.tools).toEqual(["read", "bash"]);
+			const result = parseArgs(["--tools", "read,apply_patch,changes"]);
+			expect(result.tools).toEqual(["read", "apply_patch", "changes"]);
 		});
 
 		test("parses -t shorthand", () => {
@@ -361,8 +361,8 @@ describe("parseArgs", () => {
 		});
 
 		test("parses --exclude-tools flag", () => {
-			const result = parseArgs(["--exclude-tools", "read,bash"]);
-			expect(result.excludeTools).toEqual(["read", "bash"]);
+			const result = parseArgs(["--exclude-tools", "apply_patch,changes"]);
+			expect(result.excludeTools).toEqual(["apply_patch", "changes"]);
 		});
 
 		test("parses -xt shorthand", () => {

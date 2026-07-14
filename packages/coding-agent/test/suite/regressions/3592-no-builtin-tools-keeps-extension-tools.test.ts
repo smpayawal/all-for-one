@@ -78,11 +78,25 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 				.getAllTools()
 				.map((tool) => tool.name)
 				.sort(),
-		).toEqual(["bash", "dynamic_tool", "edit", "find", "grep", "ls", "read", "write"]);
+		).toEqual(["apply_patch", "bash", "changes", "dynamic_tool", "edit", "find", "grep", "ls", "read", "write"]);
 		expect(session.getActiveToolNames()).toEqual(["dynamic_tool"]);
 		expect(session.systemPrompt).toContain("- dynamic_tool: Run dynamic test behavior");
 		expect(session.systemPrompt).not.toContain("- read:");
 		expect(session.systemPrompt).not.toContain("- bash:");
+		session.dispose();
+	});
+
+	it("activates the essential Phase 3 tools by default", async () => {
+		const session = await createSession();
+		expect(session.getActiveToolNames()).toEqual([
+			"read",
+			"bash",
+			"edit",
+			"write",
+			"apply_patch",
+			"changes",
+			"dynamic_tool",
+		]);
 		session.dispose();
 	});
 

@@ -30,6 +30,8 @@ export type {
 	AppendEntryHandler,
 	// App keybindings (for custom editors)
 	AppKeybinding,
+	ApplyPatchToolCallEvent,
+	ApplyPatchToolResultEvent,
 	AutocompleteProviderFactory,
 	// Events - Tool (ToolCallEvent types)
 	BashToolCallEvent,
@@ -40,6 +42,8 @@ export type {
 	BeforeProviderRequestEvent,
 	BeforeProviderRequestEventResult,
 	BuildSystemPromptOptions,
+	ChangesToolCallEvent,
+	ChangesToolResultEvent,
 	// Context
 	CompactOptions,
 	// Events - Agent
@@ -172,7 +176,9 @@ export type {
 // Type guards
 export {
 	defineTool,
+	isApplyPatchToolResult,
 	isBashToolResult,
+	isChangesToolResult,
 	isEditToolResult,
 	isFindToolResult,
 	isGrepToolResult,

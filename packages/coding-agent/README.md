@@ -88,7 +88,7 @@ pi
 /login  # Then select provider
 ```
 
-Then just talk to pi. By default, pi gives the model four tools: `read`, `write`, `edit`, and `bash`. The model uses these to fulfill your requests. Add capabilities via [skills](#skills), [prompt templates](#prompt-templates), [extensions](#extensions), or [pi packages](#pi-packages).
+Then just talk to pi. By default, pi gives the model six tools: `read`, `write`, `edit`, `apply_patch`, `changes`, and `bash`. The model uses these to fulfill your requests. Add capabilities via [skills](#skills), [prompt templates](#prompt-templates), [extensions](#extensions), or [pi packages](#pi-packages).
 
 **Platform notes:** [Windows](docs/windows.md) | [Termux (Android)](docs/termux.md) | [tmux](docs/tmux.md) | [Terminal setup](docs/terminal-setup.md) | [Shell aliases](docs/shell-aliases.md)
 
@@ -578,7 +578,9 @@ cat README.md | pi -p "Summarize this text"
 | `--no-builtin-tools`, `-nbt` | Disable built-in tools by default but keep extension/custom tools enabled |
 | `--no-tools`, `-nt` | Disable all tools by default |
 
-Available built-in tools: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`
+Available built-in tools: `read`, `bash`, `edit`, `write`, `apply_patch`, `changes`, `grep`, `find`, `ls`
+
+`apply_patch` applies validated multi-file patches atomically. `changes` reports bounded git status summaries and diffs without using a shell. When `bash` is active, pi also inspects root project manifests and adds concise guidance for likely validation commands; inferred commands are labeled and are never run automatically.
 
 ### Resource Options
 
@@ -646,7 +648,7 @@ pi --model sonnet:high "Solve this complex problem"
 pi --models "claude-*,gpt-4o"
 
 # Read-only mode
-pi --tools read,grep,find,ls -p "Review the code"
+pi --tools read,changes,grep,find,ls -p "Review the code"
 
 # Disable one extension or built-in tool while keeping the rest available
 pi --exclude-tools ask_question
