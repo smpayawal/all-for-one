@@ -3,7 +3,7 @@ import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createChangesTool } from "../src/core/tools/changes.ts";
+import { createChangesTool, parseGitStatus } from "../src/core/tools/changes.ts";
 
 type ChangesOutput = {
 	repository: boolean;
@@ -73,6 +73,56 @@ describe("changes tool", () => {
 		]);
 	});
 
+	it("preserves Unicode filenames", async () => {
+		const path = "café-日本語.txt";
+		writeFileSync(join(cwd, path), "unicode\n");
+
+		const result = outputOf(await createChangesTool(cwd).execute("call-unicode", { view: "summary" }));
+		expect(result.files).toContainEqual({ path, status: "untracked", staged: false, unstaged: true });
+	});
+
+	it.skipIf(process.platform === "win32")("preserves filenames containing newlines", async () => {
+		const path = "line\nbreak.txt";
+		writeFileSync(join(cwd, path), "newline\n");
+
+		const result = outputOf(await createChangesTool(cwd).execute("call-newline", { view: "summary" }));
+		expect(result.files).toContainEqual({ path, status: "untracked", staged: false, unstaged: true });
+	});
+
+	it("parses copied status records", () => {
+		const output = `2 C. N... 100644 100644 100644 ${"0".repeat(40)} ${"1".repeat(40)} C100 copied.txt\0renamed.txt\0`;
+		expect(parseGitStatus(output)).toEqual([
+			{ path: "copied.txt", previousPath: "renamed.txt", status: "copied", staged: true, unstaged: false },
+		]);
+	});
+
+	it("reports unmerged Git states", async () => {
+		const baseBranch = git(cwd, "branch", "--show-current").trim();
+		git(cwd, "checkout", "--quiet", "-b", "conflict-side");
+		writeFileSync(join(cwd, "modified.txt"), "side\n");
+		git(cwd, "add", "modified.txt");
+		git(cwd, "commit", "--quiet", "-m", "side change");
+		git(cwd, "checkout", "--quiet", baseBranch);
+		writeFileSync(join(cwd, "modified.txt"), "base\n");
+		git(cwd, "add", "modified.txt");
+		git(cwd, "commit", "--quiet", "-m", "base change");
+		let mergeFailed = false;
+		try {
+			git(cwd, "merge", "conflict-side");
+		} catch {
+			mergeFailed = true;
+		}
+		expect(mergeFailed).toBe(true);
+
+		const result = outputOf(await createChangesTool(cwd).execute("call-unmerged", { view: "summary" }));
+		expect(result.files).toContainEqual({
+			path: "modified.txt",
+			status: "unmerged",
+			staged: true,
+			unstaged: true,
+		});
+	});
+
 	it("filters summary results by staged state", async () => {
 		writeFileSync(join(cwd, "modified.txt"), "after\n");
 		writeFileSync(join(cwd, "staged.txt"), "staged\n");
@@ -121,6 +171,26 @@ describe("changes tool", () => {
 		} finally {
 			rmSync(nonGit, { recursive: true, force: true });
 		}
+	});
+
+	it("reports when Git is unavailable from PATH", async () => {
+		const originalPath = process.env.PATH;
+		process.env.PATH = join(cwd, "missing-git-bin");
+		try {
+			await expect(createChangesTool(cwd).execute("call-no-git", { view: "summary" })).rejects.toThrow(
+				/Failed to run git/,
+			);
+		} finally {
+			if (originalPath === undefined) delete process.env.PATH;
+			else process.env.PATH = originalPath;
+		}
+	});
+
+	it("ignores an incomplete record in truncated NUL-delimited status output", () => {
+		const output = "? complete.txt\0? partial";
+		expect(parseGitStatus(output, true)).toEqual([
+			{ path: "complete.txt", status: "untracked", staged: false, unstaged: true },
+		]);
 	});
 
 	it("bounds large diff output", async () => {

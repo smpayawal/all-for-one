@@ -156,9 +156,10 @@ function trackedFile(path: string, xy: string, previousPath?: string): ChangedFi
 	};
 }
 
-function parseGitStatus(output: string): ChangedFile[] {
+export function parseGitStatus(output: string, truncated = false): ChangedFile[] {
 	const records = output.split("\0");
 	if (records[records.length - 1] === "") records.pop();
+	else if (truncated) records.pop();
 	const files: ChangedFile[] = [];
 
 	for (let index = 0; index < records.length; index++) {
@@ -252,7 +253,7 @@ export function createChangesToolDefinition(
 
 			const maxFiles = options?.maxFiles ?? DEFAULT_MAX_FILES;
 			const fileScope = view === "diff" && staged === undefined ? false : staged;
-			const parsedFiles = filterFiles(parseGitStatus(status.stdout), fileScope);
+			const parsedFiles = filterFiles(parseGitStatus(status.stdout, status.stdoutTruncated), fileScope);
 			const filesTruncated = status.stdoutTruncated || parsedFiles.length > maxFiles;
 			const files = parsedFiles.slice(0, maxFiles);
 			if (view === "summary") {
