@@ -1,10 +1,11 @@
 import { lstat, mkdir, readFile, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve, sep, win32 } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep, win32 } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { detectLineEnding, normalizeToLF, restoreLineEndings, stripBom } from "./edit-diff.ts";
-import { withFileMutationQueue } from "./file-mutation-queue.ts";
+import { withFileMutationQueues } from "./file-mutation-queue.ts";
+import { resolveCanonicalPath } from "./path-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 
 const MAX_PATCH_BYTES = 1024 * 1024;
@@ -201,30 +202,9 @@ function isPathInside(root: string, target: string): boolean {
 	);
 }
 
-async function canonicalTargetPath(path: string): Promise<string> {
-	let current = path;
-	const missingSegments: string[] = [];
-	while (true) {
-		try {
-			const canonicalCurrent = await realpath(current);
-			return missingSegments.length === 0 ? canonicalCurrent : resolve(canonicalCurrent, ...missingSegments);
-		} catch (error) {
-			if (!isMissingPathError(error)) throw error;
-			const parent = dirname(current);
-			if (parent === current) throw error;
-			missingSegments.unshift(basename(current));
-			current = parent;
-		}
-	}
-}
-
-function canonicalTargetKey(path: string): string {
-	return process.platform === "win32" ? path.toLowerCase() : path;
-}
-
-async function assertRealPathInsideWorkspace(path: string, cwd: string): Promise<string> {
-	const [realRoot, canonicalTarget] = await Promise.all([realpath(cwd), canonicalTargetPath(path)]);
-	if (!isPathInside(realRoot, canonicalTarget)) {
+async function assertRealPathInsideWorkspace(path: string, cwd: string) {
+	const [realRoot, canonicalTarget] = await Promise.all([realpath(cwd), resolveCanonicalPath(path)]);
+	if (!isPathInside(realRoot, canonicalTarget.path)) {
 		throw new Error(`Unsafe patch path escapes the workspace through a symbolic link: ${path}`);
 	}
 	return canonicalTarget;
@@ -257,11 +237,6 @@ function applyHunks(content: string, hunks: PatchHunk[], path: string): string {
 		searchFrom = match + hunk.newLines.length;
 	}
 	return lines.join("\n");
-}
-
-async function withPatchMutationQueues<T>(paths: string[], fn: () => Promise<T>, index = 0): Promise<T> {
-	if (index >= paths.length) return fn();
-	return withFileMutationQueue(paths[index], () => withPatchMutationQueues(paths, fn, index + 1));
 }
 
 async function planPatchOperations(
@@ -394,23 +369,26 @@ export function createApplyPatchToolDefinition(
 		async execute(_toolCallId, { patch }: ApplyPatchToolInput, signal?: AbortSignal) {
 			if (signal?.aborted) throw new Error("Operation aborted");
 			const parsed = parsePatch(patch, options?.maxOperations ?? DEFAULT_MAX_OPERATIONS);
-			const resolved: ResolvedPatchOperation[] = [];
-			const canonicalTargets = new Set<string>();
-			for (const operation of parsed) {
-				if (signal?.aborted) throw new Error("Operation aborted");
-				const absolutePath = resolvePatchPath(operation.path, cwd);
-				const canonicalTarget = await assertRealPathInsideWorkspace(absolutePath, cwd);
-				const targetKey = canonicalTargetKey(canonicalTarget);
-				if (canonicalTargets.has(targetKey)) {
-					throw new Error(`Patch contains multiple operations for the same target: ${operation.path}.`);
-				}
-				canonicalTargets.add(targetKey);
-				resolved.push({ ...operation, absolutePath });
-			}
+			const resolved: ResolvedPatchOperation[] = parsed.map((operation) => ({
+				...operation,
+				absolutePath: resolvePatchPath(operation.path, cwd),
+			}));
 			const queuePaths = [...new Set(resolved.map((operation) => operation.absolutePath))].sort();
 			const maxPreflightBytes = options?.maxPreflightBytes ?? DEFAULT_MAX_PREFLIGHT_BYTES;
 
-			return withPatchMutationQueues(queuePaths, async () => {
+			return withFileMutationQueues(queuePaths, async () => {
+				const canonicalTargets = new Set<string>();
+				for (const operation of resolved) {
+					if (signal?.aborted) throw new Error("Operation aborted");
+					const canonicalTarget = await assertRealPathInsideWorkspace(operation.absolutePath, cwd);
+					const targetKey = canonicalTarget.caseInsensitive
+						? canonicalTarget.path.toLowerCase()
+						: canonicalTarget.path;
+					if (canonicalTargets.has(targetKey)) {
+						throw new Error(`Patch contains multiple operations for the same target: ${operation.path}.`);
+					}
+					canonicalTargets.add(targetKey);
+				}
 				const planned = await planPatchOperations(resolved, cwd, maxPreflightBytes, signal);
 				// Cancellation is honored through preflight. Once commit starts, finish or roll back
 				// so an abort cannot leave a silently partial multi-file patch.

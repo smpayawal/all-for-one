@@ -1,8 +1,86 @@
 import { accessSync, constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, realpath } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { normalizePath, resolvePath } from "../../utils/paths.ts";
 
 const NARROW_NO_BREAK_SPACE = "\u202F";
+
+export interface CanonicalPathInfo {
+	path: string;
+	caseInsensitive: boolean;
+}
+
+function isMissingPathError(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		(error.code === "ENOENT" || error.code === "ENOTDIR")
+	);
+}
+
+function toggleCase(name: string): string | undefined {
+	for (let index = 0; index < name.length; index++) {
+		const code = name.charCodeAt(index);
+		if (code >= 65 && code <= 90) {
+			return `${name.slice(0, index)}${String.fromCharCode(code + 32)}${name.slice(index + 1)}`;
+		}
+		if (code >= 97 && code <= 122) {
+			return `${name.slice(0, index)}${String.fromCharCode(code - 32)}${name.slice(index + 1)}`;
+		}
+	}
+	return undefined;
+}
+
+async function detectCaseInsensitiveFilesystem(existingPath: string): Promise<boolean> {
+	let current = existingPath;
+	while (true) {
+		const variantName = toggleCase(basename(current));
+		if (variantName) {
+			try {
+				const [canonicalCurrent, canonicalVariant] = await Promise.all([
+					realpath(current),
+					realpath(join(dirname(current), variantName)),
+				]);
+				return canonicalCurrent === canonicalVariant;
+			} catch (error) {
+				if (!isMissingPathError(error)) throw error;
+			}
+		}
+
+		const parent = dirname(current);
+		if (parent === current) return false;
+		current = parent;
+	}
+}
+
+/** Resolve an existing path or a missing target through its nearest real ancestor. */
+export async function resolveCanonicalPath(filePath: string): Promise<CanonicalPathInfo> {
+	let current = resolve(filePath);
+	const missingSegments: string[] = [];
+
+	while (true) {
+		try {
+			const canonicalCurrent = await realpath(current);
+			if (missingSegments.length === 0) {
+				return {
+					path: canonicalCurrent,
+					caseInsensitive: await detectCaseInsensitiveFilesystem(canonicalCurrent),
+				};
+			}
+			return {
+				path: resolve(canonicalCurrent, ...missingSegments),
+				caseInsensitive: await detectCaseInsensitiveFilesystem(canonicalCurrent),
+			};
+		} catch (error) {
+			if (!isMissingPathError(error)) throw error;
+			const parent = dirname(current);
+			if (parent === current) throw error;
+			missingSegments.unshift(basename(current));
+			current = parent;
+		}
+	}
+}
 
 function tryMacOSScreenshotPath(filePath: string): string {
 	return filePath.replace(/ (AM|PM)\./gi, `${NARROW_NO_BREAK_SPACE}$1.`);

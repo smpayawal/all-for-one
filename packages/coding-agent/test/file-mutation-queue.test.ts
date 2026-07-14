@@ -1,9 +1,9 @@
-import { access, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createEditTool } from "../src/core/tools/edit.ts";
-import { withFileMutationQueue } from "../src/core/tools/file-mutation-queue.ts";
+import { getMutationQueueKey, withFileMutationQueue } from "../src/core/tools/file-mutation-queue.ts";
 import { createWriteTool } from "../src/core/tools/write.ts";
 
 function delay(ms: number): Promise<void> {
@@ -95,6 +95,43 @@ describe("withFileMutationQueue", () => {
 		]);
 
 		expect(order).toEqual(["target:start", "target:end", "alias:start", "alias:end"]);
+	});
+
+	it("serializes missing targets through symlink directory aliases", async () => {
+		const dir = await createTempDir();
+		const realDirectory = join(dir, "real");
+		const aliasOne = join(dir, "alias-one");
+		const aliasTwo = join(dir, "alias-two");
+		await mkdir(realDirectory);
+		await symlink(realDirectory, aliasOne, "dir");
+		await symlink(realDirectory, aliasTwo, "dir");
+		expect(await getMutationQueueKey(join(aliasOne, "new.txt"))).toBe(
+			await getMutationQueueKey(join(aliasTwo, "new.txt")),
+		);
+
+		const firstStarted = createDeferred();
+		const releaseFirst = createDeferred();
+		let secondStarted = false;
+
+		const first = withFileMutationQueue(join(aliasOne, "new.txt"), async () => {
+			firstStarted.resolve();
+			await releaseFirst.promise;
+		});
+		await firstStarted.promise;
+
+		const second = withFileMutationQueue(join(aliasTwo, "new.txt"), async () => {
+			secondStarted = true;
+		});
+		// Drain the registration and callback microtasks without using a timing-based sleep.
+		await Promise.resolve();
+		await Promise.resolve();
+		try {
+			expect(secondStarted).toBe(false);
+		} finally {
+			releaseFirst.resolve();
+		}
+
+		await Promise.all([first, second]);
 	});
 });
 

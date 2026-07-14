@@ -174,6 +174,32 @@ describe("apply_patch tool", () => {
 		expect(readFileSync(join(targetDirectory, "shared.txt"), "utf-8")).toBe("before\n");
 	});
 
+	it("handles missing case aliases according to the actual filesystem", async () => {
+		const probePath = join(cwd, "CaseSensitivityProbe");
+		writeFileSync(probePath, "probe\n");
+		const caseInsensitive = existsSync(join(cwd, "casesensitivityprobe"));
+		rmSync(probePath);
+
+		const patch = [
+			"*** Begin Patch",
+			"*** Add File: Example.ts",
+			"+first",
+			"*** Add File: example.ts",
+			"+second",
+			"*** End Patch",
+		].join("\n");
+
+		if (caseInsensitive) {
+			await expect(createApplyPatchTool(cwd).execute("call-case-alias", { patch })).rejects.toThrow("same target");
+			expect(existsSync(join(cwd, "Example.ts"))).toBe(false);
+			expect(existsSync(join(cwd, "example.ts"))).toBe(false);
+		} else {
+			await createApplyPatchTool(cwd).execute("call-case-distinct", { patch });
+			expect(readFileSync(join(cwd, "Example.ts"), "utf-8")).toBe("first\n");
+			expect(readFileSync(join(cwd, "example.ts"), "utf-8")).toBe("second\n");
+		}
+	});
+
 	it("preserves a UTF-8 BOM and CRLF line endings in updated files", async () => {
 		writeFileSync(join(cwd, "windows.txt"), "\uFEFFalpha\r\nbeta\r\n");
 		await createApplyPatchTool(cwd).execute("call-6", {
