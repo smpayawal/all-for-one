@@ -103,8 +103,9 @@ describe("withFileMutationQueue", () => {
 		const aliasOne = join(dir, "alias-one");
 		const aliasTwo = join(dir, "alias-two");
 		await mkdir(realDirectory);
-		await symlink(realDirectory, aliasOne, "dir");
-		await symlink(realDirectory, aliasTwo, "dir");
+		const symlinkType = process.platform === "win32" ? "junction" : "dir";
+		await symlink(realDirectory, aliasOne, symlinkType);
+		await symlink(realDirectory, aliasTwo, symlinkType);
 		expect(await getMutationQueueKey(join(aliasOne, "new.txt"))).toBe(
 			await getMutationQueueKey(join(aliasTwo, "new.txt")),
 		);
