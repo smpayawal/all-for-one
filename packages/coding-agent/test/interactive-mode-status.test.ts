@@ -4,6 +4,7 @@ import { type AutocompleteProvider, CombinedAutocompleteProvider, Text } from "@
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
+import { APP_TITLE } from "../src/config.ts";
 import type { AutocompleteProviderFactory } from "../src/core/extensions/types.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import type { AuthSelectorProvider } from "../src/modes/interactive/components/oauth-selector.ts";
@@ -138,6 +139,42 @@ describe("InteractiveMode.setToolsExpanded", () => {
 		expect(loadedResourcesChild.setExpanded).toHaveBeenCalledWith(true);
 		expect(chatChild.setExpanded).toHaveBeenCalledWith(true);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("InteractiveMode.updateSessionRail", () => {
+	test("supplies the centralized product title", () => {
+		let railData: { title?: string } | undefined;
+		const fakeThis = {
+			sessionRailLifecycle: { kind: "idle" as const },
+			sessionRailActiveTools: new Map<string, string>(),
+			sessionRailRecentTools: [],
+			sessionRailCompletedTools: 0,
+			sessionRailFailedTools: 0,
+			sessionRailProgress: undefined,
+			getSessionRailShortcutSummary: () => "shortcuts",
+			footerDataProvider: { getExtensionStatuses: () => new Map<string, string>() },
+			session: {
+				resourceLoader: {
+					getAgentsFiles: () => ({ agentsFiles: [] }),
+					getSkills: () => ({ skills: [] }),
+				},
+			},
+			sessionRail: {
+				setData: (data: { title?: string }) => {
+					railData = data;
+				},
+			},
+			viewport: { getAvailableMainHeight: () => 20 },
+			ui: { terminal: { columns: 128 } },
+		};
+		const updateSessionRail = (
+			InteractiveMode.prototype as unknown as { updateSessionRail(this: typeof fakeThis): void }
+		).updateSessionRail;
+
+		updateSessionRail.call(fakeThis);
+
+		expect(railData?.title).toBe(APP_TITLE);
 	});
 });
 

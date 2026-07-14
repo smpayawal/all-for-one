@@ -3,10 +3,16 @@ import { tmpdir } from "os";
 import { delimiter, join } from "path";
 import { afterEach, describe, expect, test } from "vitest";
 import {
+	APP_NAME,
+	APP_TITLE,
+	CONFIG_DIR_NAME,
 	detectInstallMethod,
+	ENV_AGENT_DIR,
+	ENV_SESSION_DIR,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
 	getUpdateInstruction,
+	PACKAGE_NAME,
 } from "../src/config.ts";
 
 const execPathDescriptor = Object.getOwnPropertyDescriptor(process, "execPath");
@@ -144,6 +150,17 @@ function createFakeBunScript(bunBin: string): string {
 	const escapedBunBin = bunBin.replaceAll("'", "'\\''");
 	return `#!/bin/sh\nif [ "$1" = "pm" ] && [ "$2" = "bin" ] && [ "$3" = "-g" ]; then\n\tprintf '%s\\n' '${escapedBunBin}'\n\texit 0\nfi\nexit 1\n`;
 }
+
+describe("product identity", () => {
+	test("uses All-For-One for display while preserving Pi runtime compatibility", () => {
+		expect(APP_TITLE).toBe("ALL-FOR-ONE");
+		expect(APP_NAME).toBe("pi");
+		expect(CONFIG_DIR_NAME).toBe(".pi");
+		expect(ENV_AGENT_DIR).toBe("PI_CODING_AGENT_DIR");
+		expect(ENV_SESSION_DIR).toBe("PI_CODING_AGENT_SESSION_DIR");
+		expect(PACKAGE_NAME).toBe("@earendil-works/pi-coding-agent");
+	});
+});
 
 describe("detectInstallMethod", () => {
 	test("detects pnpm from Windows .pnpm install paths", () => {

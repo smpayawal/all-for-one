@@ -129,11 +129,11 @@ import {
 } from "./components/oauth-selector.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import {
-	ALL_FOR_ONE_MAX_RAIL_WIDTH,
-	ALL_FOR_ONE_MIN_RAIL_WIDTH,
-	getAllForOneLayout,
+	getSessionRailLayout,
 	parseRailProgress,
 	ResponsiveViewport,
+	SESSION_RAIL_MAX_WIDTH,
+	SESSION_RAIL_MIN_WIDTH,
 	SessionRailComponent,
 	type SessionRailLifecycle,
 	type SessionRailProgress,
@@ -531,6 +531,7 @@ export class InteractiveMode {
 		this.footerContainer = new Container();
 		this.footerContainer.addChild(this.footer);
 		this.sessionRail = new SessionRailComponent({
+			title: APP_TITLE,
 			shortcutSummary: this.getSessionRailShortcutSummary(),
 			agents: [],
 			skills: [],
@@ -543,11 +544,11 @@ export class InteractiveMode {
 		});
 		// TUI overlays use fixed widths. Keep one passive entry per supported rail width so
 		// resizing remains responsive without changing the public overlay API.
-		for (let railWidth = ALL_FOR_ONE_MIN_RAIL_WIDTH; railWidth <= ALL_FOR_ONE_MAX_RAIL_WIDTH; railWidth += 1) {
+		for (let railWidth = SESSION_RAIL_MIN_WIDTH; railWidth <= SESSION_RAIL_MAX_WIDTH; railWidth += 1) {
 			this.ui.showOverlay(this.sessionRail, {
 				anchor: "top-right",
 				nonCapturing: true,
-				visible: (width) => getAllForOneLayout(width).railWidth === railWidth,
+				visible: (width) => getSessionRailLayout(width).railWidth === railWidth,
 				width: railWidth,
 			});
 		}
@@ -1458,6 +1459,7 @@ export class InteractiveMode {
 			.map(([key, text]) => parseRailProgress(key, text))
 			.find((value): value is SessionRailProgress => value !== undefined);
 		this.sessionRail.setData({
+			title: APP_TITLE,
 			shortcutSummary: this.getSessionRailShortcutSummary(),
 			agents: resourceLoader.getAgentsFiles().agentsFiles.map((file) => file.path),
 			skills: resourceLoader.getSkills().skills.map((skill) => skill.name),
@@ -1518,7 +1520,7 @@ export class InteractiveMode {
 		this.loadedResourcesContainer.clear();
 
 		const terminalWidth = this.ui?.terminal?.columns ?? 0;
-		const railVisible = getAllForOneLayout(terminalWidth).railVisible;
+		const railVisible = getSessionRailLayout(terminalWidth).railVisible;
 		const showListing =
 			options?.force === true ||
 			this.options.verbose ||

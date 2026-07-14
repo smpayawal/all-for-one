@@ -26,13 +26,14 @@ Configure via `package.json`:
 ```json
 {
   "piConfig": {
+    "displayName": "ALL-FOR-ONE",
     "name": "pi",
     "configDir": ".pi"
   }
 }
 ```
 
-Change `name`, `configDir`, and `bin` field for your fork. Affects CLI banner, config paths, and environment variable names.
+`displayName` controls presentation surfaces such as the terminal title without changing runtime compatibility. `name` controls the CLI/process identity and environment-variable prefix, while `configDir` controls user and project configuration paths. Change `name`, `configDir`, and the `bin` field only when the fork is ready to migrate those technical interfaces and existing user data explicitly.
 
 ## Path Resolution
 

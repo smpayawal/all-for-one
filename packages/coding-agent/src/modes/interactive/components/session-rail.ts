@@ -2,9 +2,9 @@ import * as path from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.ts";
 
-export const ALL_FOR_ONE_MIN_TERMINAL_WIDTH = 128;
-export const ALL_FOR_ONE_MIN_RAIL_WIDTH = 36;
-export const ALL_FOR_ONE_MAX_RAIL_WIDTH = 44;
+export const SESSION_RAIL_MIN_TERMINAL_WIDTH = 128;
+export const SESSION_RAIL_MIN_WIDTH = 36;
+export const SESSION_RAIL_MAX_WIDTH = 44;
 
 export type SessionRailLifecycle =
 	| { kind: "idle" }
@@ -26,6 +26,7 @@ export interface SessionRailProgress {
 }
 
 export interface SessionRailData {
+	title: string;
 	shortcutSummary?: string;
 	agents: readonly string[];
 	skills: readonly string[];
@@ -39,15 +40,15 @@ export interface SessionRailData {
 }
 
 function getRailWidth(width: number): number {
-	return Math.max(ALL_FOR_ONE_MIN_RAIL_WIDTH, Math.min(ALL_FOR_ONE_MAX_RAIL_WIDTH, Math.floor(width / 5)));
+	return Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(SESSION_RAIL_MAX_WIDTH, Math.floor(width / 5)));
 }
 
-export function getAllForOneLayout(width: number): {
+export function getSessionRailLayout(width: number): {
 	railVisible: boolean;
 	railWidth: number;
 	mainWidth: number;
 } {
-	if (width < ALL_FOR_ONE_MIN_TERMINAL_WIDTH) {
+	if (width < SESSION_RAIL_MIN_TERMINAL_WIDTH) {
 		return { railVisible: false, railWidth: 0, mainWidth: width };
 	}
 
@@ -176,13 +177,13 @@ export class ResponsiveMainColumn implements Component {
 	}
 
 	private getDividerLine(width: number): string {
-		const layout = getAllForOneLayout(width);
+		const layout = getSessionRailLayout(width);
 		if (!layout.railVisible) return "";
 		return " ".repeat(layout.mainWidth) + theme.fg("border", "│");
 	}
 
 	render(width: number): string[] {
-		const layout = getAllForOneLayout(width);
+		const layout = getSessionRailLayout(width);
 		const lines = this.content.render(layout.mainWidth);
 		if (!layout.railVisible) {
 			return lines;
@@ -264,7 +265,7 @@ export class SessionRailComponent implements Component {
 			addSection(label, resources.length > 0 ? formatResourceList(resources) : ["—"]);
 		};
 
-		const title = "ALL-FOR-ONE";
+		const title = sanitize(this.data.title);
 		const titleRuleWidth = Math.max(1, width - visibleWidth(title) - 1);
 		lines.push(`${theme.bold(theme.fg("accent", title))} ${theme.fg("border", "─".repeat(titleRuleWidth))}`);
 		lines.push("");

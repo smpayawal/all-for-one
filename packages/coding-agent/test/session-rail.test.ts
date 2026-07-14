@@ -2,12 +2,12 @@ import { Container, Text, TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import {
-	ALL_FOR_ONE_MAX_RAIL_WIDTH,
-	ALL_FOR_ONE_MIN_RAIL_WIDTH,
-	getAllForOneLayout,
+	getSessionRailLayout,
 	parseRailProgress,
 	ResponsiveMainColumn,
 	ResponsiveViewport,
+	SESSION_RAIL_MAX_WIDTH,
+	SESSION_RAIL_MIN_WIDTH,
 	SessionRailComponent,
 } from "../src/modes/interactive/components/session-rail.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
@@ -16,21 +16,21 @@ function stripAnsi(value: string): string {
 	return value.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
-describe("All-For-One rail layout", () => {
+describe("session rail layout", () => {
 	beforeAll(() => {
 		initTheme("dark");
 	});
 
 	test("hides below 128 columns and scales between 36 and 44 columns", () => {
-		expect(getAllForOneLayout(127)).toEqual({ railVisible: false, railWidth: 0, mainWidth: 127 });
-		expect(getAllForOneLayout(128)).toEqual({
+		expect(getSessionRailLayout(127)).toEqual({ railVisible: false, railWidth: 0, mainWidth: 127 });
+		expect(getSessionRailLayout(128)).toEqual({
 			railVisible: true,
-			railWidth: ALL_FOR_ONE_MIN_RAIL_WIDTH,
-			mainWidth: 128 - ALL_FOR_ONE_MIN_RAIL_WIDTH - 1,
+			railWidth: SESSION_RAIL_MIN_WIDTH,
+			mainWidth: 128 - SESSION_RAIL_MIN_WIDTH - 1,
 		});
-		expect(getAllForOneLayout(180).railWidth).toBe(36);
-		expect(getAllForOneLayout(220).railWidth).toBe(44);
-		expect(getAllForOneLayout(240).railWidth).toBe(ALL_FOR_ONE_MAX_RAIL_WIDTH);
+		expect(getSessionRailLayout(180).railWidth).toBe(36);
+		expect(getSessionRailLayout(220).railWidth).toBe(44);
+		expect(getSessionRailLayout(240).railWidth).toBe(SESSION_RAIL_MAX_WIDTH);
 	});
 
 	test("renders the main column at the reserved width and restores full width when narrow", () => {
@@ -39,7 +39,7 @@ describe("All-For-One rail layout", () => {
 		const mainColumn = new ResponsiveMainColumn(content);
 
 		const wideLine = mainColumn.render(128)[0] ?? "";
-		expect(visibleWidth(wideLine)).toBe(128 - ALL_FOR_ONE_MIN_RAIL_WIDTH);
+		expect(visibleWidth(wideLine)).toBe(128 - SESSION_RAIL_MIN_WIDTH);
 		expect(stripAnsi(wideLine)).toContain("│");
 
 		const narrowLine = mainColumn.render(127)[0] ?? "";
@@ -63,6 +63,7 @@ describe("rail progress and activity formatting", () => {
 
 	test("prioritizes progress and active tools, then bounds recent history", () => {
 		const rail = new SessionRailComponent({
+			title: "TEST PRODUCT",
 			agents: ["AGENTS.md", "project/AGENTS.md"],
 			skills: ["microsoft-foundry", "frontend-skill", "superpowers", "unused"],
 			progress: { label: "plan-mode", completed: 2, total: 5 },
@@ -80,7 +81,8 @@ describe("rail progress and activity formatting", () => {
 		});
 
 		const output = stripAnsi(rail.render(40).join("\n"));
-		expect(output).toContain("ALL-FOR-ONE");
+		expect(output).toContain("TEST PRODUCT");
+		expect(output).not.toContain("ALL-FOR-ONE");
 		expect(output).not.toContain("PROGRESS");
 		expect(output).toContain("plan-mode 2/5");
 		expect(output).toContain("ACTIVITY");
@@ -98,6 +100,7 @@ describe("rail progress and activity formatting", () => {
 
 	test("handles absent optional values without inventing metadata", () => {
 		const rail = new SessionRailComponent({
+			title: "TEST PRODUCT",
 			agents: [],
 			skills: [],
 			lifecycle: { kind: "idle" },
@@ -117,6 +120,7 @@ describe("rail progress and activity formatting", () => {
 
 	test("renders the configured shortcut summary in the rail", () => {
 		const rail = new SessionRailComponent({
+			title: "TEST PRODUCT",
 			shortcutSummary: "escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
 			agents: [],
 			skills: [],
@@ -144,6 +148,7 @@ describe("rail progress and activity formatting", () => {
 
 	test("preserves progress and activity when the rail is height constrained", () => {
 		const rail = new SessionRailComponent({
+			title: "TEST PRODUCT",
 			agents: ["AGENTS.md"],
 			skills: ["one", "two", "three"],
 			progress: { label: "plan", completed: 1, total: 3 },
@@ -180,7 +185,7 @@ describe("viewport composition", () => {
 		expect(lines).toHaveLength(12);
 		expect(stripAnsi(lines[10] ?? "").trimEnd()).toBe("EDITOR");
 		expect(stripAnsi(lines[11] ?? "").trimEnd()).toBe("FOOTER");
-		expect(visibleWidth(lines[9] ?? "")).toBe(128 - ALL_FOR_ONE_MIN_RAIL_WIDTH);
+		expect(visibleWidth(lines[9] ?? "")).toBe(128 - SESSION_RAIL_MIN_WIDTH);
 	});
 
 	test("keeps long transcript content intact and places the bottom group last", () => {
@@ -206,6 +211,7 @@ describe("viewport composition", () => {
 		bottom.addChild(new Text("FOOTER", 0, 0));
 		const viewport = new ResponsiveViewport(content, bottom, () => terminal.rows);
 		const rail = new SessionRailComponent({
+			title: "TEST PRODUCT",
 			agents: ["AGENTS.md"],
 			skills: ["frontend-skill"],
 			lifecycle: { kind: "idle" },
@@ -217,11 +223,11 @@ describe("viewport composition", () => {
 		});
 
 		tui.addChild(viewport);
-		for (let railWidth = ALL_FOR_ONE_MIN_RAIL_WIDTH; railWidth <= ALL_FOR_ONE_MAX_RAIL_WIDTH; railWidth += 1) {
+		for (let railWidth = SESSION_RAIL_MIN_WIDTH; railWidth <= SESSION_RAIL_MAX_WIDTH; railWidth += 1) {
 			tui.showOverlay(rail, {
 				anchor: "top-right",
 				nonCapturing: true,
-				visible: (width) => getAllForOneLayout(width).railWidth === railWidth,
+				visible: (width) => getSessionRailLayout(width).railWidth === railWidth,
 				width: railWidth,
 			});
 		}
@@ -229,14 +235,14 @@ describe("viewport composition", () => {
 		await terminal.waitForRender();
 
 		let screen = terminal.getViewport();
-		expect(screen.some((line) => line.includes("ALL-FOR-ONE"))).toBe(true);
+		expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(true);
 		expect(screen[10]?.trimEnd()).toBe("EDITOR");
 		expect(screen[11]?.trimEnd()).toBe("FOOTER");
 
 		terminal.resize(127, 12);
 		await terminal.waitForRender();
 		screen = terminal.getViewport();
-		expect(screen.some((line) => line.includes("ALL-FOR-ONE"))).toBe(false);
+		expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(false);
 		expect(screen[10]?.trimEnd()).toBe("EDITOR");
 		expect(screen[11]?.trimEnd()).toBe("FOOTER");
 		tui.stop();
