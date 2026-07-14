@@ -10,7 +10,7 @@ import {
 	ResponsiveViewport,
 	SessionRailComponent,
 } from "../src/modes/interactive/components/session-rail.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
 function stripAnsi(value: string): string {
 	return value.replace(/\u001b\[[0-9;]*m/g, "");
@@ -131,6 +131,10 @@ describe("rail progress and activity formatting", () => {
 		const lines = stripAnsi(rail.render(36).join("\n")).split("\n");
 		const output = lines.join("\n");
 		expect(output).toContain("escape interrupt");
+		const rendered = rail.render(36).join("\n");
+		expect(rendered).toContain(theme.bold(theme.fg("accent", "escape")));
+		expect(rendered).toContain(theme.fg("dim", " interrupt"));
+		expect(rendered).toContain(theme.bold(theme.fg("accent", "ctrl+o")));
 		expect(lines.slice(-3)).toEqual([
 			"  escape interrupt · ctrl+c/ctrl+d",
 			"  clear/exit · / commands · ! bash ·",

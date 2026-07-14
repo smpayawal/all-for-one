@@ -93,6 +93,22 @@ function wrapRailText(value: string, width: number): string[] {
 	return lines.length > 0 ? lines : ["—"];
 }
 
+function styleShortcutLine(line: string): string {
+	const segments = line.split(" · ");
+	const styledSegments = segments.map((segment) => {
+		const separator = segment.indexOf(" ");
+		if (separator === -1) {
+			return theme.bold(theme.fg("accent", segment));
+		}
+
+		const shortcut = segment.slice(0, separator);
+		const description = segment.slice(separator);
+		return theme.bold(theme.fg("accent", shortcut)) + theme.fg("dim", description);
+	});
+
+	return theme.fg("dim", "  ") + styledSegments.join(theme.fg("dim", " · "));
+}
+
 /** Extract an extension-provided completed/total status without trusting arbitrary status text. */
 export function parseRailProgress(key: string, text: string): SessionRailProgress | undefined {
 	const match = sanitize(text).match(/(?:^|\s)(\d+)\s*\/\s*(\d+)(?:\s|$)/);
@@ -286,7 +302,7 @@ export class SessionRailComponent implements Component {
 
 		const shortcutLines =
 			this.data.shortcutSummary && availableHeight >= 12
-				? ["", ...wrapRailText(this.data.shortcutSummary, width).map((line) => theme.fg("dim", `  ${line}`))]
+				? ["", ...wrapRailText(this.data.shortcutSummary, width).map(styleShortcutLine)]
 				: [];
 		const contentHeight = Math.max(0, availableHeight - shortcutLines.length);
 		const visibleContent = lines.slice(0, contentHeight);
