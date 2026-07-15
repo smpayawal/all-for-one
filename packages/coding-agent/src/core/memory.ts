@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import lockfile from "proper-lockfile";
 import { canonicalizePath, resolvePath } from "../utils/paths.ts";
 
 export type MemoryCategory = "decision" | "correction" | "convention" | "tool-quirk" | "note";
@@ -119,18 +120,19 @@ export class ProjectMemoryStore {
 			throw new Error(`Memory was not saved because it matched a possible ${secrets.join(", ")} pattern.`);
 		}
 
-		const current = this.read().entries;
-		const duplicate = current.find((entry) => entry.category === category && entry.text === normalizedText);
-		if (duplicate) return { entry: duplicate, created: false };
+		return this.withMutationLock((current) => {
+			const duplicate = current.find((entry) => entry.category === category && entry.text === normalizedText);
+			if (duplicate) return { entry: duplicate, created: false };
 
-		const entry: MemoryEntry = {
-			id: `mem_${randomUUID()}`,
-			createdAt: new Date().toISOString(),
-			category,
-			text: normalizedText,
-		};
-		this.write([...current, entry]);
-		return { entry, created: true };
+			const entry: MemoryEntry = {
+				id: `mem_${randomUUID()}`,
+				createdAt: new Date().toISOString(),
+				category,
+				text: normalizedText,
+			};
+			this.write([...current, entry]);
+			return { entry, created: true };
+		});
 	}
 
 	edit(id: string, text: string, category?: MemoryCategory): MemoryEditResult | undefined {
@@ -143,26 +145,27 @@ export class ProjectMemoryStore {
 			throw new Error(`Memory was not saved because it matched a possible ${secrets.join(", ")} pattern.`);
 		}
 
-		const current = this.read().entries;
-		const index = current.findIndex((entry) => entry.id === normalizedId);
-		if (index === -1) return undefined;
+		return this.withMutationLock((current) => {
+			const index = current.findIndex((entry) => entry.id === normalizedId);
+			if (index === -1) return undefined;
 
-		const existing = current[index];
-		const nextCategory = category ?? existing.category;
-		const duplicate = current.find(
-			(entry) => entry.id !== normalizedId && entry.category === nextCategory && entry.text === normalizedText,
-		);
-		if (duplicate) throw new Error(`Memory already exists as ${duplicate.id}.`);
+			const existing = current[index];
+			const nextCategory = category ?? existing.category;
+			const duplicate = current.find(
+				(entry) => entry.id !== normalizedId && entry.category === nextCategory && entry.text === normalizedText,
+			);
+			if (duplicate) throw new Error(`Memory already exists as ${duplicate.id}.`);
 
-		if (existing.text === normalizedText && existing.category === nextCategory) {
-			return { entry: existing, updated: false };
-		}
+			if (existing.text === normalizedText && existing.category === nextCategory) {
+				return { entry: existing, updated: false };
+			}
 
-		const entry: MemoryEntry = { ...existing, category: nextCategory, text: normalizedText };
-		const updatedEntries = [...current];
-		updatedEntries[index] = entry;
-		this.write(updatedEntries);
-		return { entry, updated: true };
+			const entry: MemoryEntry = { ...existing, category: nextCategory, text: normalizedText };
+			const updatedEntries = [...current];
+			updatedEntries[index] = entry;
+			this.write(updatedEntries);
+			return { entry, updated: true };
+		});
 	}
 
 	search(query: string): MemoryReadResult {
@@ -181,16 +184,73 @@ export class ProjectMemoryStore {
 	}
 
 	forget(id: string): boolean {
-		const current = this.read().entries;
-		const remaining = current.filter((entry) => entry.id !== id.trim());
-		if (remaining.length === current.length) return false;
-		this.write(remaining);
-		return true;
+		const normalizedId = id.trim();
+		return this.withMutationLock((current) => {
+			const remaining = current.filter((entry) => entry.id !== normalizedId);
+			if (remaining.length === current.length) return false;
+			this.write(remaining);
+			return true;
+		});
+	}
+
+	private ensureStorage(): void {
+		const directory = dirname(this.filePath);
+		mkdirSync(directory, { recursive: true, mode: 0o700 });
+		if (process.platform !== "win32") chmodSync(directory, 0o700);
+		if (!existsSync(this.filePath)) {
+			writeFileSync(this.filePath, "", { encoding: "utf8", mode: 0o600 });
+		}
+		if (process.platform !== "win32") chmodSync(this.filePath, 0o600);
+	}
+
+	private acquireLockSyncWithRetry(): () => void {
+		const maxAttempts = 10;
+		const delayMs = 20;
+		let lastError: unknown;
+
+		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+			try {
+				return lockfile.lockSync(this.filePath, { realpath: false });
+			} catch (error) {
+				const code =
+					typeof error === "object" && error !== null && "code" in error
+						? String((error as { code?: unknown }).code)
+						: undefined;
+				if (code !== "ELOCKED" || attempt === maxAttempts) throw error;
+				lastError = error;
+				const start = Date.now();
+				while (Date.now() - start < delayMs) {
+					// Sleep synchronously to keep the public memory API synchronous.
+				}
+			}
+		}
+
+		throw (lastError as Error) ?? new Error("Failed to acquire project memory lock");
+	}
+
+	private withMutationLock<T>(mutate: (current: MemoryEntry[]) => T): T {
+		this.ensureStorage();
+		let release: (() => void) | undefined;
+		try {
+			release = this.acquireLockSyncWithRetry();
+			return mutate(this.read().entries);
+		} finally {
+			release?.();
+		}
 	}
 
 	private write(entries: MemoryEntry[]): void {
-		mkdirSync(dirname(this.filePath), { recursive: true });
+		this.ensureStorage();
 		const content = entries.length > 0 ? `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n` : "";
-		writeFileSync(this.filePath, content, "utf8");
+		const temporaryPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
+		try {
+			writeFileSync(temporaryPath, content, { encoding: "utf8", mode: 0o600 });
+			if (process.platform !== "win32") chmodSync(temporaryPath, 0o600);
+			renameSync(temporaryPath, this.filePath);
+		} catch (error) {
+			if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+			throw error;
+		}
+		if (process.platform !== "win32") chmodSync(this.filePath, 0o600);
 	}
 }

@@ -36,7 +36,7 @@ export interface CreateHandoffInput {
 	remainingWork?: string[];
 	evidence?: HandoffEvidence[];
 	validation?: HandoffValidation[];
-	previousId?: string;
+	previous?: StructuredHandoff;
 }
 
 function nonEmpty(values: string[] | undefined): string[] {
@@ -50,7 +50,7 @@ export function createStructuredHandoff(input: CreateHandoffInput, now = new Dat
 	if (!summary) throw new Error("A handoff summary is required.");
 
 	return {
-		id: input.previousId ?? `handoff_${now.replace(/[^0-9A-Za-z]/g, "").slice(0, 20)}`,
+		id: input.previous?.id ?? `handoff_${now.replace(/[^0-9A-Za-z]/g, "").slice(0, 20)}`,
 		status: input.status,
 		goal,
 		acceptanceCriteria: nonEmpty(input.acceptanceCriteria),
@@ -60,7 +60,7 @@ export function createStructuredHandoff(input: CreateHandoffInput, now = new Dat
 		remainingWork: nonEmpty(input.remainingWork),
 		evidence: input.evidence ?? [],
 		validation: input.validation ?? [],
-		createdAt: now,
+		createdAt: input.previous?.createdAt ?? now,
 		updatedAt: now,
 	};
 }

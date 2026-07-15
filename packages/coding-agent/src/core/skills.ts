@@ -367,6 +367,13 @@ function normalizeNonNegativeInteger(value: number | undefined): number | undefi
 	return Math.floor(value);
 }
 
+function normalizeContextPercentage(value: number | undefined): number | undefined {
+	if (value === undefined || !Number.isFinite(value) || value <= 0 || value > 100) {
+		return undefined;
+	}
+	return value;
+}
+
 function resolveSkillMetadataBudget(options: SkillMetadataBudgetOptions): {
 	maxChars: number;
 	source: SkillMetadataBudgetSource;
@@ -377,7 +384,7 @@ function resolveSkillMetadataBudget(options: SkillMetadataBudgetOptions): {
 	}
 
 	const contextWindow = normalizeNonNegativeInteger(options.contextWindow);
-	const contextPercent = normalizeNonNegativeInteger(options.maxContextPercent);
+	const contextPercent = normalizeContextPercentage(options.maxContextPercent);
 	if (contextWindow !== undefined && contextWindow > 0 && contextPercent !== undefined) {
 		return {
 			maxChars: Math.floor((contextWindow * contextPercent * 4) / 100),

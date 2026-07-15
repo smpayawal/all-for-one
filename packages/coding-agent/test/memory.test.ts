@@ -1,6 +1,6 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getProjectMemoryPath, ProjectMemoryStore, scanMemoryText } from "../src/core/memory.ts";
 
@@ -88,5 +88,22 @@ describe("ProjectMemoryStore", () => {
 
 		expect(result.created).toBe(true);
 		expect(store.filePath.startsWith(agentDir)).toBe(true);
+	});
+
+	it("serializes mutations across store instances and uses restrictive storage permissions", () => {
+		const project = join(root, "project");
+		const firstStore = new ProjectMemoryStore(project, agentDir);
+		const secondStore = new ProjectMemoryStore(project, agentDir);
+
+		const first = firstStore.add("First process note.");
+		const second = secondStore.add("Second process note.");
+
+		expect(secondStore.read().entries.map((entry) => entry.id)).toEqual([first.entry.id, second.entry.id]);
+		expect(readdirSync(dirname(firstStore.filePath)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+
+		if (process.platform !== "win32") {
+			expect(statSync(dirname(firstStore.filePath)).mode & 0o777).toBe(0o700);
+			expect(statSync(firstStore.filePath).mode & 0o777).toBe(0o600);
+		}
 	});
 });

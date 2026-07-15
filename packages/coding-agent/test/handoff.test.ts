@@ -19,13 +19,15 @@ describe("structured handoff", () => {
 				status: "complete",
 				goal: first.goal,
 				summary: "The focused regression test passes.",
-				previousId: first.id,
+				previous: first,
 				completed: ["Ran the focused regression test."],
 			},
 			"2026-07-15T00:01:00.000Z",
 		);
 
 		expect(continued.id).toBe(first.id);
+		expect(continued.createdAt).toBe(first.createdAt);
+		expect(continued.updatedAt).toBe("2026-07-15T00:01:00.000Z");
 		expect(validateStructuredHandoff(first)).toEqual([]);
 		expect(formatStructuredHandoff(continued)).toContain("Handoff");
 		expect(formatStructuredHandoff(first)).toContain("Acceptance: Identify the request path.");

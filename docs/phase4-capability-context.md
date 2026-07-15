@@ -27,16 +27,16 @@ The deferred measurements are intentionally not represented as Phase 4 improveme
 
 | Feature | Source and implementation inspected | All-For-One finding | Recommendation | Validation |
 | --- | --- | --- | --- | --- |
-| Progressive skills | Native Pi [`skills.ts`](/Users/smpayawal/Downloads/Projects/all-for-one/packages/coding-agent/src/core/skills.ts) | Progressive discovery and manual-only semantics already exist. | Adapt minimally; do not build a second loader. | Skill loader and budget tests. |
+| Progressive skills | Native Pi [`skills.ts`](../packages/coding-agent/src/core/skills.ts) | Progressive discovery and manual-only semantics already exist. | Adapt minimally; do not build a second loader. | Skill loader and budget tests. |
 | Skill metadata budget | [Codex issue #19679](https://github.com/openai/codex/issues/19679) plus the P4.0 baseline | Large synthetic collections can exceed small context windows; Codex's 2% behavior is a comparison, not All-For-One evidence. | Use a configurable provisional cap and report omissions. | Baseline across collection/context sizes and deterministic budget tests. |
-| Tool-output hygiene | Native Pi [`truncate.ts`](/Users/smpayawal/Downloads/Projects/all-for-one/packages/coding-agent/src/core/tools/truncate.ts) and current tool details | Truncation and saved full-output paths already exist; a new compression subsystem is not justified by current evidence. | Instrument the existing result boundary only. | Session telemetry tests and `/context`. |
+| Tool-output hygiene | Native Pi [`truncate.ts`](../packages/coding-agent/src/core/tools/truncate.ts) and current tool details | Truncation and saved full-output paths already exist; a new compression subsystem is not justified by current evidence. | Instrument the existing result boundary only. | Session telemetry tests and `/context`. |
 | Structured continuation | [Handoff Debt study](https://arxiv.org/abs/2606.02875) and Native Pi session primitives | Context-bearing handoffs may reduce rediscovery, but no All-For-One delegate-quality result exists yet. | Keep a small optional handoff contract; defer delegate execution. | Contract validation and same-ID continuation tests. |
 
 ## Capability surface
 
 P4.1 keeps the definition-first registry as the source of truth. The registry distinguishes all known tools from the active set, preserves the existing allowlist/denylist controls, and exposes source and active-state information through `AgentSession.getContextInfo()` and `/context`. Optional tools are not made active merely because they exist.
 
-The existing allowlist/denylist regressions remain the policy tests ([#5109](/Users/smpayawal/Downloads/Projects/all-for-one/packages/coding-agent/test/suite/regressions/5109-exclude-tools.test.ts), [#2835](/Users/smpayawal/Downloads/Projects/all-for-one/packages/coding-agent/test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts)).
+The existing allowlist/denylist regressions remain the policy tests ([#5109](../packages/coding-agent/test/suite/regressions/5109-exclude-tools.test.ts), [#2835](../packages/coding-agent/test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts)).
 
 ## Skill metadata budgeting
 
@@ -70,6 +70,8 @@ Context files are canonicalized and exact-content hashes are used to remove dupl
 
 The active instruction set is a session snapshot: a changed or deleted instruction file takes effect after the normal resource/session reload boundary, rather than mutating an in-flight prompt invisibly. Newly relevant nested files are loaded during the path preflight for the current session.
 
+For safety, a first-touch path-bearing `edit`, `write`, or `apply_patch` call that discovers new nested instructions is blocked after those instructions are added to the session prompt. The model must retry the mutation with the scoped instructions active. Read-only path calls may load context without this retry barrier. If multiple sibling instruction directories become active, `/context` reports a deterministic diagnostic; the runtime accumulates the session snapshot and does not attempt semantic routing between sibling scopes.
+
 Bash working-directory changes are not inferred because arbitrary shell control flow cannot be resolved safely; explicit path-bearing tool calls are the supported trigger for scoped instruction activation.
 
 ## Tool-output telemetry
@@ -84,7 +86,7 @@ Project memory is opt-in and stored outside the repository at the agent-scoped p
 <agentDir>/projects/<project-id>/memory.jsonl
 ```
 
-The small JSONL store supports show/inspect, plain-text search, add, ID-based edit, and forget/delete. Entries are advisory evidence, are not injected wholesale into prompts, and are never written automatically by the runtime. Secret-pattern scanning runs before persistence and is intentionally described as practical protection rather than complete secret detection. Malformed entries remain visible as warnings instead of becoming authoritative.
+The small JSONL store supports show/inspect, plain-text search, add, ID-based edit, and forget/delete. Entries are advisory evidence, are not injected wholesale into prompts, and are never written automatically by the runtime. Secret-pattern scanning runs before persistence and is intentionally described as practical protection rather than complete secret detection. Malformed entries remain visible as warnings instead of becoming authoritative. Mutations use the existing file-locking dependency around the complete read-modify-write operation, replace the JSONL file atomically through a same-directory temporary file, and apply restrictive storage permissions where the platform supports them.
 
 Interactive commands:
 
@@ -98,7 +100,13 @@ Interactive commands:
 
 ## Optional handoff contract
 
-P4.6 adds a small exported structured handoff contract with `complete`, `partial`, and `blocked` statuses, goal/summary, completed and remaining work, evidence, validation, and same-ID continuation through `previousId`. It does not add a mandatory delegate executor. A future bounded read-only delegate remains experimental until a real evaluation demonstrates lower context use, lower cost/latency, better defect detection, better handoff efficiency, or higher correctness without unacceptable reliability loss.
+P4.6 adds a small exported structured handoff contract with `complete`, `partial`, and `blocked` statuses, goal/summary, completed and remaining work, evidence, validation, and same-ID continuation through a previous handoff object. Continuations preserve the original `createdAt` and advance `updatedAt`. It does not add a mandatory delegate executor. A future bounded read-only delegate remains experimental until a real evaluation demonstrates lower context use, lower cost/latency, better defect detection, better handoff efficiency, or higher correctness without unacceptable reliability loss.
+
+## Phase 4 empirical exit gate
+
+The structural implementation is not sufficient to declare Phase 4 complete. Run a controlled Phase 3 versus Phase 4 comparison on at least five representative tasks, using the same model and task inputs for each paired run. Include a small-context/small-skill case, a large skill collection, a nested-context task, a large-output or long-session task, and an interrupted or structured-handoff continuation. Repeat with models having different context-window sizes where available.
+
+Record task correctness and solved status, turns/events, prompt and cumulative tokens, tool-output truncation/retrieval behavior, latency, cost, cache behavior, and any regressions. Also verify deterministic skill overflow handling and confirm that important project skills remain discoverable through diagnostics or manual invocation when omitted from model-visible metadata. These results are currently pending; no live quality or efficiency improvement is claimed here.
 
 ## Doctor and validation
 

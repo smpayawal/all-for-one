@@ -494,6 +494,21 @@ describe("skills", () => {
 			expect(result.prompt.length).toBeLessThanOrEqual(400);
 		});
 
+		it("preserves fractional context percentages and falls back for invalid values", () => {
+			const fractional = formatSkillsForPromptWithDiagnostics([], {
+				contextWindow: 1_000,
+				maxContextPercent: 1.5,
+			});
+			expect(fractional.diagnostics.budgetChars).toBe(60);
+			expect(fractional.diagnostics.budgetSource).toBe("maxContextPercent");
+
+			for (const maxContextPercent of [0, -1, 101, Number.NaN, Number.POSITIVE_INFINITY]) {
+				const result = formatSkillsForPromptWithDiagnostics([], { contextWindow: 1_000, maxContextPercent });
+				expect(result.diagnostics.budgetSource).toBe("default");
+				expect(result.diagnostics.budgetChars).toBe(8_000);
+			}
+		});
+
 		it("uses the fixed default when the model context window is unknown", () => {
 			const result = formatSkillsForPromptWithDiagnostics(
 				[

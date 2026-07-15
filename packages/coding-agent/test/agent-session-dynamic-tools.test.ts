@@ -276,6 +276,78 @@ Skill instructions.
 		session.dispose();
 	});
 
+	it("defers first-touch mutations until scoped instructions are active", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		mkdirSync(join(tempDir, "frontend", "src"), { recursive: true });
+		mkdirSync(join(tempDir, "backend"), { recursive: true });
+		writeFileSync(join(tempDir, "AGENTS.md"), "Root project instructions.");
+		writeFileSync(join(tempDir, "frontend", "AGENTS.md"), "Frontend mutation instructions.");
+		writeFileSync(join(tempDir, "backend", "AGENTS.md"), "Backend mutation instructions.");
+
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+		});
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager: SessionManager.inMemory(),
+			resourceLoader,
+		});
+
+		const beforeToolCall = session.agent.beforeToolCall;
+		expect(beforeToolCall).toBeDefined();
+		const firstWriteResult = await beforeToolCall?.({
+			toolCall: { id: "write-1", name: "write", arguments: { path: "frontend/src/New.tsx" } },
+			args: { path: "frontend/src/New.tsx" },
+			assistantMessage: {},
+			context: {},
+		} as unknown as Parameters<NonNullable<typeof beforeToolCall>>[0]);
+
+		expect(firstWriteResult).toMatchObject({ block: true });
+		expect(session.systemPrompt).toContain("Frontend mutation instructions.");
+
+		const repeatedWriteResult = await beforeToolCall?.({
+			toolCall: { id: "write-2", name: "write", arguments: { path: "frontend/src/Other.tsx" } },
+			args: { path: "frontend/src/Other.tsx" },
+			assistantMessage: {},
+			context: {},
+		} as unknown as Parameters<NonNullable<typeof beforeToolCall>>[0]);
+		expect(repeatedWriteResult).toBeUndefined();
+
+		const rootWriteResult = await beforeToolCall?.({
+			toolCall: { id: "write-3", name: "write", arguments: { path: "root.txt" } },
+			args: { path: "root.txt" },
+			assistantMessage: {},
+			context: {},
+		} as unknown as Parameters<NonNullable<typeof beforeToolCall>>[0]);
+		expect(rootWriteResult).toBeUndefined();
+
+		const firstPatchResult = await beforeToolCall?.({
+			toolCall: {
+				id: "patch-1",
+				name: "apply_patch",
+				arguments: { patch: "*** Begin Patch\n*** Update File: backend/src/Generated.ts\n*** End Patch" },
+			},
+			args: { patch: "*** Begin Patch\n*** Update File: backend/src/Generated.ts\n*** End Patch" },
+			assistantMessage: {},
+			context: {},
+		} as unknown as Parameters<NonNullable<typeof beforeToolCall>>[0]);
+
+		expect(firstPatchResult).toMatchObject({ block: true });
+		expect(session.systemPrompt).toContain("Backend mutation instructions.");
+		expect(session.getContextInfo().warnings).toContainEqual(
+			expect.stringContaining("Multiple sibling scoped instruction directories"),
+		);
+
+		session.dispose();
+	});
+
 	it("records bounded tool-output telemetry without exposing output contents", async () => {
 		const settingsManager = SettingsManager.create(tempDir, agentDir);
 		const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });

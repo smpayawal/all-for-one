@@ -38,7 +38,7 @@ import {
 import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
-import { canonicalizePath, resolvePath } from "../utils/paths.ts";
+import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
@@ -72,6 +72,7 @@ import {
 	type SessionBeforeTreeResult,
 	type SessionStartEvent,
 	type ShutdownHandler,
+	type ToolCallEventResult,
 	type ToolDefinition,
 	type ToolExecutionEndEvent,
 	type ToolExecutionStartEvent,
@@ -100,6 +101,7 @@ import {
 	type ResourceExtensionPaths,
 	type ResourceLoader,
 } from "./resource-loader.ts";
+import { isMutatingPathTool, ScopedContextTracker } from "./scoped-context.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
@@ -107,10 +109,12 @@ import type { SkillMetadataDiagnostics } from "./skills.ts";
 import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt, formatProjectContextFiles } from "./system-prompt.ts";
+import { type ToolOutputTelemetry, ToolOutputTelemetryStore } from "./tool-output-telemetry.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
-import type { TruncationResult } from "./tools/truncate.ts";
+
+export type { ToolOutputTelemetry } from "./tool-output-telemetry.ts";
 
 // ============================================================================
 // Skill Block Parsing
@@ -284,22 +288,6 @@ export interface AgentContextInfo {
 	warnings: string[];
 }
 
-export interface ToolOutputTelemetry {
-	toolName: string;
-	calls: number;
-	successes: number;
-	failures: number;
-	rawOutputBytes: number;
-	returnedOutputBytes: number;
-	rawOutputLines: number;
-	returnedOutputLines: number;
-	truncationCount: number;
-	truncatedBy: { lines: number; bytes: number };
-	fullOutputAvailable: number;
-	followUpRetrievals: number;
-	repeatedReads: number;
-}
-
 interface ToolDefinitionEntry {
 	definition: ToolDefinition;
 	sourceInfo: SourceInfo;
@@ -319,67 +307,6 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 
 /** Standard thinking levels */
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
-
-function getPathScopedToolPaths(toolName: string, args: Record<string, unknown>): string[] {
-	if (toolName === "read" || toolName === "edit" || toolName === "write") {
-		const path =
-			typeof args.path === "string" ? args.path : typeof args.file_path === "string" ? args.file_path : undefined;
-		return path ? [path] : [];
-	}
-
-	if (toolName === "grep" || toolName === "find" || toolName === "ls") {
-		return typeof args.path === "string" && args.path.length > 0 ? [args.path] : [];
-	}
-
-	if (toolName === "apply_patch" && typeof args.patch === "string") {
-		const paths: string[] = [];
-		const pathPattern = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm;
-		for (const match of args.patch.matchAll(pathPattern)) {
-			const path = match[1]?.trim();
-			if (path) paths.push(path);
-		}
-		return paths;
-	}
-
-	return [];
-}
-
-function countOutputLines(text: string): number {
-	if (text.length === 0) return 0;
-	return text.split("\n").length;
-}
-
-function getTextOutputStats(content: ReadonlyArray<{ type: string; text?: string }>): { bytes: number; lines: number } {
-	const text = content
-		.map((item) => item.text ?? "")
-		.filter((item) => item.length > 0)
-		.join("\n");
-	return { bytes: Buffer.byteLength(text, "utf8"), lines: countOutputLines(text) };
-}
-
-function isTruncationResult(value: unknown): value is TruncationResult {
-	if (!value || typeof value !== "object") return false;
-	const candidate = value as Partial<TruncationResult>;
-	return (
-		typeof candidate.totalBytes === "number" &&
-		typeof candidate.outputBytes === "number" &&
-		typeof candidate.totalLines === "number" &&
-		typeof candidate.outputLines === "number" &&
-		(candidate.truncatedBy === "lines" || candidate.truncatedBy === "bytes" || candidate.truncatedBy === null)
-	);
-}
-
-function getTruncationDetails(details: unknown): TruncationResult | undefined {
-	if (!details || typeof details !== "object") return undefined;
-	const truncation = (details as { truncation?: unknown }).truncation;
-	return isTruncationResult(truncation) ? truncation : undefined;
-}
-
-function getFullOutputPath(details: unknown): string | undefined {
-	if (!details || typeof details !== "object") return undefined;
-	const fullOutputPath = (details as { fullOutputPath?: unknown }).fullOutputPath;
-	return typeof fullOutputPath === "string" && fullOutputPath.length > 0 ? fullOutputPath : undefined;
-}
 
 // ============================================================================
 // AgentSession Class
@@ -458,12 +385,9 @@ export class AgentSession {
 	private _baseSystemPrompt = "";
 	private _baseSystemPromptOptions!: BuildSystemPromptOptions;
 	private _skillMetadataDiagnostics?: SkillMetadataDiagnostics;
-	private _scopedContextFiles: ProjectContextFile[] = [];
+	private _scopedContextTracker: ScopedContextTracker;
 	private _dynamicContextPromptSuffix = "";
-	private _contextWarnings: string[] = [];
-	private _toolOutputTelemetry = new Map<string, ToolOutputTelemetry>();
-	private _fullOutputOwners = new Map<string, Set<string>>();
-	private _readPathCounts = new Map<string, number>();
+	private _toolOutputTelemetryStore: ToolOutputTelemetryStore;
 	private _systemPromptOverride?: string;
 
 	constructor(config: AgentSessionConfig) {
@@ -474,6 +398,8 @@ export class AgentSession {
 		this._resourceLoader = config.resourceLoader;
 		this._customTools = config.customTools ?? [];
 		this._cwd = config.cwd;
+		this._scopedContextTracker = new ScopedContextTracker(this._cwd, this._resourceLoader);
+		this._toolOutputTelemetryStore = new ToolOutputTelemetryStore(this._cwd);
 		this._memoryStore = new ProjectMemoryStore(this._cwd, config.agentDir ?? getAgentDir());
 		this._modelRegistry = config.modelRegistry;
 		this._extensionRunnerRef = config.extensionRunnerRef;
@@ -543,49 +469,18 @@ export class AgentSession {
 	private _getActiveContextFiles(): ProjectContextFile[] {
 		return deduplicateContextFiles([
 			...this._resourceLoader.getAgentsFiles().agentsFiles,
-			...this._scopedContextFiles,
+			...this._scopedContextTracker.getFiles(),
 		]).agentsFiles;
 	}
 
-	private _loadScopedContextForToolCall(toolName: string, args: Record<string, unknown>): void {
-		const getAgentsFilesForPath = this._resourceLoader.getAgentsFilesForPath;
-		if (!getAgentsFilesForPath) return;
+	private _loadScopedContextForToolCall(toolName: string, args: Record<string, unknown>): ProjectContextFile[] {
+		const { addedFiles: newlyRelevantFiles } = this._scopedContextTracker.loadForToolCall(
+			toolName,
+			args,
+			this._getActiveContextFiles(),
+		);
+		if (newlyRelevantFiles.length === 0) return [];
 
-		const rawPaths = getPathScopedToolPaths(toolName, args);
-		if (rawPaths.length === 0) return;
-
-		const activeContextFiles = this._getActiveContextFiles();
-		const knownCanonicalPaths = new Set(activeContextFiles.map((file) => canonicalizePath(file.path)));
-		const knownContents = new Set(activeContextFiles.map((file) => file.content));
-		const newlyRelevantFiles: ProjectContextFile[] = [];
-
-		for (const rawPath of rawPaths) {
-			try {
-				const resolvedPath = resolvePath(rawPath, this._cwd, {
-					normalizeUnicodeSpaces: true,
-					stripAtPrefix: true,
-				});
-				const result = getAgentsFilesForPath.call(this._resourceLoader, resolvedPath);
-				for (const contextFile of result.agentsFiles) {
-					const canonicalPath = canonicalizePath(contextFile.path);
-					if (knownCanonicalPaths.has(canonicalPath) || knownContents.has(contextFile.content)) continue;
-					knownCanonicalPaths.add(canonicalPath);
-					knownContents.add(contextFile.content);
-					newlyRelevantFiles.push(contextFile);
-				}
-				for (const warning of result.diagnostics.warnings) {
-					if (!this._contextWarnings.includes(warning)) this._contextWarnings.push(warning);
-				}
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				const warning = `Path-scoped context lookup failed for ${rawPath}: ${message}`;
-				if (!this._contextWarnings.includes(warning)) this._contextWarnings.push(warning);
-			}
-		}
-
-		if (newlyRelevantFiles.length === 0) return;
-
-		this._scopedContextFiles.push(...newlyRelevantFiles);
 		this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
 		if (this._systemPromptOverride) {
 			this._dynamicContextPromptSuffix += formatProjectContextFiles(newlyRelevantFiles);
@@ -593,73 +488,14 @@ export class AgentSession {
 		} else {
 			this.agent.state.systemPrompt = this._baseSystemPrompt;
 		}
+
+		return newlyRelevantFiles;
 	}
 
 	private _getEffectiveSystemPrompt(): string {
 		return this._systemPromptOverride
 			? this._systemPromptOverride + this._dynamicContextPromptSuffix
 			: this._baseSystemPrompt;
-	}
-
-	private _recordToolOutputTelemetry(
-		toolName: string,
-		args: Record<string, unknown>,
-		content: ReadonlyArray<{ type: string; text?: string }>,
-		details: unknown,
-		isError: boolean,
-	): void {
-		const returned = getTextOutputStats(content);
-		const truncation = getTruncationDetails(details);
-		const existing = this._toolOutputTelemetry.get(toolName);
-		const telemetry = existing ?? {
-			toolName,
-			calls: 0,
-			successes: 0,
-			failures: 0,
-			rawOutputBytes: 0,
-			returnedOutputBytes: 0,
-			rawOutputLines: 0,
-			returnedOutputLines: 0,
-			truncationCount: 0,
-			truncatedBy: { lines: 0, bytes: 0 },
-			fullOutputAvailable: 0,
-			followUpRetrievals: 0,
-			repeatedReads: 0,
-		};
-
-		telemetry.calls += 1;
-		if (isError) telemetry.failures += 1;
-		else telemetry.successes += 1;
-		telemetry.rawOutputBytes += truncation?.totalBytes ?? returned.bytes;
-		telemetry.returnedOutputBytes += returned.bytes;
-		telemetry.rawOutputLines += truncation?.totalLines ?? returned.lines;
-		telemetry.returnedOutputLines += returned.lines;
-		if (truncation?.truncated) {
-			telemetry.truncationCount += 1;
-			if (truncation.truncatedBy === "lines") telemetry.truncatedBy.lines += 1;
-			if (truncation.truncatedBy === "bytes") telemetry.truncatedBy.bytes += 1;
-		}
-		const fullOutputPath = getFullOutputPath(details);
-		if (fullOutputPath) {
-			telemetry.fullOutputAvailable += 1;
-			const canonicalFullOutputPath = canonicalizePath(resolvePath(fullOutputPath, this._cwd));
-			const owners = this._fullOutputOwners.get(canonicalFullOutputPath) ?? new Set<string>();
-			owners.add(toolName);
-			this._fullOutputOwners.set(canonicalFullOutputPath, owners);
-		}
-
-		if (toolName === "read" && typeof args.path === "string") {
-			const path = canonicalizePath(resolvePath(args.path, this._cwd));
-			for (const owner of this._fullOutputOwners.get(path) ?? []) {
-				const ownerTelemetry = this._toolOutputTelemetry.get(owner);
-				if (ownerTelemetry) ownerTelemetry.followUpRetrievals += 1;
-			}
-			const previousReads = this._readPathCounts.get(path) ?? 0;
-			if (previousReads > 0) telemetry.repeatedReads += 1;
-			this._readPathCounts.set(path, previousReads + 1);
-		}
-
-		this._toolOutputTelemetry.set(toolName, telemetry);
 	}
 
 	/**
@@ -673,32 +509,42 @@ export class AgentSession {
 	private _installAgentToolHooks(): void {
 		this.agent.beforeToolCall = async ({ toolCall, args }) => {
 			const input = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-			this._loadScopedContextForToolCall(toolCall.name, input);
+			const newlyLoadedContextFiles = this._loadScopedContextForToolCall(toolCall.name, input);
 			const runner = this._extensionRunner;
-			if (!runner.hasHandlers("tool_call")) {
-				return undefined;
+			let extensionResult: ToolCallEventResult | undefined;
+			if (runner.hasHandlers("tool_call")) {
+				try {
+					extensionResult = await runner.emitToolCall({
+						type: "tool_call",
+						toolName: toolCall.name,
+						toolCallId: toolCall.id,
+						input,
+					});
+				} catch (err) {
+					if (err instanceof Error) {
+						throw err;
+					}
+					throw new Error(`Extension failed, blocking execution: ${String(err)}`);
+				}
 			}
 
-			try {
-				return await runner.emitToolCall({
-					type: "tool_call",
-					toolName: toolCall.name,
-					toolCallId: toolCall.id,
-					input,
-				});
-			} catch (err) {
-				if (err instanceof Error) {
-					throw err;
-				}
-				throw new Error(`Extension failed, blocking execution: ${String(err)}`);
+			if (extensionResult?.block) return extensionResult;
+			if (isMutatingPathTool(toolCall.name) && newlyLoadedContextFiles.length > 0) {
+				return {
+					block: true,
+					reason:
+						"Path-scoped project instructions were loaded for this mutation. Retry the tool call so the instructions are active first.",
+				};
 			}
+
+			return extensionResult;
 		};
 
 		this.agent.afterToolCall = async ({ toolCall, args, result, isError }) => {
 			const input = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
 			const runner = this._extensionRunner;
 			if (!runner.hasHandlers("tool_result")) {
-				this._recordToolOutputTelemetry(toolCall.name, input, result.content, result.details, isError);
+				this._toolOutputTelemetryStore.record(toolCall.name, input, result.content, result.details, isError);
 				return undefined;
 			}
 
@@ -713,14 +559,14 @@ export class AgentSession {
 			});
 
 			if (!hookResult) {
-				this._recordToolOutputTelemetry(toolCall.name, input, result.content, result.details, isError);
+				this._toolOutputTelemetryStore.record(toolCall.name, input, result.content, result.details, isError);
 				return undefined;
 			}
 
 			const content = hookResult.content ?? result.content;
 			const details = hookResult.details !== undefined ? hookResult.details : result.details;
 			const finalIsError = hookResult.isError ?? isError;
-			this._recordToolOutputTelemetry(toolCall.name, input, content, details, finalIsError);
+			this._toolOutputTelemetryStore.record(toolCall.name, input, content, details, finalIsError);
 
 			return {
 				content: hookResult.content,
@@ -1116,9 +962,7 @@ export class AgentSession {
 
 	/** Read-only aggregate telemetry for tool output size and truncation behavior. */
 	getToolOutputTelemetry(): ToolOutputTelemetry[] {
-		return Array.from(this._toolOutputTelemetry.values())
-			.map((telemetry) => ({ ...telemetry, truncatedBy: { ...telemetry.truncatedBy } }))
-			.sort((left, right) => left.toolName.localeCompare(right.toolName));
+		return this._toolOutputTelemetryStore.list();
 	}
 
 	/** Read-only summary of persistent context and capability exposure for diagnostics. */
@@ -1166,7 +1010,7 @@ export class AgentSession {
 			})
 			.join("\n");
 		const skillMetadataChars = this._skillMetadataDiagnostics?.metadataChars ?? 0;
-		const warnings = [...contextDiagnostics.warnings, ...this._contextWarnings];
+		const warnings = [...contextDiagnostics.warnings, ...this._scopedContextTracker.getWarnings()];
 		const skillDiagnostics = this._skillMetadataDiagnostics;
 		if (skillDiagnostics?.omittedCount) {
 			warnings.push(
@@ -2950,6 +2794,8 @@ export class AgentSession {
 		this.syncQueueModesFromSettings();
 		resetApiProviders();
 		await this._resourceLoader.reload();
+		this._scopedContextTracker.reset();
+		this._dynamicContextPromptSuffix = "";
 		this._buildRuntime({
 			activeToolNames: this.getActiveToolNames(),
 			flagValues: previousFlagValues,
