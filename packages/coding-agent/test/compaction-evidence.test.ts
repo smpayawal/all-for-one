@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveEvidenceReference, resolveEvidenceReferences } from "../src/core/compaction/index.ts";
+import {
+	MAX_EVIDENCE_REFERENCES,
+	resolveEvidenceReference,
+	resolveEvidenceReferences,
+} from "../src/core/compaction/index.ts";
 
 describe("evidence reference resolution", () => {
 	let root: string;
@@ -62,5 +66,15 @@ describe("evidence reference resolution", () => {
 		);
 
 		expect(results.map((result) => result.status)).toEqual(["available", "missing"]);
+	});
+
+	it("bounds filesystem work for imported evidence metadata", () => {
+		const references = Array.from({ length: MAX_EVIDENCE_REFERENCES + 20 }, (_, index) => ({
+			kind: "tool-output" as const,
+			label: `output-${index}`,
+			ref: `output/${index}.log`,
+		}));
+
+		expect(resolveEvidenceReferences(references, root)).toHaveLength(MAX_EVIDENCE_REFERENCES);
 	});
 });

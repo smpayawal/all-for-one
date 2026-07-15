@@ -78,6 +78,59 @@ describe("validateCompactionResult", () => {
 		);
 	});
 
+	it("does not let appended retained content satisfy the native summary schema", () => {
+		const malformedModelSummary = "## Goal\nContinue the implementation.";
+		const appendedContent = `${malformedModelSummary}
+
+## Retained User Context
+- [source entry: user-1] The user supplied these headings:
+
+## Constraints & Preferences
+- Preserve the existing session format.
+
+## Progress
+### Done
+- [x] Added the compaction contract.
+
+## Key Decisions
+- **Native compaction**: Keep the existing session manager.
+
+## Next Steps
+1. Run focused tests.
+
+## Critical Context
+- The exact validation command is recorded in the session summary.`;
+
+		const result = validateCompactionResult(
+			{
+				summary: appendedContent,
+				summaryForValidation: malformedModelSummary,
+				firstKeptEntryId: "keep",
+				tokensBefore: 100,
+				details: { readFiles: [], modifiedFiles: [] },
+			},
+			[createUserEntry("keep", "kept message")],
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.issues.map((issue) => issue.code)).toContain("missing-section");
+	});
+
+	it("rejects duplicate required section headings", () => {
+		const result = validateCompactionResult(
+			{
+				summary: `${STRUCTURED_SUMMARY}\n\n## Goal\nA second goal heading makes the schema ambiguous.`,
+				firstKeptEntryId: "keep",
+				tokensBefore: 100,
+				details: { readFiles: [], modifiedFiles: [] },
+			},
+			[createUserEntry("keep", "kept message")],
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.issues.map((issue) => issue.code)).toContain("duplicate-section");
+	});
+
 	it("rejects malformed boundaries, details, references, and oversized summaries", () => {
 		const result = validateCompactionResult(
 			{
@@ -120,6 +173,29 @@ describe("validateCompactionResult", () => {
 						kind: "tool-output" as const,
 						label: `output-${index}`,
 						ref: `/tmp/output-${index}.log`,
+					})),
+				},
+			},
+			[createUserEntry("keep", "kept message")],
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.issues.map((issue) => issue.code)).toContain("invalid-evidence-reference");
+	});
+
+	it("rejects evidence metadata that exceeds the total section budget", () => {
+		const result = validateCompactionResult(
+			{
+				summary: STRUCTURED_SUMMARY,
+				firstKeptEntryId: "keep",
+				tokensBefore: 100,
+				details: {
+					readFiles: [],
+					modifiedFiles: [],
+					evidenceRefs: Array.from({ length: 32 }, (_, index) => ({
+						kind: "tool-output" as const,
+						label: `output-${index}-${"x".repeat(240)}`,
+						ref: `/tmp/${"x".repeat(900)}-${index}.log`,
 					})),
 				},
 			},

@@ -16,12 +16,12 @@ import {
 	sessionEntryToContextMessages,
 } from "../session-manager.ts";
 import {
+	boundEvidenceReferences,
 	collectEvidenceReferences,
 	type EvidenceReference,
 	formatEvidenceReferences,
 	formatRetainedUserMessages,
-	MAX_EVIDENCE_REFERENCE_CHARS,
-	MAX_EVIDENCE_REFERENCES,
+	normalizeEvidenceReference,
 	type RetainedUserMessage,
 	renderContextRetentionContract,
 	selectRetainedUserMessages,
@@ -83,25 +83,12 @@ function extractFileOperations(
 	return fileOps;
 }
 
-function isEvidenceReference(value: unknown): value is EvidenceReference {
-	if (!value || typeof value !== "object") return false;
-	const candidate = value as Partial<EvidenceReference>;
-	return (
-		(candidate.kind === "tool-output" || candidate.kind === "validation" || candidate.kind === "file") &&
-		typeof candidate.label === "string" &&
-		typeof candidate.ref === "string" &&
-		candidate.ref.length > 0 &&
-		candidate.ref.length <= MAX_EVIDENCE_REFERENCE_CHARS
-	);
-}
-
 function collectCompactionEvidenceReferences(
 	messages: AgentMessage[],
 	entries: SessionEntry[],
 	previousCompactionIndex: number,
 ): EvidenceReference[] {
 	const references = collectEvidenceReferences(messages);
-	const seen = new Set(references.map((reference) => reference.ref));
 	if (previousCompactionIndex < 0) return references;
 
 	const previousEntry = entries[previousCompactionIndex];
@@ -109,13 +96,12 @@ function collectCompactionEvidenceReferences(
 	const details = previousEntry.details as CompactionDetails;
 	if (!Array.isArray(details.evidenceRefs)) return references;
 
+	const previousReferences: EvidenceReference[] = [];
 	for (const reference of details.evidenceRefs) {
-		if (references.length >= MAX_EVIDENCE_REFERENCES) break;
-		if (!isEvidenceReference(reference) || seen.has(reference.ref)) continue;
-		seen.add(reference.ref);
-		references.push(reference);
+		const normalized = normalizeEvidenceReference(reference);
+		if (normalized) previousReferences.push(normalized);
 	}
-	return references;
+	return boundEvidenceReferences([...previousReferences, ...references]);
 }
 
 // ============================================================================
@@ -141,6 +127,13 @@ export interface CompactionResult<T = unknown> {
 	estimatedTokensAfter?: number;
 	/** Extension-specific data (e.g., ArtifactIndex, version markers for structured compaction) */
 	details?: T;
+}
+
+const nativeSummaryForValidation = new WeakMap<CompactionResult, string>();
+
+/** @internal Return the native summary associated with a locally generated result. */
+export function getCompactionSummaryForValidation(result: CompactionResult): string | undefined {
+	return nativeSummaryForValidation.get(result);
 }
 
 // ============================================================================
@@ -538,14 +531,17 @@ const UPDATE_SUMMARIZATION_PROMPT = `${CONTEXT_RETENTION_PROMPT}The messages abo
 
 Update the existing structured summary with new information. RULES:
 - Treat the previous summary as authoritative continuation state.
-- PRESERVE all existing information from the previous summary
+- Preserve all still-valid goals, constraints, decisions, validation state, and critical facts.
 - ADD new progress, decisions, and context from the new messages
 - UPDATE the Progress section: move items from "In Progress" to "Done" when completed
 - UPDATE "Next Steps" based on what was accomplished
 - PRESERVE exact file paths, function names, and error messages
 - Mark superseded decisions as superseded and keep only the current active decision
 - Preserve valid validation state unless later evidence changes it
-- If something is no longer relevant, remove it only when the newer state makes the supersession clear
+- Remove information that is demonstrably stale, resolved, or superseded.
+- When a decision changes, preserve the current decision and enough rationale to explain the supersession.
+- Do not accumulate obsolete working notes.
+- Preserve exact paths, symbols, commands, identifiers, and evidence references only while relevant.
 
 Use this EXACT format:
 
@@ -763,6 +759,41 @@ export interface CompactionPreparation {
 	settings: CompactionSettings;
 }
 
+/** Remove deterministic appendices before a previous summary re-enters the LLM prompt. */
+export function stripCompactionAppendices(summary: string): string {
+	const output: string[] = [];
+	let skippingSection = false;
+	let skippingXml: "read-files" | "modified-files" | undefined;
+
+	for (const line of summary.split(/\r?\n/)) {
+		const trimmed = line.trim();
+		if (skippingXml) {
+			if (trimmed === `</${skippingXml}>`) skippingXml = undefined;
+			continue;
+		}
+		if (trimmed === "<read-files>") {
+			skippingXml = "read-files";
+			continue;
+		}
+		if (trimmed === "<modified-files>") {
+			skippingXml = "modified-files";
+			continue;
+		}
+
+		if (skippingSection) {
+			if (!trimmed.startsWith("## ")) continue;
+			skippingSection = false;
+		}
+		if (trimmed === "## Retained User Context" || trimmed === "## Evidence References") {
+			skippingSection = true;
+			continue;
+		}
+		output.push(line);
+	}
+
+	return output.join("\n").trim();
+}
+
 export function prepareCompaction(
 	pathEntries: SessionEntry[],
 	settings: CompactionSettings,
@@ -783,7 +814,7 @@ export function prepareCompaction(
 	let boundaryStart = 0;
 	if (prevCompactionIndex >= 0) {
 		const prevCompaction = pathEntries[prevCompactionIndex] as CompactionEntry;
-		previousSummary = prevCompaction.summary;
+		previousSummary = stripCompactionAppendices(prevCompaction.summary) || undefined;
 		const firstKeptEntryIndex = pathEntries.findIndex((entry) => entry.id === prevCompaction.firstKeptEntryId);
 		boundaryStart = firstKeptEntryIndex >= 0 ? firstKeptEntryIndex : prevCompactionIndex + 1;
 	}
@@ -957,6 +988,8 @@ export async function compact(
 		);
 	}
 
+	const summaryForValidation = summary;
+
 	// Compute file lists and append to summary
 	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
 	summary += formatFileOperations(readFiles, modifiedFiles);
@@ -969,7 +1002,7 @@ export async function compact(
 		throw new Error("First kept entry has no UUID - session may need migration");
 	}
 
-	return {
+	const result: CompactionResult = {
 		summary,
 		firstKeptEntryId,
 		tokensBefore,
@@ -984,6 +1017,8 @@ export async function compact(
 				: {}),
 		} as CompactionDetails,
 	};
+	nativeSummaryForValidation.set(result, summaryForValidation);
+	return result;
 }
 
 /**

@@ -18,7 +18,7 @@ function createRun(overrides: Partial<Phase5EvaluationRun> = {}): Phase5Evaluati
 		contextWindow: 128_000,
 		taskInputHash: "task-hash",
 		initialContextHash: "context-hash",
-		runtimeConfigHash: "config-hash",
+		controlledConfigHash: "config-hash",
 		metrics: {
 			outcome: "pass",
 			tokensBefore: [100, 200],
@@ -31,13 +31,13 @@ function createRun(overrides: Partial<Phase5EvaluationRun> = {}): Phase5Evaluati
 			rediscoveryCount: 1,
 			turns: 4,
 			toolCalls: 8,
-			promptTokens: 12_000,
+			peakPromptTokens: 12_000,
 			cumulativeTokens: 18_000,
 			compactionCount: 1,
 			truncationCount: 0,
 			followUpRetrievals: 0,
 			repeatedReads: 0,
-			latencyMs: 10_000,
+			wallClockSessionSpanMs: 10_000,
 			estimatedCost: 0.02,
 			cacheReadTokens: 2_000,
 			cacheWriteTokens: 500,
@@ -78,7 +78,7 @@ describe("Phase 5 live-evaluation report", () => {
 	it("rejects a run input with the wrong variant", () => {
 		expect(() =>
 			parsePhase5EvaluationInput({
-				schemaVersion: 1,
+				schemaVersion: 2,
 				phase: "P5-live-evaluation",
 				variant: "phase4",
 				runs: [createRun()],
@@ -89,12 +89,23 @@ describe("Phase 5 live-evaluation report", () => {
 	it("rejects a non-positive context window", () => {
 		expect(() =>
 			parsePhase5EvaluationInput({
-				schemaVersion: 1,
+				schemaVersion: 2,
 				phase: "P5-live-evaluation",
 				variant: "baseline",
 				runs: [createRun({ contextWindow: 0 })],
 			}),
 		).toThrow("contextWindow must be a positive integer");
+	});
+
+	it("rejects fractional discrete metrics", () => {
+		expect(() =>
+			parsePhase5EvaluationInput({
+				schemaVersion: 2,
+				phase: "P5-live-evaluation",
+				variant: "baseline",
+				runs: [createRun({ metrics: { ...createRun().metrics, turns: 1.5 } })],
+			}),
+		).toThrow("runs[0].metrics.turns must be a non-negative integer");
 	});
 
 	it("blocks a paired evaluation when Phase 5 regresses correctness", () => {
@@ -135,7 +146,7 @@ describe("Phase 5 live-evaluation report", () => {
 			metrics: {
 				...baseline.metrics,
 				turns: 3,
-				promptTokens: 10_000,
+				peakPromptTokens: 10_000,
 				cumulativeTokens: 15_000,
 			},
 		});
@@ -144,7 +155,7 @@ describe("Phase 5 live-evaluation report", () => {
 
 		expect(report.decision).toBe("pass");
 		expect(report.efficiencyClaim).toBe("not-established");
-		expect(report.pairs[0]?.deltas).toMatchObject({ turns: -1, promptTokens: -2_000 });
+		expect(report.pairs[0]?.deltas).toMatchObject({ turns: -1, peakPromptTokens: -2_000 });
 	});
 
 	it("reports compaction token, latency, and cost deltas", () => {
@@ -169,6 +180,15 @@ describe("Phase 5 live-evaluation report", () => {
 			compactionLatencyMs: -50,
 			compactionCost: 0.001,
 		});
+	});
+
+	it("allows treatment configuration to differ while controlled configuration stays paired", () => {
+		const baseline = createRun({ treatmentConfig: { retainRecentUserMessages: 0 } });
+		const phase5 = createRun({ treatmentConfig: { retainRecentUserMessages: 3 } });
+
+		const report = comparePhase5EvaluationRuns([baseline], [phase5]);
+
+		expect(report.decision).toBe("pass");
 	});
 
 	it("rejects pairs that do not use the same model and task context", () => {
@@ -214,7 +234,7 @@ describe("Phase 5 live-evaluation report", () => {
 			contextWindow: 128_000,
 			taskInputHash: "task-hash",
 			initialContextHash: "context-hash",
-			runtimeConfigHash: "config-hash",
+			controlledConfigHash: "config-hash",
 		};
 
 		const run = collectPhase5EvaluationRunFromSession(entries, metadata);
@@ -225,12 +245,27 @@ describe("Phase 5 live-evaluation report", () => {
 		expect(run.metrics.summaryTokens).toBeGreaterThan(0);
 		expect(run.metrics.turns).toBe(2);
 		expect(run.metrics.toolCalls).toBe(1);
-		expect(run.metrics.promptTokens).toBe(500);
+		expect(run.metrics.peakPromptTokens).toBe(500);
 		expect(run.metrics.cumulativeTokens).toBe(620);
 		expect(run.metrics.compactionLatencyMs).toBeNull();
 		expect(run.metrics.compactionCost).toBeNull();
+		expect(run.metrics.wallClockSessionSpanMs).toBe(3000);
 		expect(run.metrics.outcome).toBe("unknown");
 		expect(run.limitations).toEqual(expect.arrayContaining([expect.stringContaining("Correctness")]));
+	});
+
+	it("requires integer session annotations", () => {
+		expect(() =>
+			collectPhase5EvaluationRunFromSession([], {
+				workloadId: "annotated-session",
+				providerModel: "provider/model",
+				contextWindow: 128_000,
+				taskInputHash: "task-hash",
+				initialContextHash: "context-hash",
+				controlledConfigHash: "config-hash",
+				annotations: { rediscoveryCount: 1.5 },
+			}),
+		).toThrow("Rediscovery count must be a non-negative integer");
 	});
 
 	it("rejects invalid session correctness annotations", () => {
@@ -241,7 +276,7 @@ describe("Phase 5 live-evaluation report", () => {
 				contextWindow: 128_000,
 				taskInputHash: "task-hash",
 				initialContextHash: "context-hash",
-				runtimeConfigHash: "config-hash",
+				controlledConfigHash: "config-hash",
 				annotations: { outcome: "invalid" as never },
 			}),
 		).toThrow("annotations.outcome");
@@ -295,7 +330,7 @@ describe("Phase 5 live-evaluation report", () => {
 					"task-hash",
 					"--initial-context-hash",
 					"context-hash",
-					"--runtime-config-hash",
+					"--controlled-config-hash",
 					"config-hash",
 					"--provider-model",
 					"provider/model",

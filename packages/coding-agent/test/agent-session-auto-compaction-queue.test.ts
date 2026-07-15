@@ -160,6 +160,96 @@ describe("AgentSession auto-compaction queue resume", () => {
 		expect(continueSpy).not.toHaveBeenCalled();
 	});
 
+	it("should repair one malformed native summary during automatic compaction", async () => {
+		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
+		const model = session.model!;
+		const now = Date.now();
+		sessionManager.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "message to compact" }],
+			timestamp: now - 1000,
+		});
+		sessionManager.appendMessage({
+			role: "assistant",
+			content: [{ type: "text", text: "assistant response to compact" }],
+			api: model.api,
+			provider: model.provider,
+			model: model.id,
+			usage: {
+				input: 100,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 100,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop",
+			timestamp: now - 500,
+		});
+		sessionManager.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "recent suffix" }],
+			timestamp: now - 250,
+		});
+		session.agent.state.messages = sessionManager.buildSessionContext().messages;
+
+		const validSummary = [
+			"## Goal",
+			"Resume the queued session.",
+			"",
+			"## Constraints & Preferences",
+			"- Preserve the current task.",
+			"",
+			"## Progress",
+			"### Done",
+			"- [x] Compacted the prior messages.",
+			"",
+			"### In Progress",
+			"- [ ] Continue the task.",
+			"",
+			"### Blocked",
+			"- (none)",
+			"",
+			"## Key Decisions",
+			"- **Native compaction**: Repair one malformed result.",
+			"",
+			"## Next Steps",
+			"1. Continue the task.",
+			"",
+			"## Critical Context",
+			"- The repaired summary is structurally valid.",
+		].join("\n");
+		let calls = 0;
+		session.agent.streamFn = (summaryModel) => {
+			const stream = createAssistantMessageEventStream();
+			const summary = calls++ === 0 ? "## Goal\nMalformed summary" : validSummary;
+			queueMicrotask(() => {
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: {
+						...fauxAssistantMessage(summary),
+						api: summaryModel.api,
+						provider: summaryModel.provider,
+						model: summaryModel.id,
+					},
+				});
+			});
+			return stream;
+		};
+
+		const runAutoCompaction = (
+			session as unknown as {
+				_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
+			}
+		)._runAutoCompaction.bind(session);
+
+		await expect(runAutoCompaction("overflow", true)).resolves.toBe(true);
+
+		expect(calls).toBe(2);
+		expect(sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
 	it("should not compact repeatedly after overflow recovery already attempted", async () => {
 		const model = session.model!;
 		const overflowMessage: AssistantMessage = {

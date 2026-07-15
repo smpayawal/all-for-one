@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { UserMessage } from "@earendil-works/pi-ai";
+import { scanMemoryText } from "../memory.ts";
 import type { SessionEntry } from "../session-manager.ts";
 
 /**
@@ -44,8 +45,99 @@ export interface EvidenceReference {
 export const DEFAULT_RETAINED_USER_MESSAGE_CHARS = 8_000;
 export const MAX_RETAINED_USER_MESSAGES = 8;
 export const MAX_RETAINED_USER_MESSAGE_CHARS = 16_000;
-export const MAX_EVIDENCE_REFERENCES = 64;
-export const MAX_EVIDENCE_REFERENCE_CHARS = 2_048;
+export const MAX_EVIDENCE_REFERENCES = 32;
+export const MAX_EVIDENCE_REFERENCE_CHARS = 1_024;
+export const MAX_EVIDENCE_LABEL_CHARS = 256;
+export const MAX_EVIDENCE_SECTION_CHARS = 12_000;
+
+const EVIDENCE_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
+const RETAINED_NON_TEXT_NOTE = "[Non-text attachments are not included in retained exact text.]";
+const EVIDENCE_SECTION_PREFIX =
+	"## Evidence References\nExact external evidence already available for on-demand retrieval:\n";
+
+export function normalizeEvidenceReference(value: unknown): EvidenceReference | undefined {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+	const candidate = value as Partial<EvidenceReference>;
+	if (candidate.kind !== "tool-output" && candidate.kind !== "validation" && candidate.kind !== "file") {
+		return undefined;
+	}
+	if (typeof candidate.label !== "string" || typeof candidate.ref !== "string") return undefined;
+	const label = candidate.label.trim();
+	const ref = candidate.ref.trim();
+	if (
+		label.length === 0 ||
+		label.length > MAX_EVIDENCE_LABEL_CHARS ||
+		ref.length === 0 ||
+		ref.length > MAX_EVIDENCE_REFERENCE_CHARS ||
+		EVIDENCE_CONTROL_CHARACTER_PATTERN.test(label) ||
+		EVIDENCE_CONTROL_CHARACTER_PATTERN.test(ref)
+	) {
+		return undefined;
+	}
+	return { kind: candidate.kind, label, ref };
+}
+
+function formatEvidenceReferenceLine(reference: EvidenceReference): string {
+	return `- [${reference.kind}] ${reference.label}: ${reference.ref}\n`;
+}
+
+/** Estimate the bounded evidence section using normalized, de-duplicated references. */
+export function getEvidenceReferenceSectionChars(references: readonly unknown[]): number {
+	let sectionChars = EVIDENCE_SECTION_PREFIX.length;
+	const seen = new Set<string>();
+	for (const candidate of references) {
+		const reference = normalizeEvidenceReference(candidate);
+		if (!reference || seen.has(reference.ref)) continue;
+		seen.add(reference.ref);
+		sectionChars += formatEvidenceReferenceLine(reference).length;
+	}
+	return sectionChars;
+}
+
+/** Normalize and retain the newest references within both count and section budgets. */
+export function boundEvidenceReferences(references: readonly unknown[]): EvidenceReference[] {
+	let sectionChars = EVIDENCE_SECTION_PREFIX.length;
+	const selected: EvidenceReference[] = [];
+	const seen = new Set<string>();
+
+	for (let index = references.length - 1; index >= 0 && selected.length < MAX_EVIDENCE_REFERENCES; index -= 1) {
+		const reference = normalizeEvidenceReference(references[index]);
+		if (!reference || seen.has(reference.ref)) continue;
+		const line = formatEvidenceReferenceLine(reference);
+		if (sectionChars + line.length > MAX_EVIDENCE_SECTION_CHARS) continue;
+		seen.add(reference.ref);
+		selected.push(reference);
+		sectionChars += line.length;
+	}
+
+	return selected.reverse();
+}
+
+export interface NormalizedEvidenceReferences {
+	references: EvidenceReference[];
+	malformed: boolean;
+}
+
+export function normalizeEvidenceReferences(value: unknown): NormalizedEvidenceReferences {
+	if (!Array.isArray(value)) return { references: [], malformed: true };
+	let malformed = false;
+	const references: EvidenceReference[] = [];
+	for (const candidate of value) {
+		const normalized = normalizeEvidenceReference(candidate);
+		if (!normalized) {
+			malformed = true;
+			continue;
+		}
+		references.push(normalized);
+	}
+	if (
+		references.length > MAX_EVIDENCE_REFERENCES ||
+		getEvidenceReferenceSectionChars(references) > MAX_EVIDENCE_SECTION_CHARS
+	) {
+		malformed = true;
+	}
+	return { references: boundEvidenceReferences(references), malformed };
+}
 
 export const CONTEXT_RETENTION_CONTRACT: readonly ContextRetentionRule[] = [
 	{
@@ -95,14 +187,23 @@ function normalizeLimit(value: number | undefined, fallback: number, maximum: nu
 	return Math.min(maximum, Math.max(0, Math.floor(value)));
 }
 
-function renderUserMessageContent(content: UserMessage["content"]): string | undefined {
-	if (typeof content === "string") return content;
+interface RenderedUserMessageContent {
+	text: string;
+	hasNonTextContent: boolean;
+}
+
+function renderUserMessageContent(content: UserMessage["content"]): RenderedUserMessageContent {
+	if (typeof content === "string") return { text: content, hasNonTextContent: false };
 	const textBlocks: string[] = [];
+	let hasNonTextContent = false;
 	for (const block of content) {
-		if (block.type !== "text") return undefined;
-		textBlocks.push(block.text);
+		if (block.type === "text") {
+			textBlocks.push(block.text);
+		} else {
+			hasNonTextContent = true;
+		}
 	}
-	return textBlocks.join("\n");
+	return { text: textBlocks.join("\n"), hasNonTextContent };
 }
 
 /**
@@ -134,11 +235,17 @@ export function selectRetainedUserMessages(
 		const entry = entries[index];
 		if (entry?.type !== "message" || entry.message.role !== "user") continue;
 
-		const content = renderUserMessageContent(entry.message.content);
-		if (content === undefined || content.length === 0 || content.length > remainingChars) continue;
+		const rendered = renderUserMessageContent(entry.message.content);
+		if (
+			rendered.text.length === 0 ||
+			rendered.text.length > remainingChars ||
+			scanMemoryText(rendered.text).length > 0
+		) {
+			continue;
+		}
 
 		selected.push({ entryId: entry.id, message: entry.message });
-		remainingChars -= content.length;
+		remainingChars -= rendered.text.length;
 	}
 
 	return selected.reverse();
@@ -148,8 +255,13 @@ export function formatRetainedUserMessages(messages: readonly RetainedUserMessag
 	if (messages.length === 0) return "";
 
 	const lines = messages.flatMap(({ entryId, message }) => {
-		const content = renderUserMessageContent(message.content);
-		return content === undefined ? [] : [`- [source entry: ${entryId}] ${content}`];
+		const rendered = renderUserMessageContent(message.content);
+		if (rendered.text.length === 0) return [];
+		return [
+			`- [source entry: ${entryId}]`,
+			...rendered.text.split(/\r?\n/).map((line) => `  > ${line}`),
+			...(rendered.hasNonTextContent ? [`  > ${RETAINED_NON_TEXT_NOTE}`] : []),
+		];
 	});
 	if (lines.length === 0) return "";
 	return [
@@ -168,7 +280,6 @@ export function getFullOutputPath(value: unknown): string | undefined {
 /** Collect only explicit saved-output paths already attached to session messages. */
 export function collectEvidenceReferences(messages: readonly AgentMessage[]): EvidenceReference[] {
 	const references: EvidenceReference[] = [];
-	const seen = new Set<string>();
 
 	for (const message of messages) {
 		let ref: string | undefined;
@@ -181,26 +292,20 @@ export function collectEvidenceReferences(messages: readonly AgentMessage[]): Ev
 			label = message.role === "bashExecution" ? "bash output" : "tool output";
 		}
 
-		if (!ref || !label || ref.length > MAX_EVIDENCE_REFERENCE_CHARS || seen.has(ref)) continue;
-		seen.add(ref);
-		references.push({ kind: "tool-output", label, ref });
-		if (references.length > MAX_EVIDENCE_REFERENCES) {
-			const removed = references.shift();
-			if (removed) seen.delete(removed.ref);
-		}
+		const normalized = normalizeEvidenceReference({ kind: "tool-output", label, ref });
+		if (normalized) references.push(normalized);
 	}
 
-	return references;
+	return boundEvidenceReferences(references);
 }
 
 export function formatEvidenceReferences(references: readonly EvidenceReference[]): string {
-	if (references.length === 0) return "";
+	const boundedReferences = boundEvidenceReferences(references);
+	if (boundedReferences.length === 0) return "";
 
 	return [
 		"## Evidence References",
 		"Exact external evidence already available for on-demand retrieval:",
-		...references
-			.slice(0, MAX_EVIDENCE_REFERENCES)
-			.map((reference) => `- [${reference.kind}] ${reference.label}: ${reference.ref}`),
+		...boundedReferences.map((reference) => `- [${reference.kind}] ${reference.label}: ${reference.ref}`),
 	].join("\n");
 }

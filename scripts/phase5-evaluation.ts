@@ -3,14 +3,19 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { estimateTextTokens } from "../packages/ai/src/utils/estimate.ts";
 import { resolveEvidenceReferences } from "../packages/coding-agent/src/core/compaction/evidence.ts";
-import type { EvidenceReference } from "../packages/coding-agent/src/core/compaction/retention.ts";
+import {
+	normalizeEvidenceReferences,
+	type EvidenceReference,
+} from "../packages/coding-agent/src/core/compaction/retention.ts";
 
-export const PHASE5_EVALUATION_SCHEMA_VERSION = 1 as const;
+export const PHASE5_EVALUATION_SCHEMA_VERSION = 2 as const;
 export const PHASE5_EVALUATION_PHASE = "P5-live-evaluation" as const;
 
 export type Phase5EvaluationVariant = "baseline" | "phase5";
 export type Phase5EvaluationOutcome = "pass" | "fail" | "unknown";
 export type Phase5EvaluationDecision = "pass" | "blocked" | "inconclusive";
+export type Phase5TreatmentValue = string | number | boolean | null;
+export type Phase5TreatmentConfig = Record<string, Phase5TreatmentValue>;
 
 export interface Phase5EvaluationMetrics {
 	outcome: Phase5EvaluationOutcome;
@@ -24,13 +29,13 @@ export interface Phase5EvaluationMetrics {
 	rediscoveryCount: number;
 	turns: number;
 	toolCalls: number;
-	promptTokens: number;
+	peakPromptTokens: number;
 	cumulativeTokens: number;
 	compactionCount: number;
 	truncationCount: number;
 	followUpRetrievals: number;
 	repeatedReads: number;
-	latencyMs: number | null;
+	wallClockSessionSpanMs: number | null;
 	estimatedCost: number | null;
 	cacheReadTokens: number;
 	cacheWriteTokens: number;
@@ -44,7 +49,8 @@ export interface Phase5EvaluationRun {
 	contextWindow: number;
 	taskInputHash: string;
 	initialContextHash: string;
-	runtimeConfigHash: string;
+	controlledConfigHash: string;
+	treatmentConfig?: Phase5TreatmentConfig;
 	metrics: Phase5EvaluationMetrics;
 	limitations?: string[];
 }
@@ -64,13 +70,13 @@ export interface Phase5EvaluationDeltas {
 	compactionCost: number | null;
 	turns: number;
 	toolCalls: number;
-	promptTokens: number;
+	peakPromptTokens: number;
 	cumulativeTokens: number;
 	compactionCount: number;
 	truncationCount: number;
 	followUpRetrievals: number;
 	repeatedReads: number;
-	latencyMs: number | null;
+	wallClockSessionSpanMs: number | null;
 	estimatedCost: number | null;
 	cacheReadTokens: number;
 	cacheWriteTokens: number;
@@ -116,7 +122,8 @@ export interface Phase5SessionRunMetadata {
 	contextWindow: number;
 	taskInputHash: string;
 	initialContextHash: string;
-	runtimeConfigHash: string;
+	controlledConfigHash: string;
+	treatmentConfig?: Phase5TreatmentConfig;
 	providerModel?: string;
 	cwd?: string;
 	annotations?: Phase5SessionRunAnnotations;
@@ -126,13 +133,14 @@ interface RecordValue {
 	[key: string]: unknown;
 }
 
-const NUMERIC_METRIC_KEYS = [
+const INTEGER_METRIC_KEYS = [
+	"summaryTokens",
 	"criticalConstraintFailures",
 	"staleDecisionCount",
 	"rediscoveryCount",
 	"turns",
 	"toolCalls",
-	"promptTokens",
+	"peakPromptTokens",
 	"cumulativeTokens",
 	"compactionCount",
 	"truncationCount",
@@ -142,12 +150,12 @@ const NUMERIC_METRIC_KEYS = [
 	"cacheWriteTokens",
 	"evidenceReferencesResolved",
 	"evidenceReferencesMissing",
-] as const satisfies ReadonlyArray<keyof Omit<Phase5EvaluationMetrics, "outcome" | "latencyMs" | "estimatedCost">>;
+] as const satisfies ReadonlyArray<keyof Omit<Phase5EvaluationMetrics, "outcome" | "compactionLatencyMs" | "compactionCost" | "wallClockSessionSpanMs" | "estimatedCost">>;
 
 const DELTA_KEYS = [
 	"turns",
 	"toolCalls",
-	"promptTokens",
+	"peakPromptTokens",
 	"cumulativeTokens",
 	"compactionCount",
 	"truncationCount",
@@ -157,7 +165,7 @@ const DELTA_KEYS = [
 	"cacheWriteTokens",
 	"evidenceReferencesResolved",
 	"evidenceReferencesMissing",
-] as const satisfies ReadonlyArray<keyof Omit<Phase5EvaluationDeltas, "latencyMs" | "estimatedCost">>;
+] as const satisfies ReadonlyArray<keyof Omit<Phase5EvaluationDeltas, "compactionLatencyMs" | "compactionCost" | "wallClockSessionSpanMs" | "estimatedCost">>;
 
 function isRecord(value: unknown): value is RecordValue {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -208,6 +216,14 @@ function nonNegativeNumberArray(value: RecordValue, key: string, path: string): 
 	});
 }
 
+function nonNegativeIntegerArray(value: RecordValue, key: string, path: string): number[] {
+	const values = nonNegativeNumberArray(value, key, path);
+	for (const [index, item] of values.entries()) {
+		if (!Number.isInteger(item)) throw new Error(`${path}.${key}[${index}] must be a non-negative integer`);
+	}
+	return values;
+}
+
 function optionalLimitations(value: RecordValue, path: string): string[] | undefined {
 	const field = value.limitations;
 	if (field === undefined) return undefined;
@@ -217,6 +233,28 @@ function optionalLimitations(value: RecordValue, path: string): string[] | undef
 	return field;
 }
 
+function optionalTreatmentConfig(value: RecordValue, path: string): Phase5TreatmentConfig | undefined {
+	const field = value.treatmentConfig;
+	if (field === undefined) return undefined;
+	if (!isRecord(field)) throw new Error(`${path}.treatmentConfig must be an object`);
+	const treatment: Phase5TreatmentConfig = {};
+	for (const [key, candidate] of Object.entries(field)) {
+		if (
+			typeof candidate !== "string" &&
+			typeof candidate !== "number" &&
+			typeof candidate !== "boolean" &&
+			candidate !== null
+		) {
+			throw new Error(`${path}.treatmentConfig.${key} must be a string, number, boolean, or null`);
+		}
+		if (typeof candidate === "number" && !Number.isFinite(candidate)) {
+			throw new Error(`${path}.treatmentConfig.${key} must be finite`);
+		}
+		treatment[key] = candidate;
+	}
+	return treatment;
+}
+
 function parseMetrics(value: unknown, path: string): Phase5EvaluationMetrics {
 	if (!isRecord(value)) throw new Error(`${path} must be an object`);
 
@@ -224,8 +262,8 @@ function parseMetrics(value: unknown, path: string): Phase5EvaluationMetrics {
 	if (outcome !== "pass" && outcome !== "fail" && outcome !== "unknown") {
 		throw new Error(`${path}.outcome must be pass, fail, or unknown`);
 	}
-	const tokensBefore = nonNegativeNumberArray(value, "tokensBefore", path);
-	const tokensAfter = nonNegativeNumberArray(value, "tokensAfter", path);
+	const tokensBefore = nonNegativeIntegerArray(value, "tokensBefore", path);
+	const tokensAfter = nonNegativeIntegerArray(value, "tokensAfter", path);
 	if (tokensBefore.length !== tokensAfter.length) {
 		throw new Error(`${path}.tokensBefore and ${path}.tokensAfter must have the same length`);
 	}
@@ -242,13 +280,13 @@ function parseMetrics(value: unknown, path: string): Phase5EvaluationMetrics {
 		rediscoveryCount: 0,
 		turns: 0,
 		toolCalls: 0,
-		promptTokens: 0,
+		peakPromptTokens: 0,
 		cumulativeTokens: 0,
 		compactionCount: 0,
 		truncationCount: 0,
 		followUpRetrievals: 0,
 		repeatedReads: 0,
-		latencyMs: nullableNonNegativeNumber(value, "latencyMs", path),
+		wallClockSessionSpanMs: nullableNonNegativeNumber(value, "wallClockSessionSpanMs", path),
 		estimatedCost: nullableNonNegativeNumber(value, "estimatedCost", path),
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
@@ -256,8 +294,8 @@ function parseMetrics(value: unknown, path: string): Phase5EvaluationMetrics {
 		evidenceReferencesMissing: 0,
 	} satisfies Phase5EvaluationMetrics;
 
-	for (const key of NUMERIC_METRIC_KEYS) {
-		metrics[key] = requiredNonNegativeNumber(value, key, path);
+	for (const key of INTEGER_METRIC_KEYS) {
+		metrics[key] = requiredNonNegativeInteger(value, key, path);
 	}
 	return metrics;
 }
@@ -272,7 +310,8 @@ function parseRun(value: unknown, index: number): Phase5EvaluationRun {
 		contextWindow: requiredPositiveInteger(value, "contextWindow", path),
 		taskInputHash: requiredString(value, "taskInputHash", path),
 		initialContextHash: requiredString(value, "initialContextHash", path),
-		runtimeConfigHash: requiredString(value, "runtimeConfigHash", path),
+		controlledConfigHash: requiredString(value, "controlledConfigHash", path),
+		treatmentConfig: optionalTreatmentConfig(value, path),
 		metrics: parseMetrics(value.metrics, `${path}.metrics`),
 		limitations: optionalLimitations(value, path),
 	};
@@ -355,30 +394,7 @@ function getAssistantObservation(entry: unknown, index: number): SessionAssistan
 function parseEvidenceReferences(details: unknown): { references: EvidenceReference[]; malformed: boolean } {
 	if (!isRecord(details) || details.evidenceRefs === undefined) return { references: [], malformed: false };
 	if (!Array.isArray(details.evidenceRefs)) return { references: [], malformed: true };
-
-	const references: EvidenceReference[] = [];
-	let malformed = false;
-	for (const candidate of details.evidenceRefs) {
-		if (!isRecord(candidate)) {
-			malformed = true;
-			continue;
-		}
-		const kind = candidate.kind;
-		const label = candidate.label;
-		const ref = candidate.ref;
-		if (
-			(kind !== "tool-output" && kind !== "validation" && kind !== "file") ||
-			typeof label !== "string" ||
-			label.trim().length === 0 ||
-			typeof ref !== "string" ||
-			ref.trim().length === 0
-		) {
-			malformed = true;
-			continue;
-		}
-		references.push({ kind, label, ref });
-	}
-	return { references, malformed };
+	return normalizeEvidenceReferences(details.evidenceRefs);
 }
 
 function getCompactionObservation(entry: unknown, index: number): SessionCompactionObservation | null {
@@ -412,7 +428,7 @@ function annotationCount(
 		addLimitation(limitations, `${label} was not annotated; defaulted to zero.`);
 		return 0;
 	}
-	if (!Number.isFinite(value) || value < 0) throw new RangeError(`${label} must be a finite non-negative number.`);
+	if (!Number.isInteger(value) || value < 0) throw new RangeError(`${label} must be a non-negative integer.`);
 	return value;
 }
 
@@ -428,7 +444,7 @@ export function collectPhase5EvaluationRunFromSession(
 		["workloadId", metadata.workloadId],
 		["taskInputHash", metadata.taskInputHash],
 		["initialContextHash", metadata.initialContextHash],
-		["runtimeConfigHash", metadata.runtimeConfigHash],
+		["controlledConfigHash", metadata.controlledConfigHash],
 	] as const;
 	for (const [key, value] of requiredMetadata) {
 		if (typeof value !== "string" || value.trim().length === 0) throw new Error(`${key} must be a non-empty string.`);
@@ -457,7 +473,7 @@ export function collectPhase5EvaluationRunFromSession(
 	if (usageObservations.length !== assistants.length) {
 		addLimitation(limitations, "One or more assistant messages had incomplete usage metadata.");
 	}
-	const promptTokens = usageObservations.reduce((maximum, assistant) => Math.max(maximum, assistant.usage.input), 0);
+	const peakPromptTokens = usageObservations.reduce((maximum, assistant) => Math.max(maximum, assistant.usage.input), 0);
 	const cumulativeTokens = usageObservations.reduce((total, assistant) => total + assistant.usage.totalTokens, 0);
 	const cacheReadTokens = usageObservations.reduce((total, assistant) => total + assistant.usage.cacheRead, 0);
 	const cacheWriteTokens = usageObservations.reduce((total, assistant) => total + assistant.usage.cacheWrite, 0);
@@ -470,8 +486,10 @@ export function collectPhase5EvaluationRunFromSession(
 	const timestamps = entries
 		.map((entry) => (isRecord(entry) ? entryTimestampMs(entry) : null))
 		.filter((timestamp): timestamp is number => timestamp !== null);
-	const latencyMs = timestamps.length > 1 ? Math.max(...timestamps) - Math.min(...timestamps) : null;
-	if (latencyMs === null) addLimitation(limitations, "Overall session latency could not be derived from timestamps.");
+	const wallClockSessionSpanMs = timestamps.length > 1 ? Math.max(...timestamps) - Math.min(...timestamps) : null;
+	if (wallClockSessionSpanMs === null) {
+		addLimitation(limitations, "Overall wall-clock session span could not be derived from timestamps.");
+	}
 
 	const tokensBefore = compactions.map((compaction) => compaction.tokensBefore);
 	const tokensAfter = compactions.map((compaction) => {
@@ -534,7 +552,8 @@ export function collectPhase5EvaluationRunFromSession(
 		contextWindow: metadata.contextWindow,
 		taskInputHash: metadata.taskInputHash,
 		initialContextHash: metadata.initialContextHash,
-		runtimeConfigHash: metadata.runtimeConfigHash,
+		controlledConfigHash: metadata.controlledConfigHash,
+		treatmentConfig: metadata.treatmentConfig,
 		limitations: Array.from(limitations),
 		metrics: {
 			outcome,
@@ -548,13 +567,13 @@ export function collectPhase5EvaluationRunFromSession(
 			rediscoveryCount,
 			turns: assistants.length,
 			toolCalls: assistants.reduce((total, assistant) => total + assistant.toolCalls, 0),
-			promptTokens,
+			peakPromptTokens,
 			cumulativeTokens,
 			compactionCount: compactions.length,
 			truncationCount,
 			followUpRetrievals,
 			repeatedReads,
-			latencyMs,
+			wallClockSessionSpanMs,
 			estimatedCost,
 			cacheReadTokens,
 			cacheWriteTokens,
@@ -610,7 +629,7 @@ function requireSamePairContext(baseline: Phase5EvaluationRun, phase5: Phase5Eva
 		["contextWindow", baseline.contextWindow, phase5.contextWindow],
 		["taskInputHash", baseline.taskInputHash, phase5.taskInputHash],
 		["initialContextHash", baseline.initialContextHash, phase5.initialContextHash],
-		["runtimeConfigHash", baseline.runtimeConfigHash, phase5.runtimeConfigHash],
+		["controlledConfigHash", baseline.controlledConfigHash, phase5.controlledConfigHash],
 	] as const;
 	for (const [name, baselineValue, phase5Value] of sharedFields) {
 		if (baselineValue !== phase5Value) {
@@ -636,13 +655,13 @@ function calculateDeltas(baseline: Phase5EvaluationMetrics, phase5: Phase5Evalua
 		compactionCost: metricDelta(phase5.compactionCost, baseline.compactionCost),
 		turns: 0,
 		toolCalls: 0,
-		promptTokens: 0,
+		peakPromptTokens: 0,
 		cumulativeTokens: 0,
 		compactionCount: 0,
 		truncationCount: 0,
 		followUpRetrievals: 0,
 		repeatedReads: 0,
-		latencyMs: metricDelta(phase5.latencyMs, baseline.latencyMs),
+		wallClockSessionSpanMs: metricDelta(phase5.wallClockSessionSpanMs, baseline.wallClockSessionSpanMs),
 		estimatedCost: metricDelta(phase5.estimatedCost, baseline.estimatedCost),
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
@@ -739,7 +758,8 @@ interface CliArguments {
 	contextWindow?: number;
 	taskInputHash?: string;
 	initialContextHash?: string;
-	runtimeConfigHash?: string;
+	controlledConfigHash?: string;
+	treatmentConfigPath?: string;
 	providerModel?: string;
 	cwd?: string;
 	annotationsPath?: string;
@@ -768,7 +788,8 @@ function parseArguments(argv: string[]): CliArguments {
 			argument === "--context-window" ||
 			argument === "--task-input-hash" ||
 			argument === "--initial-context-hash" ||
-			argument === "--runtime-config-hash" ||
+			argument === "--controlled-config-hash" ||
+			argument === "--treatment-config" ||
 			argument === "--provider-model" ||
 			argument === "--cwd" ||
 			argument === "--annotations"
@@ -806,8 +827,11 @@ function parseArguments(argv: string[]): CliArguments {
 				case "--initial-context-hash":
 					result.initialContextHash = value;
 					break;
-				case "--runtime-config-hash":
-					result.runtimeConfigHash = value;
+				case "--controlled-config-hash":
+					result.controlledConfigHash = value;
+					break;
+				case "--treatment-config":
+					result.treatmentConfigPath = value;
 					break;
 				case "--provider-model":
 					result.providerModel = value;
@@ -866,12 +890,23 @@ function loadSessionAnnotations(path: string): Phase5SessionRunAnnotations {
 	for (const key of SESSION_ANNOTATION_NUMBER_KEYS) {
 		const candidate = value[key];
 		if (candidate === undefined) continue;
-		if (typeof candidate !== "number" || !Number.isFinite(candidate) || candidate < 0) {
-			throw new Error(`annotations.${key} must be a finite non-negative number.`);
+		if (typeof candidate !== "number" || !Number.isInteger(candidate) || candidate < 0) {
+			throw new Error(`annotations.${key} must be a non-negative integer.`);
 		}
 		annotations[key] = candidate;
 	}
 	return annotations;
+}
+
+function loadTreatmentConfig(path: string): Phase5TreatmentConfig {
+	let value: unknown;
+	try {
+		value = JSON.parse(readFileSync(path, "utf8")) as unknown;
+	} catch (error) {
+		throw new Error(`Could not parse treatment config ${path}: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	if (!isRecord(value)) throw new Error(`Treatment config ${path} must contain a JSON object.`);
+	return optionalTreatmentConfig({ treatmentConfig: value }, "treatment") ?? {};
 }
 
 function loadSessionEntries(path: string): unknown[] {
@@ -896,7 +931,7 @@ function loadSessionInput(argumentsValue: CliArguments): Phase5EvaluationInput {
 		["--context-window", argumentsValue.contextWindow],
 		["--task-input-hash", argumentsValue.taskInputHash],
 		["--initial-context-hash", argumentsValue.initialContextHash],
-		["--runtime-config-hash", argumentsValue.runtimeConfigHash],
+		["--controlled-config-hash", argumentsValue.controlledConfigHash],
 	] as const;
 	for (const [flag, value] of required) {
 		if (value === undefined || value === "") throw new Error(`${flag} is required with --session`);
@@ -906,7 +941,10 @@ function loadSessionInput(argumentsValue: CliArguments): Phase5EvaluationInput {
 		contextWindow: argumentsValue.contextWindow as number,
 		taskInputHash: argumentsValue.taskInputHash as string,
 		initialContextHash: argumentsValue.initialContextHash as string,
-		runtimeConfigHash: argumentsValue.runtimeConfigHash as string,
+		controlledConfigHash: argumentsValue.controlledConfigHash as string,
+		treatmentConfig: argumentsValue.treatmentConfigPath
+			? loadTreatmentConfig(argumentsValue.treatmentConfigPath)
+			: undefined,
 		providerModel: argumentsValue.providerModel,
 		cwd: argumentsValue.cwd,
 		annotations: argumentsValue.annotationsPath ? loadSessionAnnotations(argumentsValue.annotationsPath) : undefined,
@@ -926,7 +964,7 @@ function printHumanReport(report: Phase5EvaluationReport): string {
 	];
 	for (const pair of report.pairs) {
 		lines.push(
-			`${pair.workloadId}: status=${pair.status}, correctness-regression=${pair.correctnessRegression}, critical-constraint-regression=${pair.criticalConstraintRegression}, stale-decision-regression=${pair.staleDecisionRegression}, turns-delta=${pair.deltas.turns}, prompt-tokens-delta=${pair.deltas.promptTokens}`,
+			`${pair.workloadId}: status=${pair.status}, correctness-regression=${pair.correctnessRegression}, critical-constraint-regression=${pair.criticalConstraintRegression}, stale-decision-regression=${pair.staleDecisionRegression}, turns-delta=${pair.deltas.turns}, peak-prompt-tokens-delta=${pair.deltas.peakPromptTokens}`,
 		);
 	}
 	return `${lines.join("\n")}\n`;
@@ -947,10 +985,10 @@ function printSessionInput(input: Phase5EvaluationInput): string {
 function printHelp(): string {
 	return [
 		"Usage: npm run evaluate:phase5 -- --baseline PATH --phase5 PATH [--json]",
-		"       npm run evaluate:phase5 -- --session PATH --variant baseline|phase5 --workload-id ID --context-window TOKENS --task-input-hash HASH --initial-context-hash HASH --runtime-config-hash HASH [options]",
+		"       npm run evaluate:phase5 -- --session PATH --variant baseline|phase5 --workload-id ID --context-window TOKENS --task-input-hash HASH --initial-context-hash HASH --controlled-config-hash HASH [options]",
 		"",
 		"Compares recorded baseline and Phase 5 workload results, or derives a cautious run record from session JSONL without executing a model.",
-		"Session options: --provider-model MODEL --cwd PATH --annotations PATH --json",
+		"Session options: --provider-model MODEL --cwd PATH --annotations PATH --treatment-config PATH --json",
 	].join("\n");
 }
 

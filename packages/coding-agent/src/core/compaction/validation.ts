@@ -1,10 +1,12 @@
 import type { SessionEntry } from "../session-manager.ts";
-import type { CompactionResult } from "./compaction.ts";
+import { type CompactionResult, getCompactionSummaryForValidation } from "./compaction.ts";
 import {
 	type EvidenceReference,
-	type EvidenceReferenceKind,
+	getEvidenceReferenceSectionChars,
 	MAX_EVIDENCE_REFERENCE_CHARS,
 	MAX_EVIDENCE_REFERENCES,
+	MAX_EVIDENCE_SECTION_CHARS,
+	normalizeEvidenceReference,
 } from "./retention.ts";
 
 export const REQUIRED_COMPACTION_SECTIONS = [
@@ -17,11 +19,14 @@ export const REQUIRED_COMPACTION_SECTIONS = [
 ] as const;
 
 export const MAX_COMPACTION_SUMMARY_CHARS = 128_000;
+const SPLIT_TURN_CONTEXT_MARKER = "**Turn Context (split turn):**";
 
 export type CompactionValidationIssueCode =
 	| "summary-empty"
 	| "summary-too-large"
+	| "rendered-summary-too-large"
 	| "missing-section"
+	| "duplicate-section"
 	| "empty-goal"
 	| "invalid-first-kept-entry"
 	| "invalid-tokens-before"
@@ -38,6 +43,8 @@ export interface CompactionValidationResult {
 	valid: boolean;
 	issues: CompactionValidationIssue[];
 }
+
+type CompactionResultForValidation = CompactionResult & { summaryForValidation?: string };
 
 function addIssue(issues: CompactionValidationIssue[], code: CompactionValidationIssueCode, message: string): void {
 	issues.push({ code, message });
@@ -56,24 +63,23 @@ function getSectionBody(summary: string, section: string): string | undefined {
 		.trim();
 }
 
+function countSectionHeadings(summary: string, section: string): number {
+	const heading = `## ${section}`;
+	return summary.split(/\r?\n/).filter((line) => line.trim() === heading).length;
+}
+
+function getPrimaryStructuredSummary(summary: string): string {
+	const lines = summary.split(/\r?\n/);
+	const splitTurnIndex = lines.findIndex((line) => line.trim() === SPLIT_TURN_CONTEXT_MARKER);
+	return lines.slice(0, splitTurnIndex < 0 ? lines.length : splitTurnIndex).join("\n");
+}
+
 function isStringArray(value: unknown): value is string[] {
 	return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-function isEvidenceReferenceKind(value: unknown): value is EvidenceReferenceKind {
-	return value === "tool-output" || value === "validation" || value === "file";
-}
-
 function isValidEvidenceReference(value: unknown): value is EvidenceReference {
-	if (!value || typeof value !== "object") return false;
-	const reference = value as Partial<EvidenceReference>;
-	return (
-		isEvidenceReferenceKind(reference.kind) &&
-		typeof reference.label === "string" &&
-		reference.label.trim().length > 0 &&
-		typeof reference.ref === "string" &&
-		reference.ref.trim().length > 0
-	);
+	return normalizeEvidenceReference(value) !== undefined;
 }
 
 function isUserMessageEntry(entry: SessionEntry | undefined): boolean {
@@ -126,6 +132,7 @@ function validateDetails(
 				`evidenceRefs cannot contain more than ${MAX_EVIDENCE_REFERENCES} references.`,
 			);
 		} else {
+			const validReferences: EvidenceReference[] = [];
 			for (const reference of candidate.evidenceRefs) {
 				if (!isValidEvidenceReference(reference)) {
 					addIssue(
@@ -139,7 +146,19 @@ function validateDetails(
 						"invalid-evidence-reference",
 						`Evidence references cannot exceed ${MAX_EVIDENCE_REFERENCE_CHARS} characters.`,
 					);
+				} else {
+					validReferences.push(reference);
 				}
+			}
+			if (
+				validReferences.length > 0 &&
+				getEvidenceReferenceSectionChars(validReferences) > MAX_EVIDENCE_SECTION_CHARS
+			) {
+				addIssue(
+					issues,
+					"invalid-evidence-reference",
+					`Evidence references exceed the ${MAX_EVIDENCE_SECTION_CHARS}-character section limit.`,
+				);
 			}
 		}
 	}
@@ -147,24 +166,39 @@ function validateDetails(
 
 /** Validate deterministic invariants before a native compaction is persisted. */
 export function validateCompactionResult(
-	result: CompactionResult,
+	result: CompactionResultForValidation,
 	branchEntries: readonly SessionEntry[],
 ): CompactionValidationResult {
 	const issues: CompactionValidationIssue[] = [];
 	const summary = typeof result.summary === "string" ? result.summary : "";
+	const summaryForValidation =
+		typeof result.summaryForValidation === "string"
+			? result.summaryForValidation
+			: (getCompactionSummaryForValidation(result) ?? summary);
 
-	if (summary.trim().length === 0) {
+	if (summaryForValidation.trim().length === 0) {
 		addIssue(issues, "summary-empty", "Compaction summary must be non-empty.");
-	} else if (summary.length > MAX_COMPACTION_SUMMARY_CHARS) {
+	} else if (summaryForValidation.length > MAX_COMPACTION_SUMMARY_CHARS) {
 		addIssue(
 			issues,
 			"summary-too-large",
 			`Compaction summary exceeds the ${MAX_COMPACTION_SUMMARY_CHARS}-character limit.`,
 		);
 	}
+	if (summary.length > MAX_COMPACTION_SUMMARY_CHARS) {
+		addIssue(
+			issues,
+			"rendered-summary-too-large",
+			`Rendered compaction summary exceeds the ${MAX_COMPACTION_SUMMARY_CHARS}-character limit.`,
+		);
+	}
 
+	const primaryStructuredSummary = getPrimaryStructuredSummary(summaryForValidation);
 	for (const section of REQUIRED_COMPACTION_SECTIONS) {
-		const body = getSectionBody(summary, section);
+		if (countSectionHeadings(primaryStructuredSummary, section) > 1) {
+			addIssue(issues, "duplicate-section", `Compaction summary contains duplicate ## ${section} sections.`);
+		}
+		const body = getSectionBody(primaryStructuredSummary, section);
 		if (body === undefined) {
 			addIssue(issues, "missing-section", `Compaction summary is missing the ## ${section} section.`);
 		} else if (section === "Goal" && body.length === 0) {
@@ -190,7 +224,10 @@ export function validateCompactionResult(
 	return { valid: issues.length === 0, issues };
 }
 
-export function assertCompactionResultValid(result: CompactionResult, branchEntries: readonly SessionEntry[]): void {
+export function assertCompactionResultValid(
+	result: CompactionResultForValidation,
+	branchEntries: readonly SessionEntry[],
+): void {
 	const validation = validateCompactionResult(result, branchEntries);
 	if (validation.valid) return;
 

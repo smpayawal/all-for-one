@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { buildSessionContext, type CompactionEntry, type SessionEntry } from "../session-manager.ts";
 import { resolveEvidenceReferences } from "./evidence.ts";
-import type { EvidenceReference } from "./retention.ts";
+import { type EvidenceReference, normalizeEvidenceReferences } from "./retention.ts";
 
 export interface CompactionHealthLatest {
 	timestamp: string;
@@ -28,22 +28,10 @@ function detailArrayLength(details: unknown, key: string): number {
 	return Array.isArray(value) ? value.length : 0;
 }
 
-function isEvidenceReference(value: unknown): value is EvidenceReference {
-	if (!value || typeof value !== "object") return false;
-	const candidate = value as Partial<EvidenceReference>;
-	return (
-		(candidate.kind === "tool-output" || candidate.kind === "validation" || candidate.kind === "file") &&
-		typeof candidate.label === "string" &&
-		typeof candidate.ref === "string" &&
-		candidate.label.trim().length > 0 &&
-		candidate.ref.trim().length > 0
-	);
-}
-
 function getEvidenceReferences(details: unknown): EvidenceReference[] {
 	if (!details || typeof details !== "object") return [];
 	const references = (details as Record<string, unknown>).evidenceRefs;
-	return Array.isArray(references) ? references.filter(isEvidenceReference) : [];
+	return Array.isArray(references) ? normalizeEvidenceReferences(references).references : [];
 }
 
 /**
@@ -80,7 +68,7 @@ export function collectCompactionHealth(
 			summaryChars: latest.summary.length,
 			summaryTokens: Math.ceil(latest.summary.length / 4),
 			retainedUserMessageCount: detailArrayLength(latest.details, "retainedUserEntryIds"),
-			evidenceReferenceCount: detailArrayLength(latest.details, "evidenceRefs"),
+			evidenceReferenceCount: evidenceReferences.length,
 			...(evidenceResolution
 				? {
 						availableEvidenceReferenceCount: evidenceResolution.filter((item) => item.status === "available")

@@ -179,6 +179,7 @@ describe("generateSummary reasoning options", () => {
 		const result = await compact(preparation, createModel(false), "test-key");
 		const validation = validateCompactionResult(result, [createKeptEntry()]);
 
+		expect(result).not.toHaveProperty("summaryForValidation");
 		expect(validation).toEqual({ valid: true, issues: [] });
 	});
 

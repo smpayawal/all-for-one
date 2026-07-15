@@ -45,6 +45,7 @@ import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
 	assertCompactionResultValid,
 	type CompactionHealth,
+	type CompactionPreparation,
 	type CompactionResult,
 	calculateContextTokens,
 	collectCompactionHealth,
@@ -55,6 +56,7 @@ import {
 	generateBranchSummary,
 	prepareCompaction,
 	shouldCompact,
+	validateCompactionResult,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
@@ -303,6 +305,69 @@ function estimateMessagesTokens(messages: AgentMessage[]): number {
 		tokens += estimateTokens(message);
 	}
 	return tokens;
+}
+
+const REPAIRABLE_COMPACTION_ISSUES = new Set([
+	"summary-empty",
+	"summary-too-large",
+	"missing-section",
+	"duplicate-section",
+	"empty-goal",
+]);
+
+function formatCompactionRepairInstructions(issues: readonly { message: string; code: string }[]): string {
+	return [
+		"The previous native compaction summary failed deterministic structural validation.",
+		"Repair the summary using the following issues:",
+		...issues.map((issue) => `- ${issue.message}`),
+		"Preserve valid content, remove stale content, and return only the required structured summary.",
+	].join("\n");
+}
+
+async function compactWithValidationAndRepair(
+	preparation: CompactionPreparation,
+	pathEntries: SessionEntry[],
+	model: Model<any>,
+	apiKey: string | undefined,
+	headers: Record<string, string> | undefined,
+	customInstructions: string | undefined,
+	signal: AbortSignal,
+	thinkingLevel: ThinkingLevel,
+	streamFn: AgentSession["agent"]["streamFn"],
+	env: Record<string, string> | undefined,
+): Promise<CompactionResult> {
+	const run = (instructions?: string) =>
+		compact(preparation, model, apiKey, headers, instructions, signal, thinkingLevel, streamFn, env);
+
+	let initialResult: CompactionResult;
+	try {
+		initialResult = await run(customInstructions);
+	} catch (error) {
+		if (!(error instanceof Error) || !error.message.includes("turn-prefix summary is malformed")) throw error;
+		const repairInstructions = formatCompactionRepairInstructions([
+			{ code: "missing-section", message: error.message },
+		]);
+		const combinedInstructions = customInstructions
+			? `${customInstructions}\n\n${repairInstructions}`
+			: repairInstructions;
+		const repairedResult = await run(combinedInstructions);
+		assertCompactionResultValid(repairedResult, pathEntries);
+		return repairedResult;
+	}
+	const initialValidation = validateCompactionResult(initialResult, pathEntries);
+	if (initialValidation.valid) return initialResult;
+
+	if (!initialValidation.issues.some((issue) => REPAIRABLE_COMPACTION_ISSUES.has(issue.code))) {
+		assertCompactionResultValid(initialResult, pathEntries);
+	}
+
+	const repairInstructions = formatCompactionRepairInstructions(initialValidation.issues);
+	const combinedInstructions = customInstructions
+		? `${customInstructions}\n\n${repairInstructions}`
+		: repairInstructions;
+	const repairedResult = await run(combinedInstructions);
+	assertCompactionResultValid(repairedResult, pathEntries);
+	return repairedResult;
 }
 
 // ============================================================================
@@ -2051,8 +2116,9 @@ export class AgentSession {
 				details = extensionCompaction.details;
 			} else {
 				// Generate compaction result
-				const result = await compact(
+				const result = await compactWithValidationAndRepair(
 					preparation,
+					pathEntries,
 					this.model,
 					apiKey,
 					headers,
@@ -2329,8 +2395,9 @@ export class AgentSession {
 				details = extensionCompaction.details;
 			} else {
 				// Generate compaction result
-				const compactResult = await compact(
+				const compactResult = await compactWithValidationAndRepair(
 					preparation,
+					pathEntries,
 					this.model,
 					apiKey,
 					headers,

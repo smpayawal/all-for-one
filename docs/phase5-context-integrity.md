@@ -82,7 +82,7 @@ This is bounded exact retention, not automatic semantic anchoring. It does not c
 
 ## P5.4 lightweight evidence references
 
-When a tool result or bash execution already carries an explicit `fullOutputPath`, compaction serialization preserves that path as an evidence reference. Native compaction carries deduplicated references into the summary under `## Evidence References` and records them in `CompactionDetails.evidenceRefs`. The carried metadata is bounded to 64 references with 2,048-character reference paths. Repeated compactions inherit prior native references without allowing the list to grow without bound. No new output file or evidence database is created by this feature.
+When a tool result or bash execution already carries an explicit `fullOutputPath`, compaction serialization preserves that path as an evidence reference. Native compaction carries deduplicated references into the summary under `## Evidence References` and records them in `CompactionDetails.evidenceRefs`. The carried metadata is bounded to 32 references, 1,024-character paths, 256-character labels, and a 12,000-character rendered section. Repeated compactions inherit prior native references without allowing the list to grow without bound. No new output file or evidence database is created by this feature.
 
 The reference is only a pointer to an existing saved output. `resolveEvidenceReference(s)` checks local references on demand and reports `available`, `missing`, or `non-local` with an actionable message; compaction does not fail merely because an older output has been removed. The existing tool-output telemetry remains the source for follow-up and repeated-read measurements.
 
@@ -94,15 +94,17 @@ No automatic tool-output compression or eviction policy is enabled in this slice
 
 `AgentSession.getContextInfo()` now reports a local compaction-health snapshot for the current session path, and `/context` renders it when requested. The snapshot includes compaction count, latest tokens before/after, reduction percentage, summary size, retained user-message count, evidence-reference count, and on-demand evidence availability counts. The post-boundary token estimate uses the repository’s existing estimator and is not provider-token accounting.
 
+Native summary validation now runs against the model-generated structured summary before deterministic file, retained-message, and evidence appendices are considered. It rejects empty, oversized, missing, or duplicate primary sections while allowing the separate companion context used for split-turn summaries. If that native summary fails structural validation, automatic and manual native compaction allow one failure-triggered repair attempt with the exact validation issues; invalid results are never persisted. Deterministic appendices are removed before the previous summary is reused, so exact retention and evidence references do not accumulate across repeated compactions. Exact retention remains opt-in, skips messages matching the existing credential scanner, and preserves available text from multimodal messages while marking omitted attachments.
+
 ## Next gate
 
-Before enabling exact user-message retention by default or expanding correction/evidence policy, run paired baseline-versus-Phase-5 workloads with the same model, provider configuration, task inputs, initial context, and context-window conditions. Use multiple context sizes where practical. Include short and long sessions, corrections, split turns, large outputs, and interrupted continuation. Record correctness, constraint/correction retention, rediscovery, turns, prompt and cumulative tokens, truncation/retrieval behavior, latency, cost, cache behavior, and regressions; establish meaningful efficiency thresholds only after collecting the baseline.
+Before enabling exact user-message retention by default or expanding correction/evidence policy, run paired baseline-versus-Phase-5 workloads with the same model, controlled configuration, task inputs, initial context, and context-window conditions. Record treatment configuration separately because it is expected to differ between baseline and Phase 5. Use multiple context sizes where practical. Include short and long sessions, corrections, split turns, large outputs, and interrupted continuation. Record correctness, constraint/correction retention, rediscovery, turns, peak prompt and cumulative tokens, truncation/retrieval behavior, wall-clock session span, cost, cache behavior, and regressions; establish meaningful efficiency thresholds only after collecting the baseline.
 
 That live gate determines whether the opt-in retention and evidence-reference slices should be enabled more broadly. The telemetry-driven tool-output lifecycle remains deferred until the workload evidence justifies it.
 
 ## Recorded live-evaluation comparator
 
-The repository now includes an offline comparator for the deferred gate. Record one JSON input with `variant: "baseline"` and one with `variant: "phase5"`, using the same `workloadId`, provider/model, context window, task-input hash, initial-context hash, and shared runtime-configuration hash for each pair. Each run records `metrics.outcome` as `pass`, `fail`, or `unknown`, plus compaction `tokensBefore`/`tokensAfter`, `summaryTokens`, compaction latency/cost, critical-constraint failures, stale decisions, rediscovery, turns, tool calls, prompt/cumulative tokens, compaction count, truncation and retrieval counts, overall latency/cost, cache tokens, and evidence-reference resolution counts.
+The repository now includes an offline comparator for the deferred gate. Record one JSON input with `variant: "baseline"` and one with `variant: "phase5"`, using the same `workloadId`, provider/model, context window, task-input hash, initial-context hash, and shared `controlledConfigHash` for each pair. Put treatment-only settings in the optional `treatmentConfig` object; the comparator intentionally does not require those values to match. Each run records `metrics.outcome` as `pass`, `fail`, or `unknown`, plus compaction `tokensBefore`/`tokensAfter`, `summaryTokens`, compaction latency/cost, critical-constraint failures, stale decisions, rediscovery, turns, tool calls, `peakPromptTokens`, cumulative tokens, compaction count, truncation and retrieval counts, `wallClockSessionSpanMs`, cost, cache tokens, and evidence-reference resolution counts. Discrete counts and token metrics must be non-negative integers.
 
 Run it with:
 
@@ -125,7 +127,8 @@ npm run evaluate:phase5 -- \
   --context-window 128000 \
   --task-input-hash TASK_HASH \
   --initial-context-hash INITIAL_CONTEXT_HASH \
-  --runtime-config-hash RUNTIME_CONFIG_HASH \
+  --controlled-config-hash CONTROLLED_CONFIG_HASH \
+  --treatment-config /path/to/treatment.json \
   --annotations /path/to/annotations.json \
   --json
 ```
@@ -138,8 +141,8 @@ Focused P5.0 coverage:
 
 ```bash
 cd packages/coding-agent
-node node_modules/vitest/dist/cli.js --run test/phase5-baseline.test.ts
-node node_modules/vitest/dist/cli.js --run test/phase5-evaluation.test.ts
+./node_modules/.bin/vitest --run test/phase5-baseline.test.ts
+./node_modules/.bin/vitest --run test/phase5-evaluation.test.ts
 ```
 
 The evaluator CLI is also available through the root script:
@@ -159,7 +162,7 @@ Focused retention-contract coverage:
 
 ```bash
 cd packages/coding-agent
-node node_modules/vitest/dist/cli.js --run test/compaction-retention.test.ts
-node node_modules/vitest/dist/cli.js --run test/compaction-validation.test.ts test/compaction-serialization.test.ts test/compaction-health.test.ts test/compaction-evidence.test.ts
-node node_modules/vitest/dist/cli.js --run test/settings-manager.test.ts
+./node_modules/.bin/vitest --run test/compaction-retention.test.ts
+./node_modules/.bin/vitest --run test/compaction-validation.test.ts test/compaction-serialization.test.ts test/compaction-health.test.ts test/compaction-evidence.test.ts
+./node_modules/.bin/vitest --run test/settings-manager.test.ts
 ```
