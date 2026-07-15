@@ -43,8 +43,11 @@ import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
+	assertCompactionResultValid,
+	type CompactionHealth,
 	type CompactionResult,
 	calculateContextTokens,
+	collectCompactionHealth,
 	collectEntriesForBranchSummary,
 	compact,
 	estimateContextTokens,
@@ -274,6 +277,7 @@ export interface AgentContextInfo {
 	inactiveTools: string[];
 	toolInventory: Array<{ name: string; active: boolean; source: string }>;
 	toolOutputTelemetry: ToolOutputTelemetry[];
+	compactionHealth: CompactionHealth;
 	skillMetadataDiagnostics?: SkillMetadataDiagnostics;
 	approximateUsage: {
 		instructionsChars: number;
@@ -1011,6 +1015,10 @@ export class AgentSession {
 			.join("\n");
 		const skillMetadataChars = this._skillMetadataDiagnostics?.metadataChars ?? 0;
 		const warnings = [...contextDiagnostics.warnings, ...this._scopedContextTracker.getWarnings()];
+		const compactionHealth = collectCompactionHealth(
+			this.sessionManager.getBranch(),
+			(messages) => estimateContextTokens(messages).tokens,
+		);
 		const skillDiagnostics = this._skillMetadataDiagnostics;
 		if (skillDiagnostics?.omittedCount) {
 			warnings.push(
@@ -1035,6 +1043,7 @@ export class AgentSession {
 			inactiveTools,
 			toolInventory,
 			toolOutputTelemetry: this.getToolOutputTelemetry(),
+			compactionHealth,
 			skillMetadataDiagnostics: skillDiagnostics,
 			approximateUsage: {
 				instructionsChars: contextDiagnostics.totalChars,
@@ -2062,6 +2071,10 @@ export class AgentSession {
 				throw new Error("Compaction cancelled");
 			}
 
+			if (!fromExtension) {
+				assertCompactionResultValid({ summary, firstKeptEntryId, tokensBefore, details }, pathEntries);
+			}
+
 			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension);
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
@@ -2341,6 +2354,10 @@ export class AgentSession {
 					willRetry: false,
 				});
 				return false;
+			}
+
+			if (!fromExtension) {
+				assertCompactionResultValid({ summary, firstKeptEntryId, tokensBefore, details }, pathEntries);
 			}
 
 			this.sessionManager.appendCompaction(summary, firstKeptEntryId, tokensBefore, details, fromExtension);

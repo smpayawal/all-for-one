@@ -47,14 +47,42 @@ function createAssistant(
 	};
 }
 
-function useSummaryStreamFn(harness: Harness, summary: string): () => number {
+function useSummaryStreamFn(harness: Harness, summary: string, structured = true): () => number {
 	let callCount = 0;
+	const generatedSummary = structured
+		? [
+				"## Goal",
+				"Continue the test session.",
+				"",
+				"## Constraints & Preferences",
+				"- Preserve the characterization behavior.",
+				"",
+				"## Progress",
+				"### Done",
+				"- [x] Generated a test compaction.",
+				"",
+				"### In Progress",
+				"- [ ] Continue the session.",
+				"",
+				"### Blocked",
+				"- (none)",
+				"",
+				"## Key Decisions",
+				"- **Native validation**: Use the structured summary contract.",
+				"",
+				"## Next Steps",
+				"1. Continue the session.",
+				"",
+				"## Critical Context",
+				`- ${summary}`,
+			].join("\n")
+		: summary;
 	harness.session.agent.streamFn = (model) => {
 		callCount++;
 		const stream = createAssistantMessageEventStream();
 		queueMicrotask(() => {
 			const message: AssistantMessage = {
-				...fauxAssistantMessage(summary),
+				...fauxAssistantMessage(generatedSummary),
 				api: model.api,
 				provider: model.provider,
 				model: model.id,
@@ -152,6 +180,16 @@ describe("AgentSession compaction characterization", () => {
 
 		expect(result.summary).toContain("summary from custom stream");
 		expect(getStreamCallCount()).toBe(1);
+	});
+
+	it("rejects a malformed native summary before writing a session entry", async () => {
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		useSummaryStreamFn(harness, "malformed summary", false);
+
+		await expect(harness.session.compact()).rejects.toThrow("Native compaction validation failed");
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
 	});
 
 	it("auto-compacts with a custom streamFn when registry auth is absent", async () => {

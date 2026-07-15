@@ -236,6 +236,32 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("compaction settings", () => {
+		it("keeps exact user-message retention disabled by default", () => {
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getCompactionSettings()).toMatchObject({
+				retainRecentUserMessages: 0,
+				retainRecentUserMessageChars: 8000,
+			});
+		});
+
+		it("loads the opt-in exact user-message retention bounds", () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(
+				settingsPath,
+				JSON.stringify({ compaction: { retainRecentUserMessages: 3, retainRecentUserMessageChars: 6000 } }),
+			);
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getCompactionSettings()).toMatchObject({
+				retainRecentUserMessages: 3,
+				retainRecentUserMessageChars: 6000,
+			});
+		});
+	});
+
 	describe("error tracking", () => {
 		it("should collect and clear load errors via drainErrors", () => {
 			const globalSettingsPath = join(agentDir, "settings.json");

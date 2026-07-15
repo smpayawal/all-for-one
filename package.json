@@ -20,6 +20,7 @@
 		"check:install-lock:coding-agent": "node scripts/generate-coding-agent-install-lock.mjs --check",
 		"check:ts-imports": "node scripts/check-ts-relative-imports.mjs",
 		"baseline:phase4": "tsx --tsconfig tsconfig.json scripts/phase4-baseline.ts",
+		"baseline:phase5": "tsx --tsconfig tsconfig.json scripts/phase5-baseline.ts",
 		"doctor:phase4": "tsx --tsconfig tsconfig.json scripts/phase4-doctor.ts",
 		"profile:tui": "node scripts/profile-coding-agent-node.mjs --mode tui",
 		"profile:rpc": "node scripts/profile-coding-agent-node.mjs --mode rpc",

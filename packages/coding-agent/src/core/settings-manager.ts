@@ -12,6 +12,8 @@ export interface CompactionSettings {
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
 	keepRecentTokens?: number; // default: 20000
+	retainRecentUserMessages?: number; // default: 0; opt-in exact user-message retention
+	retainRecentUserMessageChars?: number; // default: 8000 when retention is enabled
 }
 
 export interface BranchSummarySettings {
@@ -784,11 +786,19 @@ export class SettingsManager {
 		return this.settings.compaction?.keepRecentTokens ?? 20000;
 	}
 
-	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
+	getCompactionSettings(): {
+		enabled: boolean;
+		reserveTokens: number;
+		keepRecentTokens: number;
+		retainRecentUserMessages: number;
+		retainRecentUserMessageChars: number;
+	} {
 		return {
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+			retainRecentUserMessages: this.settings.compaction?.retainRecentUserMessages ?? 0,
+			retainRecentUserMessageChars: this.settings.compaction?.retainRecentUserMessageChars ?? 8000,
 		};
 	}
 

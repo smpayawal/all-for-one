@@ -4,4 +4,7 @@
 
 export * from "./branch-summarization.ts";
 export * from "./compaction.ts";
+export * from "./health.ts";
+export * from "./retention.ts";
 export * from "./utils.ts";
+export * from "./validation.ts";

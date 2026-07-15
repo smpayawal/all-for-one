@@ -16,6 +16,15 @@ import {
 	sessionEntryToContextMessages,
 } from "../session-manager.ts";
 import {
+	collectEvidenceReferences,
+	type EvidenceReference,
+	formatEvidenceReferences,
+	formatRetainedUserMessages,
+	type RetainedUserMessage,
+	renderContextRetentionContract,
+	selectRetainedUserMessages,
+} from "./retention.ts";
+import {
 	computeFileLists,
 	createFileOps,
 	extractFileOpsFromMessage,
@@ -33,6 +42,10 @@ import {
 export interface CompactionDetails {
 	readFiles: string[];
 	modifiedFiles: string[];
+	/** Entry IDs whose exact user-authored messages were retained in the summary. */
+	retainedUserEntryIds?: string[];
+	/** Explicit saved-output or other exact evidence references carried forward. */
+	evidenceRefs?: EvidenceReference[];
 }
 
 /**
@@ -68,6 +81,39 @@ function extractFileOperations(
 	return fileOps;
 }
 
+function isEvidenceReference(value: unknown): value is EvidenceReference {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Partial<EvidenceReference>;
+	return (
+		(candidate.kind === "tool-output" || candidate.kind === "validation" || candidate.kind === "file") &&
+		typeof candidate.label === "string" &&
+		typeof candidate.ref === "string" &&
+		candidate.ref.length > 0
+	);
+}
+
+function collectCompactionEvidenceReferences(
+	messages: AgentMessage[],
+	entries: SessionEntry[],
+	previousCompactionIndex: number,
+): EvidenceReference[] {
+	const references = collectEvidenceReferences(messages);
+	const seen = new Set(references.map((reference) => reference.ref));
+	if (previousCompactionIndex < 0) return references;
+
+	const previousEntry = entries[previousCompactionIndex];
+	if (previousEntry?.type !== "compaction" || previousEntry.fromHook || !previousEntry.details) return references;
+	const details = previousEntry.details as CompactionDetails;
+	if (!Array.isArray(details.evidenceRefs)) return references;
+
+	for (const reference of details.evidenceRefs) {
+		if (!isEvidenceReference(reference) || seen.has(reference.ref)) continue;
+		seen.add(reference.ref);
+		references.push(reference);
+	}
+	return references;
+}
+
 // ============================================================================
 // Message Extraction
 // ============================================================================
@@ -101,12 +147,18 @@ export interface CompactionSettings {
 	enabled: boolean;
 	reserveTokens: number;
 	keepRecentTokens: number;
+	/** Opt-in bounded exact user-message retention for compaction experiments. */
+	retainRecentUserMessages?: number;
+	/** Character budget for opt-in bounded exact user-message retention. */
+	retainRecentUserMessageChars?: number;
 }
 
 export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
 	enabled: true,
 	reserveTokens: 16384,
 	keepRecentTokens: 20000,
+	retainRecentUserMessages: 0,
+	retainRecentUserMessageChars: 8000,
 };
 
 // ============================================================================
@@ -438,7 +490,14 @@ export function findCutPoint(
 // Summarization
 // ============================================================================
 
-const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
+const CONTEXT_RETENTION_PROMPT = `Apply this deterministic context-retention contract while summarizing:
+${renderContextRetentionContract()}
+
+The summary must preserve active state without duplicating invariant project instructions. Record validation state with the exact command, status, and error string when available. Preserve exact paths, symbols, commands, identifiers, and evidence references when present.
+
+`;
+
+const SUMMARIZATION_PROMPT = `${CONTEXT_RETENTION_PROMPT}The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
 
 Use this EXACT format:
 
@@ -471,15 +530,18 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
-const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
+const UPDATE_SUMMARIZATION_PROMPT = `${CONTEXT_RETENTION_PROMPT}The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
 
 Update the existing structured summary with new information. RULES:
+- Treat the previous summary as authoritative continuation state.
 - PRESERVE all existing information from the previous summary
 - ADD new progress, decisions, and context from the new messages
 - UPDATE the Progress section: move items from "In Progress" to "Done" when completed
 - UPDATE "Next Steps" based on what was accomplished
 - PRESERVE exact file paths, function names, and error messages
-- If something is no longer relevant, you may remove it
+- Mark superseded decisions as superseded and keep only the current active decision
+- Preserve valid validation state unless later evidence changes it
+- If something is no longer relevant, remove it only when the newer state makes the supersession clear
 
 Use this EXACT format:
 
@@ -626,6 +688,10 @@ export interface CompactionPreparation {
 	previousSummary?: string;
 	/** File operations extracted from messagesToSummarize */
 	fileOps: FileOperations;
+	/** Bounded exact user-authored messages selected from the summarized range. */
+	retainedUserMessages?: RetainedUserMessage[];
+	/** Explicit evidence references found in summarized or split-turn messages. */
+	evidenceRefs?: EvidenceReference[];
 	/** Compaction settions from settings.jsonl	*/
 	settings: CompactionSettings;
 }
@@ -689,6 +755,18 @@ export function prepareCompaction(
 		return undefined;
 	}
 
+	const retainedUserMessages = selectRetainedUserMessages(
+		pathEntries,
+		boundaryStart,
+		cutPoint.firstKeptEntryIndex,
+		settings,
+	);
+	const evidenceRefs = collectCompactionEvidenceReferences(
+		[...messagesToSummarize, ...turnPrefixMessages],
+		pathEntries,
+		prevCompactionIndex,
+	);
+
 	// Extract file operations from messages and previous compaction
 	const fileOps = extractFileOperations(messagesToSummarize, pathEntries, prevCompactionIndex);
 
@@ -707,6 +785,8 @@ export function prepareCompaction(
 		tokensBefore,
 		previousSummary,
 		fileOps,
+		retainedUserMessages,
+		evidenceRefs,
 		settings,
 	};
 }
@@ -812,6 +892,10 @@ export async function compact(
 	// Compute file lists and append to summary
 	const { readFiles, modifiedFiles } = computeFileLists(fileOps);
 	summary += formatFileOperations(readFiles, modifiedFiles);
+	const retainedUserContext = formatRetainedUserMessages(preparation.retainedUserMessages ?? []);
+	if (retainedUserContext) summary += `\n\n${retainedUserContext}`;
+	const evidenceContext = formatEvidenceReferences(preparation.evidenceRefs ?? []);
+	if (evidenceContext) summary += `\n\n${evidenceContext}`;
 
 	if (!firstKeptEntryId) {
 		throw new Error("First kept entry has no UUID - session may need migration");
@@ -821,7 +905,16 @@ export async function compact(
 		summary,
 		firstKeptEntryId,
 		tokensBefore,
-		details: { readFiles, modifiedFiles } as CompactionDetails,
+		details: {
+			readFiles,
+			modifiedFiles,
+			...(preparation.retainedUserMessages && preparation.retainedUserMessages.length > 0
+				? { retainedUserEntryIds: preparation.retainedUserMessages.map((item) => item.entryId) }
+				: {}),
+			...(preparation.evidenceRefs && preparation.evidenceRefs.length > 0
+				? { evidenceRefs: preparation.evidenceRefs }
+				: {}),
+		} as CompactionDetails,
 	};
 }
 

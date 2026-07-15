@@ -5782,6 +5782,15 @@ export class InteractiveMode {
 				output += "\n";
 			}
 		}
+		const compactionHealth = info.compactionHealth;
+		output += `\n${theme.bold("Compaction health")}\n`;
+		output += `  Compactions: ${compactionHealth.count}\n`;
+		if (compactionHealth.latest) {
+			const latest = compactionHealth.latest;
+			output += `  Latest boundary: ${latest.tokensBefore.toLocaleString()} -> ${latest.tokensAfter.toLocaleString()} tokens (${latest.reductionPercent.toFixed(1)}% reduction)\n`;
+			output += `  Summary: ${latest.summaryChars.toLocaleString()} chars (~${latest.summaryTokens.toLocaleString()} tokens)\n`;
+			output += `  Retained user messages: ${latest.retainedUserMessageCount}; evidence references: ${latest.evidenceReferenceCount}\n`;
+		}
 
 		output += `\n${theme.bold("Approximate persistent context")}: instructions ${info.approximateUsage.instructionsChars.toLocaleString()} chars, skill metadata ${info.approximateUsage.skillMetadataChars.toLocaleString()} chars, tool prompt metadata ${info.approximateUsage.toolMetadataChars.toLocaleString()} chars, tool schemas ${info.approximateUsage.toolSchemaChars.toLocaleString()} chars\n`;
 		if (info.warnings.length > 0) {

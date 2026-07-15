@@ -4,6 +4,7 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Message } from "@earendil-works/pi-ai";
+import { getFullOutputPath } from "./retention.ts";
 
 // ============================================================================
 // File Operation Tracking
@@ -153,7 +154,9 @@ export function serializeConversation(messages: Message[]): string {
 				.map((c) => c.text)
 				.join("");
 			if (content) {
-				parts.push(`[Tool result]: ${truncateForSummary(content, TOOL_RESULT_MAX_CHARS)}`);
+				const fullOutputPath = getFullOutputPath(msg.details);
+				const reference = fullOutputPath ? `\n[Full output reference: ${fullOutputPath}]` : "";
+				parts.push(`[Tool result]: ${truncateForSummary(content, TOOL_RESULT_MAX_CHARS)}${reference}`);
 			}
 		}
 	}

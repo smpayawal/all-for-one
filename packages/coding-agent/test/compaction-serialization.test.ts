@@ -44,6 +44,24 @@ describe("serializeConversation", () => {
 		expect(result).not.toContain("truncated");
 	});
 
+	it("preserves an existing saved-output reference for a tool result", () => {
+		const messages: Message[] = [
+			{
+				role: "toolResult",
+				toolCallId: "tc-reference",
+				toolName: "bash",
+				content: [{ type: "text", text: "partial output" }],
+				details: { fullOutputPath: "/tmp/pi-tool-output/reference.log" },
+				isError: false,
+				timestamp: Date.now(),
+			},
+		];
+
+		const result = serializeConversation(messages);
+
+		expect(result).toContain("/tmp/pi-tool-output/reference.log");
+	});
+
 	it("should not truncate assistant or user messages", () => {
 		const longText = "y".repeat(5000);
 		const messages: Message[] = [
