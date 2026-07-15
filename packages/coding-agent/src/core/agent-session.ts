@@ -58,7 +58,7 @@ import {
 	calculateContextTokens,
 	collectCompactionHealth,
 	collectEntriesForBranchSummary,
-	compact,
+	compactWithTurnPrefixInstructions,
 	estimateContextTokens,
 	estimateTokens,
 	generateBranchSummary,
@@ -351,8 +351,19 @@ async function compactWithValidationAndRepair(
 	streamFn: AgentSession["agent"]["streamFn"],
 	env: Record<string, string> | undefined,
 ): Promise<CompactionResult> {
-	const run = (instructions?: string) =>
-		compact(preparation, model, apiKey, headers, instructions, signal, thinkingLevel, streamFn, env);
+	const run = (instructions?: string, turnPrefixRepairInstructions?: string) =>
+		compactWithTurnPrefixInstructions(
+			preparation,
+			model,
+			apiKey,
+			headers,
+			instructions,
+			signal,
+			thinkingLevel,
+			streamFn,
+			env,
+			turnPrefixRepairInstructions,
+		);
 
 	let initialResult: CompactionResult;
 	try {
@@ -365,7 +376,7 @@ async function compactWithValidationAndRepair(
 		const combinedInstructions = customInstructions
 			? `${customInstructions}\n\n${repairInstructions}`
 			: repairInstructions;
-		const repairedResult = await run(combinedInstructions);
+		const repairedResult = await run(combinedInstructions, repairInstructions);
 		assertCompactionResultValid(repairedResult, pathEntries);
 		return repairedResult;
 	}

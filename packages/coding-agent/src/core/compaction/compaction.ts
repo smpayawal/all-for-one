@@ -915,7 +915,7 @@ Be concise. Focus on what's needed to understand the kept suffix.`;
  * @param preparation - Pre-calculated preparation from prepareCompaction()
  * @param customInstructions - Optional custom focus for the summary
  */
-export async function compact(
+async function compactInternal(
 	preparation: CompactionPreparation,
 	model: Model<any>,
 	apiKey: string | undefined,
@@ -925,6 +925,7 @@ export async function compact(
 	thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
 	env?: Record<string, string>,
+	turnPrefixRepairInstructions?: string,
 ): Promise<CompactionResult> {
 	const {
 		firstKeptEntryId,
@@ -967,6 +968,7 @@ export async function compact(
 			signal,
 			thinkingLevel,
 			streamFn,
+			turnPrefixRepairInstructions,
 		);
 		assertTurnPrefixSummaryValid(turnPrefixResult);
 		// Merge into single summary
@@ -1022,6 +1024,63 @@ export async function compact(
 }
 
 /**
+ * Generate a native compaction result using the public compaction contract.
+ *
+ * The implementation keeps the optional turn-prefix repair channel private so
+ * the exported compact() signature and result shape remain unchanged.
+ */
+export async function compact(
+	preparation: CompactionPreparation,
+	model: Model<any>,
+	apiKey: string | undefined,
+	headers?: Record<string, string>,
+	customInstructions?: string,
+	signal?: AbortSignal,
+	thinkingLevel?: ThinkingLevel,
+	streamFn?: StreamFn,
+	env?: Record<string, string>,
+): Promise<CompactionResult> {
+	return compactInternal(
+		preparation,
+		model,
+		apiKey,
+		headers,
+		customInstructions,
+		signal,
+		thinkingLevel,
+		streamFn,
+		env,
+	);
+}
+
+/** @internal Used only for the bounded split-turn repair attempt. */
+export async function compactWithTurnPrefixInstructions(
+	preparation: CompactionPreparation,
+	model: Model<any>,
+	apiKey: string | undefined,
+	headers?: Record<string, string>,
+	customInstructions?: string,
+	signal?: AbortSignal,
+	thinkingLevel?: ThinkingLevel,
+	streamFn?: StreamFn,
+	env?: Record<string, string>,
+	turnPrefixRepairInstructions?: string,
+): Promise<CompactionResult> {
+	return compactInternal(
+		preparation,
+		model,
+		apiKey,
+		headers,
+		customInstructions,
+		signal,
+		thinkingLevel,
+		streamFn,
+		env,
+		turnPrefixRepairInstructions,
+	);
+}
+
+/**
  * Generate a summary for a turn prefix (when splitting a turn).
  */
 async function generateTurnPrefixSummary(
@@ -1034,6 +1093,7 @@ async function generateTurnPrefixSummary(
 	signal?: AbortSignal,
 	thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
+	repairInstructions?: string,
 ): Promise<string> {
 	const maxTokens = Math.min(
 		Math.floor(0.5 * reserveTokens),
@@ -1041,7 +1101,12 @@ async function generateTurnPrefixSummary(
 	); // Smaller budget for turn prefix
 	const llmMessages = convertToLlm(messages);
 	const conversationText = serializeConversation(llmMessages);
-	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+	const promptText = [
+		`<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`,
+		repairInstructions ? `Additional repair requirements:\n${repairInstructions}` : undefined,
+	]
+		.filter((part): part is string => part !== undefined)
+		.join("\n\n");
 	const summarizationMessages = [
 		{
 			role: "user" as const,

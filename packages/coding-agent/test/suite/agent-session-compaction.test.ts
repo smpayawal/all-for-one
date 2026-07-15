@@ -6,7 +6,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens } from "../../src/core/compaction/index.ts";
-import { createHarness, type Harness } from "./harness.ts";
+import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
 	_checkCompaction: (assistantMessage: AssistantMessage, skipAbortedCheck?: boolean) => Promise<boolean>;
@@ -113,6 +113,34 @@ function seedCompactableSession(harness: Harness): void {
 	harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
 }
 
+function seedSplitTurnCompaction(harness: Harness): void {
+	harness.settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
+	const now = Date.now();
+	harness.sessionManager.appendMessage({
+		role: "user",
+		content: [{ type: "text", text: "Inspect the file and keep the final suffix available." }],
+		timestamp: now - 2_000,
+	});
+
+	const prefix = createAssistant(harness, { stopReason: "stop", totalTokens: 100, timestamp: now - 1_500 });
+	prefix.content = [{ type: "text", text: "prefix work that belongs to the same turn".repeat(8) }];
+	harness.sessionManager.appendMessage(prefix);
+
+	const suffix = createAssistant(harness, { stopReason: "stop", totalTokens: 100, timestamp: now - 1_000 });
+	suffix.content = [{ type: "text", text: "retained suffix" }];
+	harness.sessionManager.appendMessage(suffix);
+	harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+}
+
+const VALID_TURN_PREFIX_SUMMARY = `## Original Request
+Inspect the file and keep the final suffix available.
+
+## Early Progress
+- The prefix work was summarized before the compaction boundary.
+
+## Context for Suffix
+- Continue from the retained suffix.`;
+
 describe("AgentSession compaction characterization", () => {
 	const harnesses: Harness[] = [];
 
@@ -189,6 +217,76 @@ describe("AgentSession compaction characterization", () => {
 		useSummaryStreamFn(harness, "malformed summary", false);
 
 		await expect(harness.session.compact()).rejects.toThrow("Native compaction validation failed");
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+	});
+
+	it("repairs a malformed split-turn prefix and persists one compaction", async () => {
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		seedSplitTurnCompaction(harness);
+
+		const prompts: string[] = [];
+		let calls = 0;
+		harness.session.agent.streamFn = (model, context) => {
+			prompts.push(getMessageText(context.messages[0]));
+			const stream = createAssistantMessageEventStream();
+			const summary =
+				calls++ === 0 ? "## Original Request\nOnly the request was returned." : VALID_TURN_PREFIX_SUMMARY;
+			queueMicrotask(() => {
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: {
+						...fauxAssistantMessage(summary),
+						api: model.api,
+						provider: model.provider,
+						model: model.id,
+					},
+				});
+			});
+			return stream;
+		};
+
+		await expect(harness.session.compact()).resolves.toMatchObject({
+			summary: expect.stringContaining("Turn Context"),
+		});
+
+		expect(calls).toBe(2);
+		expect(prompts[1]).toContain("Additional repair requirements:");
+		expect(prompts[1]).toContain("turn-prefix summary is malformed");
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+	});
+
+	it("does not persist when a malformed split-turn prefix survives the one repair attempt", async () => {
+		const harness = await createHarness({ withConfiguredAuth: false });
+		harnesses.push(harness);
+		seedSplitTurnCompaction(harness);
+
+		const prompts: string[] = [];
+		let calls = 0;
+		harness.session.agent.streamFn = (model, context) => {
+			prompts.push(getMessageText(context.messages[0]));
+			const stream = createAssistantMessageEventStream();
+			queueMicrotask(() => {
+				stream.push({
+					type: "done",
+					reason: "stop",
+					message: {
+						...fauxAssistantMessage("## Original Request\nOnly the request was returned."),
+						api: model.api,
+						provider: model.provider,
+						model: model.id,
+					},
+				});
+				calls += 1;
+			});
+			return stream;
+		};
+
+		await expect(harness.session.compact()).rejects.toThrow("turn-prefix summary is malformed");
+
+		expect(calls).toBe(2);
+		expect(prompts[1]).toContain("Additional repair requirements:");
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
 	});
 
