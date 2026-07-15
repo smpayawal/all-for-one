@@ -3,7 +3,12 @@
  */
 
 import { getDocsPath, getExamplesPath, getReadmePath } from "../config.ts";
-import { formatSkillsForPrompt, type Skill } from "./skills.ts";
+import {
+	formatSkillsForPromptWithDiagnostics,
+	type Skill,
+	type SkillMetadataBudgetOptions,
+	type SkillMetadataDiagnostics,
+} from "./skills.ts";
 
 export interface BuildSystemPromptOptions {
 	/** Custom system prompt (replaces default). */
@@ -22,6 +27,24 @@ export interface BuildSystemPromptOptions {
 	contextFiles?: Array<{ path: string; content: string }>;
 	/** Pre-loaded skills. */
 	skills?: Skill[];
+	/** Optional budget for the model-visible skill metadata section. */
+	skillMetadataBudget?: SkillMetadataBudgetOptions;
+	/** Receives diagnostics for the model-visible skill metadata section. */
+	onSkillMetadataDiagnostics?: (diagnostics: SkillMetadataDiagnostics) => void;
+}
+
+export function formatProjectContextFiles(contextFiles: Array<{ path: string; content: string }>): string {
+	if (contextFiles.length === 0) {
+		return "";
+	}
+
+	let prompt = "\n\n<project_context>\n\n";
+	prompt += "Project-specific instructions and guidelines:\n\n";
+	for (const { path: filePath, content } of contextFiles) {
+		prompt += `<project_instructions path="${filePath}">\n${content}\n</project_instructions>\n\n`;
+	}
+	prompt += "</project_context>\n";
+	return prompt;
 }
 
 /** Build the system prompt with tools, guidelines, and context */
@@ -35,6 +58,8 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		cwd,
 		contextFiles: providedContextFiles,
 		skills: providedSkills,
+		skillMetadataBudget,
+		onSkillMetadataDiagnostics,
 	} = options;
 	const resolvedCwd = cwd;
 	const promptCwd = resolvedCwd.replace(/\\/g, "/");
@@ -49,6 +74,12 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	const contextFiles = providedContextFiles ?? [];
 	const skills = providedSkills ?? [];
+	const formatSkillMetadata = (include: boolean): string => {
+		if (!include) return "";
+		const formatted = formatSkillsForPromptWithDiagnostics(skills, skillMetadataBudget);
+		onSkillMetadataDiagnostics?.(formatted.diagnostics);
+		return formatted.prompt;
+	};
 
 	if (customPrompt) {
 		let prompt = customPrompt;
@@ -57,20 +88,13 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 			prompt += appendSection;
 		}
 
-		// Append project context files
-		if (contextFiles.length > 0) {
-			prompt += "\n\n<project_context>\n\n";
-			prompt += "Project-specific instructions and guidelines:\n\n";
-			for (const { path: filePath, content } of contextFiles) {
-				prompt += `<project_instructions path="${filePath}">\n${content}\n</project_instructions>\n\n`;
-			}
-			prompt += "</project_context>\n";
-		}
+		prompt += formatProjectContextFiles(contextFiles);
 
 		// Append skills section (only if read tool is available)
 		const customPromptHasRead = !selectedTools || selectedTools.includes("read");
-		if (customPromptHasRead && skills.length > 0) {
-			prompt += formatSkillsForPrompt(skills);
+		const customSkillMetadata = formatSkillMetadata(customPromptHasRead);
+		if (customSkillMetadata) {
+			prompt += customSkillMetadata;
 		}
 
 		// Add date and working directory last
@@ -150,19 +174,12 @@ Pi documentation (read only when the user asks about pi itself, its SDK, extensi
 		prompt += appendSection;
 	}
 
-	// Append project context files
-	if (contextFiles.length > 0) {
-		prompt += "\n\n<project_context>\n\n";
-		prompt += "Project-specific instructions and guidelines:\n\n";
-		for (const { path: filePath, content } of contextFiles) {
-			prompt += `<project_instructions path="${filePath}">\n${content}\n</project_instructions>\n\n`;
-		}
-		prompt += "</project_context>\n";
-	}
+	prompt += formatProjectContextFiles(contextFiles);
 
 	// Append skills section (only if read tool is available)
-	if (hasRead && skills.length > 0) {
-		prompt += formatSkillsForPrompt(skills);
+	const skillMetadata = formatSkillMetadata(hasRead);
+	if (skillMetadata) {
+		prompt += skillMetadata;
 	}
 
 	// Add date and working directory last

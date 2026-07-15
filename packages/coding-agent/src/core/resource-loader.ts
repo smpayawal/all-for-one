@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME } from "../config.ts";
 import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.ts";
@@ -35,12 +36,37 @@ export interface ResourceLoaderReloadOptions {
 	resolveProjectTrust?: (input: { extensionsResult: LoadExtensionsResult }) => Promise<boolean>;
 }
 
+export interface ProjectContextFile {
+	path: string;
+	content: string;
+}
+
+export interface ContextDiagnostics {
+	discoveredCount: number;
+	activeCount: number;
+	totalChars: number;
+	totalBytes: number;
+	duplicatePathCount: number;
+	duplicateContentCount: number;
+	duplicatePaths: string[];
+	duplicateContentPaths: Array<{ winnerPath: string; duplicatePath: string }>;
+	warnings: string[];
+}
+
+export interface ContextFilesResult {
+	agentsFiles: ProjectContextFile[];
+	diagnostics: ContextDiagnostics;
+}
+
 export interface ResourceLoader {
 	getExtensions(): LoadExtensionsResult;
 	getSkills(): { skills: Skill[]; diagnostics: ResourceDiagnostic[] };
 	getPrompts(): { prompts: PromptTemplate[]; diagnostics: ResourceDiagnostic[] };
 	getThemes(): { themes: Theme[]; diagnostics: ResourceDiagnostic[] };
-	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> };
+	getAgentsFiles(): { agentsFiles: ProjectContextFile[] };
+	getContextDiagnostics?(): ContextDiagnostics;
+	/** Resolve additional instruction files for a path without preloading nested repository directories. */
+	getAgentsFilesForPath?(targetPath: string): ContextFilesResult;
 	getSystemPrompt(): string | undefined;
 	getAppendSystemPrompt(): string[];
 	extendResources(paths: ResourceExtensionPaths): void;
@@ -64,7 +90,23 @@ function resolvePromptInput(input: string | undefined, description: string): str
 	return input;
 }
 
-function loadContextFileFromDir(dir: string): { path: string; content: string } | null {
+const LARGE_CONTEXT_FILE_CHAR_WARNING = 20_000;
+
+function canonicalizePathWithMissingParents(path: string): string {
+	let candidate = resolve(path);
+	const missingSegments: string[] = [];
+
+	while (!existsSync(candidate)) {
+		const parent = dirname(candidate);
+		if (parent === candidate) return canonicalizePath(path);
+		missingSegments.unshift(basename(candidate));
+		candidate = parent;
+	}
+
+	return join(canonicalizePath(candidate), ...missingSegments);
+}
+
+function loadContextFileFromDir(dir: string): ProjectContextFile | null {
 	const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
 	for (const filename of candidates) {
 		const filePath = join(dir, filename);
@@ -82,32 +124,41 @@ function loadContextFileFromDir(dir: string): { path: string; content: string } 
 	return null;
 }
 
-export function loadProjectContextFiles(options: {
+export function loadProjectContextFiles(options: { cwd: string; agentDir: string }): ProjectContextFile[] {
+	return deduplicateContextFiles(loadProjectContextFilesRaw(options)).agentsFiles;
+}
+
+function loadProjectContextFilesRaw(options: {
 	cwd: string;
 	agentDir: string;
-}): Array<{ path: string; content: string }> {
+	rootDir?: string;
+}): ProjectContextFile[] {
 	const resolvedCwd = resolvePath(options.cwd);
 	const resolvedAgentDir = resolvePath(options.agentDir);
+	const resolvedRootDir = options.rootDir ? resolvePath(options.rootDir) : undefined;
 
-	const contextFiles: Array<{ path: string; content: string }> = [];
+	const contextFiles: ProjectContextFile[] = [];
 	const seenPaths = new Set<string>();
 
 	const globalContext = loadContextFileFromDir(resolvedAgentDir);
 	if (globalContext) {
 		contextFiles.push(globalContext);
-		seenPaths.add(globalContext.path);
+		seenPaths.add(canonicalizePath(globalContext.path));
 	}
 
-	const ancestorContextFiles: Array<{ path: string; content: string }> = [];
+	const ancestorContextFiles: ProjectContextFile[] = [];
 
 	let currentDir = resolvedCwd;
 
 	while (true) {
 		const contextFile = loadContextFileFromDir(currentDir);
-		if (contextFile && !seenPaths.has(contextFile.path)) {
+		const canonicalPath = contextFile ? canonicalizePath(contextFile.path) : undefined;
+		if (contextFile && canonicalPath && !seenPaths.has(canonicalPath)) {
 			ancestorContextFiles.unshift(contextFile);
-			seenPaths.add(contextFile.path);
+			seenPaths.add(canonicalPath);
 		}
+
+		if (resolvedRootDir && currentDir === resolvedRootDir) break;
 
 		const parentDir = dirname(currentDir);
 		if (parentDir === currentDir) break;
@@ -117,6 +168,79 @@ export function loadProjectContextFiles(options: {
 	contextFiles.push(...ancestorContextFiles);
 
 	return contextFiles;
+}
+
+export function deduplicateContextFiles(contextFiles: ProjectContextFile[]): ContextFilesResult {
+	const seenCanonicalPaths = new Map<string, string>();
+	const seenContentHashes = new Map<string, string>();
+	const duplicatePaths: string[] = [];
+	const duplicateContentPaths: Array<{ winnerPath: string; duplicatePath: string }> = [];
+	const warnings: string[] = [];
+	const agentsFiles: ProjectContextFile[] = [];
+
+	for (const contextFile of contextFiles) {
+		const canonicalPath = canonicalizePath(contextFile.path);
+		const previousPath = seenCanonicalPaths.get(canonicalPath);
+		if (previousPath) {
+			duplicatePaths.push(contextFile.path);
+			continue;
+		}
+
+		const contentHash = createHash("sha256").update(contextFile.content, "utf8").digest("hex");
+		const previousContentPath = seenContentHashes.get(contentHash);
+		if (previousContentPath) {
+			duplicateContentPaths.push({ winnerPath: previousContentPath, duplicatePath: contextFile.path });
+			continue;
+		}
+
+		seenCanonicalPaths.set(canonicalPath, contextFile.path);
+		seenContentHashes.set(contentHash, contextFile.path);
+		agentsFiles.push(contextFile);
+
+		if (contextFile.content.length > LARGE_CONTEXT_FILE_CHAR_WARNING) {
+			warnings.push(
+				`Context file ${contextFile.path} contains ${contextFile.content.length.toLocaleString()} characters, which may materially increase prompt size.`,
+			);
+		}
+	}
+
+	const totalChars = agentsFiles.reduce((total, contextFile) => total + contextFile.content.length, 0);
+	const totalBytes = agentsFiles.reduce(
+		(total, contextFile) => total + Buffer.byteLength(contextFile.content, "utf8"),
+		0,
+	);
+
+	if (duplicatePaths.length > 0) {
+		warnings.push(`${duplicatePaths.length} context file path duplicate(s) were omitted after canonicalization.`);
+	}
+	if (duplicateContentPaths.length > 0) {
+		warnings.push(`${duplicateContentPaths.length} exact duplicate context file(s) were omitted by content hash.`);
+	}
+
+	return {
+		agentsFiles,
+		diagnostics: {
+			discoveredCount: contextFiles.length,
+			activeCount: agentsFiles.length,
+			totalChars,
+			totalBytes,
+			duplicatePathCount: duplicatePaths.length,
+			duplicateContentCount: duplicateContentPaths.length,
+			duplicatePaths: duplicatePaths.sort(),
+			duplicateContentPaths: duplicateContentPaths.sort((left, right) =>
+				left.duplicatePath.localeCompare(right.duplicatePath),
+			),
+			warnings,
+		},
+	};
+}
+
+function loadProjectContextFilesWithDiagnostics(options: {
+	cwd: string;
+	agentDir: string;
+	rootDir?: string;
+}): ContextFilesResult {
+	return deduplicateContextFiles(loadProjectContextFilesRaw(options));
 }
 
 export interface DefaultResourceLoaderOptions {
@@ -149,8 +273,8 @@ export interface DefaultResourceLoaderOptions {
 		themes: Theme[];
 		diagnostics: ResourceDiagnostic[];
 	};
-	agentsFilesOverride?: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
-		agentsFiles: Array<{ path: string; content: string }>;
+	agentsFilesOverride?: (base: { agentsFiles: ProjectContextFile[] }) => {
+		agentsFiles: ProjectContextFile[];
 	};
 	systemPromptOverride?: (base: string | undefined) => string | undefined;
 	appendSystemPromptOverride?: (base: string[]) => string[];
@@ -187,8 +311,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 		themes: Theme[];
 		diagnostics: ResourceDiagnostic[];
 	};
-	private agentsFilesOverride?: (base: { agentsFiles: Array<{ path: string; content: string }> }) => {
-		agentsFiles: Array<{ path: string; content: string }>;
+	private agentsFilesOverride?: (base: { agentsFiles: ProjectContextFile[] }) => {
+		agentsFiles: ProjectContextFile[];
 	};
 	private systemPromptOverride?: (base: string | undefined) => string | undefined;
 	private appendSystemPromptOverride?: (base: string[]) => string[];
@@ -200,7 +324,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 	private promptDiagnostics: ResourceDiagnostic[];
 	private themes: Theme[];
 	private themeDiagnostics: ResourceDiagnostic[];
-	private agentsFiles: Array<{ path: string; content: string }>;
+	private agentsFiles: ProjectContextFile[];
+	private contextDiagnostics: ContextDiagnostics;
 	private systemPrompt?: string;
 	private appendSystemPrompt: string[];
 	private lastSkillPaths: string[];
@@ -249,6 +374,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.themes = [];
 		this.themeDiagnostics = [];
 		this.agentsFiles = [];
+		this.contextDiagnostics = deduplicateContextFiles([]).diagnostics;
 		this.appendSystemPrompt = [];
 		this.lastSkillPaths = [];
 		this.extensionSkillSourceInfos = new Map();
@@ -275,8 +401,48 @@ export class DefaultResourceLoader implements ResourceLoader {
 		return { themes: this.themes, diagnostics: this.themeDiagnostics };
 	}
 
-	getAgentsFiles(): { agentsFiles: Array<{ path: string; content: string }> } {
+	getAgentsFiles(): { agentsFiles: ProjectContextFile[] } {
 		return { agentsFiles: this.agentsFiles };
+	}
+
+	getContextDiagnostics(): ContextDiagnostics {
+		return this.contextDiagnostics;
+	}
+
+	getAgentsFilesForPath(targetPath: string): ContextFilesResult {
+		if (this.noContextFiles) {
+			return { agentsFiles: [], diagnostics: deduplicateContextFiles([]).diagnostics };
+		}
+
+		const resolvedTarget = resolvePath(targetPath, this.cwd);
+		const targetDirectory =
+			existsSync(resolvedTarget) && statSync(resolvedTarget).isDirectory()
+				? resolvedTarget
+				: dirname(resolvedTarget);
+		const canonicalRoot = canonicalizePathWithMissingParents(this.cwd);
+		const canonicalTargetDirectory = canonicalizePathWithMissingParents(targetDirectory);
+		if (!this.isUnderPath(canonicalTargetDirectory, canonicalRoot)) {
+			return {
+				agentsFiles: [],
+				diagnostics: {
+					discoveredCount: 0,
+					activeCount: 0,
+					totalChars: 0,
+					totalBytes: 0,
+					duplicatePathCount: 0,
+					duplicateContentCount: 0,
+					duplicatePaths: [],
+					duplicateContentPaths: [],
+					warnings: [`Path-scoped context lookup skipped outside the project root: ${resolvedTarget}`],
+				},
+			};
+		}
+
+		return loadProjectContextFilesWithDiagnostics({
+			cwd: targetDirectory,
+			agentDir: this.agentDir,
+			rootDir: this.cwd,
+		});
 	}
 
 	getSystemPrompt(): string | undefined {
@@ -463,13 +629,15 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const agentsFiles = {
 			agentsFiles: this.noContextFiles
 				? []
-				: loadProjectContextFiles({
+				: loadProjectContextFilesRaw({
 						cwd: this.cwd,
 						agentDir: this.agentDir,
 					}),
 		};
 		const resolvedAgentsFiles = this.agentsFilesOverride ? this.agentsFilesOverride(agentsFiles) : agentsFiles;
-		this.agentsFiles = resolvedAgentsFiles.agentsFiles;
+		const deduplicatedAgentsFiles = deduplicateContextFiles(resolvedAgentsFiles.agentsFiles);
+		this.agentsFiles = deduplicatedAgentsFiles.agentsFiles;
+		this.contextDiagnostics = deduplicatedAgentsFiles.diagnostics;
 
 		const baseSystemPrompt = resolvePromptInput(
 			this.systemPromptSource ?? this.discoverSystemPromptFile(),

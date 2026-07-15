@@ -51,6 +51,11 @@ export interface ThinkingBudgetsSettings {
 	high?: number;
 }
 
+export interface SkillMetadataBudgetSettings {
+	maxChars?: number;
+	maxContextPercent?: number;
+}
+
 export interface MarkdownSettings {
 	codeBlockIndent?: string; // default: "  "
 }
@@ -107,6 +112,7 @@ export interface Settings {
 	packages?: PackageSource[]; // Array of npm/git package sources (string or object with filtering)
 	extensions?: string[]; // Array of local extension file paths or directories
 	skills?: string[]; // Array of local skill file paths or directories
+	skillMetadataBudget?: SkillMetadataBudgetSettings;
 	prompts?: string[]; // Array of local prompt template paths or directories
 	themes?: string[]; // Array of local theme file paths or directories
 	enableSkillCommands?: boolean; // default: true - register skills as /skill:name commands
@@ -1012,6 +1018,16 @@ export class SettingsManager {
 		this.updateProjectSettings("skills", (settings) => {
 			settings.skills = paths;
 		});
+	}
+
+	getSkillMetadataBudget(): SkillMetadataBudgetSettings {
+		return structuredClone(this.settings.skillMetadataBudget ?? {});
+	}
+
+	setSkillMetadataBudget(budget: SkillMetadataBudgetSettings): void {
+		this.globalSettings.skillMetadataBudget = structuredClone(budget);
+		this.markModified("skillMetadataBudget");
+		this.save();
 	}
 
 	getPromptTemplatePaths(): string[] {

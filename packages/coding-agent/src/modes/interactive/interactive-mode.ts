@@ -2793,6 +2793,16 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text === "/context") {
+				this.handleContextCommand();
+				this.editor.setText("");
+				return;
+			}
+			if (text === "/memory" || text.startsWith("/memory ")) {
+				this.handleMemoryCommand(text);
+				this.editor.setText("");
+				return;
+			}
 			if (text === "/changelog") {
 				this.handleChangelogCommand();
 				this.editor.setText("");
@@ -5720,6 +5730,160 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Text(theme.fg("dim", `Session name set: ${sessionName ?? name}`), 1, 0));
 		this.ui.requestRender();
+	}
+
+	private handleContextCommand(): void {
+		const info = this.session.getContextInfo();
+		let output = `${theme.bold("Context")}\n\n`;
+		output += `${theme.fg("dim", "System prompt:")} ${info.systemPromptSource}\n`;
+		output += `${theme.fg("dim", "Approximate system prompt:")} ${info.approximateUsage.systemPromptChars.toLocaleString()} chars (~${info.approximateUsage.estimatedTokens.toLocaleString()} tokens)\n`;
+		if (info.approximateUsage.contextUsage) {
+			const usage = info.approximateUsage.contextUsage;
+			const usageText = usage.tokens === null ? "unknown" : `${usage.tokens.toLocaleString()} tokens`;
+			const percentText = usage.percent === null ? "" : ` (${usage.percent.toFixed(1)}%)`;
+			output += `${theme.fg("dim", "Observed context:")} ${usageText}${percentText} / ${usage.contextWindow.toLocaleString()}\n`;
+		}
+
+		output += `\n${theme.bold("Project instructions")} (${info.contextFiles.length})\n`;
+		if (info.contextFiles.length === 0) {
+			output += theme.fg("dim", "  (none)\n");
+		} else {
+			for (const file of info.contextFiles) {
+				output += `  ${this.formatDisplayPath(file.path)} (${file.chars.toLocaleString()} chars)\n`;
+			}
+		}
+
+		output += `\n${theme.bold("Skills")} (${info.visibleSkills.length} visible, ${info.manualOnlySkills.length} manual-only)\n`;
+		output += `  ${info.visibleSkills.length > 0 ? info.visibleSkills.join(", ") : "(none)"}\n`;
+		if (info.skillMetadataDiagnostics) {
+			const diagnostics = info.skillMetadataDiagnostics;
+			output += `  Metadata: ${diagnostics.metadataChars.toLocaleString()} / ${diagnostics.budgetChars.toLocaleString()} chars`;
+			if (diagnostics.omittedCount > 0) output += `; ${diagnostics.omittedCount} omitted`;
+			output += "\n";
+			if (diagnostics.omittedCount > 0) {
+				const preview = diagnostics.omittedSkills.slice(0, 20).join(", ");
+				const remaining = diagnostics.omittedCount - Math.min(diagnostics.omittedSkills.length, 20);
+				output += `  Omitted from model prompt: ${preview || "(names unavailable)"}${remaining > 0 ? `, and ${remaining} more` : ""}\n`;
+			}
+		}
+
+		output += `\n${theme.bold("Tools")} (${info.activeTools.length} active)\n`;
+		output += `  Active: ${info.activeTools.length > 0 ? info.activeTools.join(", ") : "(none)"}\n`;
+		if (info.inactiveTools.length > 0) {
+			output += `  Inactive: ${info.inactiveTools.join(", ")}\n`;
+		}
+		if (info.toolOutputTelemetry.length > 0) {
+			output += `\n${theme.bold("Tool output telemetry")}\n`;
+			for (const telemetry of info.toolOutputTelemetry) {
+				output += `  ${telemetry.toolName}: ${telemetry.calls} call(s), ${telemetry.rawOutputBytes.toLocaleString()} raw bytes → ${telemetry.returnedOutputBytes.toLocaleString()} returned`;
+				if (telemetry.truncationCount > 0) output += `, ${telemetry.truncationCount} truncated`;
+				if (telemetry.followUpRetrievals > 0) output += `, ${telemetry.followUpRetrievals} follow-up retrieval(s)`;
+				if (telemetry.repeatedReads > 0) output += `, ${telemetry.repeatedReads} repeated read(s)`;
+				output += "\n";
+			}
+		}
+
+		output += `\n${theme.bold("Approximate persistent context")}: instructions ${info.approximateUsage.instructionsChars.toLocaleString()} chars, skill metadata ${info.approximateUsage.skillMetadataChars.toLocaleString()} chars, tool prompt metadata ${info.approximateUsage.toolMetadataChars.toLocaleString()} chars, tool schemas ${info.approximateUsage.toolSchemaChars.toLocaleString()} chars\n`;
+		if (info.warnings.length > 0) {
+			output += `\n${theme.bold("Warnings")}\n${info.warnings.map((warning) => `  ${warning}`).join("\n")}\n`;
+		}
+
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new Text(output.trimEnd(), 1, 0));
+		this.ui.requestRender();
+	}
+
+	private handleMemoryCommand(text: string): void {
+		const request = text.slice("/memory".length).trim();
+		const spaceIndex = request.indexOf(" ");
+		const action = spaceIndex === -1 ? request : request.slice(0, spaceIndex);
+		const value = spaceIndex === -1 ? "" : request.slice(spaceIndex + 1).trim();
+
+		try {
+			if (action === "" || action === "show" || action === "list") {
+				const result = this.session.getMemory();
+				let output = `${theme.bold("Explicit project memory")}\n${theme.fg("dim", this.formatDisplayPath(this.session.getMemoryFilePath()))}\n\n`;
+				if (result.entries.length === 0) {
+					output += theme.fg("dim", "(empty)\n");
+				} else {
+					for (const entry of result.entries) {
+						output += `${theme.bold(entry.id)} [${entry.category}] ${theme.fg("dim", entry.createdAt)}\n${entry.text}\n\n`;
+					}
+				}
+				if (result.warnings.length > 0) {
+					output += `${theme.fg("warning", "Warnings:")}\n${result.warnings.map((warning) => `  ${warning}`).join("\n")}\n`;
+				}
+				this.chatContainer.addChild(new Spacer(1));
+				this.chatContainer.addChild(new Text(output.trimEnd(), 1, 0));
+				this.ui.requestRender();
+				return;
+			}
+
+			if (action === "search") {
+				if (!value) {
+					this.showWarning("Usage: /memory search <query>");
+					return;
+				}
+				const result = this.session.searchMemory(value);
+				const output = result.entries.length
+					? result.entries.map((entry) => `${entry.id} [${entry.category}] ${entry.text}`).join("\n")
+					: "No matching memory entries.";
+				this.chatContainer.addChild(new Spacer(1));
+				this.chatContainer.addChild(new Text(output, 1, 0));
+				this.ui.requestRender();
+				return;
+			}
+
+			if (action === "add") {
+				if (!value) {
+					this.showWarning("Usage: /memory add <fact>");
+					return;
+				}
+				const result = this.session.addMemory(value);
+				this.showStatus(
+					result.created ? `Memory saved: ${result.entry.id}` : `Memory already exists: ${result.entry.id}`,
+				);
+				return;
+			}
+
+			if (action === "edit") {
+				const separator = value.indexOf(" ");
+				if (separator === -1) {
+					this.showWarning("Usage: /memory edit <id> <fact>");
+					return;
+				}
+				const id = value.slice(0, separator).trim();
+				const fact = value.slice(separator + 1).trim();
+				if (!id || !fact) {
+					this.showWarning("Usage: /memory edit <id> <fact>");
+					return;
+				}
+				const result = this.session.editMemory(id, fact);
+				if (!result) {
+					this.showWarning(`Memory entry not found: ${id}`);
+					return;
+				}
+				this.showStatus(result.updated ? `Memory updated: ${id}` : `Memory already current: ${id}`);
+				return;
+			}
+
+			if (action === "forget") {
+				if (!value) {
+					this.showWarning("Usage: /memory forget <id>");
+					return;
+				}
+				if (!this.session.forgetMemory(value)) {
+					this.showWarning(`Memory entry not found: ${value}`);
+					return;
+				}
+				this.showStatus(`Memory forgotten: ${value}`);
+				return;
+			}
+
+			this.showWarning("Usage: /memory <show|search|add|edit|forget>");
+		} catch (error) {
+			this.showError(error instanceof Error ? error.message : String(error));
+		}
 	}
 
 	private handleSessionCommand(): void {

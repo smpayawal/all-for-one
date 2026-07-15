@@ -13,6 +13,7 @@ export {
 	VERSION,
 } from "./config.ts";
 export {
+	type AgentContextInfo,
 	AgentSession,
 	type AgentSessionConfig,
 	type AgentSessionEvent,
@@ -22,6 +23,7 @@ export {
 	type PromptOptions,
 	parseSkillBlock,
 	type SessionStats,
+	type ToolOutputTelemetry,
 } from "./core/agent-session.ts";
 // Auth and model registry
 export {
@@ -174,6 +176,26 @@ export {
 } from "./core/extensions/index.ts";
 // Footer data provider (git branch + extension statuses - data not otherwise available to extensions)
 export type { ReadonlyFooterDataProvider } from "./core/footer-data-provider.ts";
+export {
+	type CreateHandoffInput,
+	createStructuredHandoff,
+	formatStructuredHandoff,
+	type HandoffEvidence,
+	type HandoffStatus,
+	type HandoffValidation,
+	type StructuredHandoff,
+	validateStructuredHandoff,
+} from "./core/handoff.ts";
+export {
+	getProjectMemoryPath,
+	type MemoryAddResult,
+	type MemoryCategory,
+	type MemoryEditResult,
+	type MemoryEntry,
+	type MemoryReadResult,
+	ProjectMemoryStore,
+	scanMemoryText,
+} from "./core/memory.ts";
 export { convertToLlm } from "./core/messages.ts";
 export { ModelRegistry } from "./core/model-registry.ts";
 export {
@@ -193,7 +215,14 @@ export type {
 	ResolvedResource,
 } from "./core/package-manager.ts";
 export { DefaultPackageManager } from "./core/package-manager.ts";
-export type { ResourceCollision, ResourceDiagnostic, ResourceLoader } from "./core/resource-loader.ts";
+export type {
+	ContextDiagnostics,
+	ContextFilesResult,
+	ProjectContextFile,
+	ResourceCollision,
+	ResourceDiagnostic,
+	ResourceLoader,
+} from "./core/resource-loader.ts";
 export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.ts";
 // SDK for programmatic usage
 export {
@@ -259,16 +288,23 @@ export {
 	type RetrySettings,
 	SettingsManager,
 	type SettingsManagerCreateOptions,
+	type SkillMetadataBudgetSettings,
 } from "./core/settings-manager.ts";
 // Skills
 export {
+	DEFAULT_SKILL_METADATA_MAX_CHARS,
+	type FormattedSkillsForPrompt,
 	formatSkillsForPrompt,
+	formatSkillsForPromptWithDiagnostics,
 	type LoadSkillsFromDirOptions,
 	type LoadSkillsResult,
 	loadSkills,
 	loadSkillsFromDir,
 	type Skill,
 	type SkillFrontmatter,
+	type SkillMetadataBudgetOptions,
+	type SkillMetadataBudgetSource,
+	type SkillMetadataDiagnostics,
 } from "./core/skills.ts";
 export { createSyntheticSourceInfo } from "./core/source-info.ts";
 export { type EditDiffResult, generateDiffString, generateUnifiedPatch } from "./core/tools/edit-diff.ts";

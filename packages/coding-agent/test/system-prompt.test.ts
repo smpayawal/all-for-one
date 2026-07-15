@@ -1,5 +1,18 @@
 import { describe, expect, test } from "vitest";
+import type { Skill } from "../src/core/skills.ts";
+import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 import { buildSystemPrompt } from "../src/core/system-prompt.ts";
+
+function createSkill(name: string, description: string): Skill {
+	return {
+		name,
+		description,
+		filePath: `/skills/${name}/SKILL.md`,
+		baseDir: `/skills/${name}`,
+		sourceInfo: createSyntheticSourceInfo(`/skills/${name}/SKILL.md`, { source: "test" }),
+		disableModelInvocation: false,
+	};
+}
 
 describe("buildSystemPrompt", () => {
 	describe("empty tools", () => {
@@ -109,6 +122,40 @@ describe("buildSystemPrompt", () => {
 			});
 
 			expect(prompt.match(/- Use dynamic_tool for summaries\./g)).toHaveLength(1);
+		});
+	});
+
+	describe("skill metadata budgeting", () => {
+		test("applies the configured budget and reports formatting diagnostics", () => {
+			let diagnostics:
+				| {
+						budgetChars: number;
+						omittedCount: number;
+						metadataChars: number;
+				  }
+				| undefined;
+			const prompt = buildSystemPrompt({
+				contextFiles: [],
+				skills: Array.from({ length: 6 }, (_, index) =>
+					createSkill(
+						`budget-skill-${index}`,
+						"A long description that should be constrained by the configured budget.".repeat(6),
+					),
+				),
+				cwd: process.cwd(),
+				skillMetadataBudget: { maxChars: 500 },
+				onSkillMetadataDiagnostics: (value) => {
+					diagnostics = value;
+				},
+			});
+
+			const skillsSection = prompt.slice(
+				prompt.lastIndexOf("\n\n", prompt.indexOf("<available_skills>")),
+				prompt.indexOf("</available_skills>") + "</available_skills>".length,
+			);
+			expect(skillsSection.length).toBeLessThanOrEqual(500);
+			expect(diagnostics).toMatchObject({ budgetChars: 500, metadataChars: skillsSection.length });
+			expect(diagnostics?.omittedCount).toBeGreaterThan(0);
 		});
 	});
 });

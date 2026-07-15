@@ -216,6 +216,26 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("skill metadata budget", () => {
+		it("loads and persists the explicit skill metadata budget", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(
+				settingsPath,
+				JSON.stringify({ skillMetadataBudget: { maxChars: 1_200, maxContextPercent: 4 } }),
+			);
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+
+			expect(manager.getSkillMetadataBudget()).toEqual({ maxChars: 1_200, maxContextPercent: 4 });
+
+			manager.setSkillMetadataBudget({ maxChars: 800 });
+			await manager.flush();
+
+			expect(manager.getSkillMetadataBudget()).toEqual({ maxChars: 800 });
+			expect(JSON.parse(readFileSync(settingsPath, "utf-8")).skillMetadataBudget).toEqual({ maxChars: 800 });
+		});
+	});
+
 	describe("error tracking", () => {
 		it("should collect and clear load errors via drainErrors", () => {
 			const globalSettingsPath = join(agentDir, "settings.json");

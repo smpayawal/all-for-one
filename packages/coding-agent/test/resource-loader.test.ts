@@ -354,6 +354,63 @@ Content`,
 			expect(agentsFiles.some((f) => f.path.includes("AGENTS.md"))).toBe(true);
 		});
 
+		it("loads nested instructions only for the touched path", async () => {
+			const frontendDir = join(cwd, "frontend", "src");
+			const backendDir = join(cwd, "backend");
+			mkdirSync(frontendDir, { recursive: true });
+			mkdirSync(backendDir, { recursive: true });
+			writeFileSync(join(cwd, "AGENTS.md"), "Root instructions");
+			writeFileSync(join(cwd, "frontend", "AGENTS.md"), "Frontend instructions");
+			writeFileSync(join(cwd, "backend", "AGENTS.md"), "Backend instructions");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles.map((file) => file.content)).toEqual(["Root instructions"]);
+			const frontendContext = loader.getAgentsFilesForPath(join(frontendDir, "App.tsx"));
+			expect(frontendContext.agentsFiles.map((file) => file.content)).toEqual([
+				"Root instructions",
+				"Frontend instructions",
+			]);
+			expect(frontendContext.agentsFiles.some((file) => file.content === "Backend instructions")).toBe(false);
+		});
+
+		it("rejects path-scoped instructions reached through a symlink outside the project root", async () => {
+			const outsideDir = join(tempDir, "outside");
+			const linkedDir = join(cwd, "linked");
+			mkdirSync(outsideDir, { recursive: true });
+			writeFileSync(join(outsideDir, "AGENTS.md"), "Outside instructions");
+
+			try {
+				symlinkSync(outsideDir, linkedDir, "dir");
+			} catch {
+				// Windows environments without symlink privileges cannot exercise this boundary.
+				return;
+			}
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			const result = loader.getAgentsFilesForPath(join(linkedDir, "src", "App.tsx"));
+			expect(result.agentsFiles).toEqual([]);
+			expect(result.diagnostics.warnings).toEqual([expect.stringContaining("outside the project root")]);
+		});
+
+		it("deduplicates exact context content and reports the omission", async () => {
+			writeFileSync(join(agentDir, "AGENTS.md"), "Shared instructions");
+			writeFileSync(join(cwd, "AGENTS.md"), "Shared instructions");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toHaveLength(1);
+			expect(loader.getContextDiagnostics()).toMatchObject({
+				discoveredCount: 2,
+				activeCount: 1,
+				duplicateContentCount: 1,
+			});
+		});
+
 		it("should skip AGENTS.md and CLAUDE.md discovery when noContextFiles is true", async () => {
 			writeFileSync(join(cwd, "AGENTS.md"), "# Project Guidelines\n\nBe helpful.");
 			writeFileSync(join(cwd, "CLAUDE.md"), "# Claude Guidelines\n\nBe helpful.");

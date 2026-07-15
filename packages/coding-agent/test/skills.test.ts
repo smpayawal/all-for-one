@@ -2,7 +2,13 @@ import { homedir } from "os";
 import { join, resolve } from "path";
 import { describe, expect, it } from "vitest";
 import type { ResourceDiagnostic } from "../src/core/diagnostics.ts";
-import { formatSkillsForPrompt, loadSkills, loadSkillsFromDir, type Skill } from "../src/core/skills.ts";
+import {
+	formatSkillsForPrompt,
+	formatSkillsForPromptWithDiagnostics,
+	loadSkills,
+	loadSkillsFromDir,
+	type Skill,
+} from "../src/core/skills.ts";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
 
 const fixturesDir = resolve(__dirname, "fixtures/skills");
@@ -342,6 +348,167 @@ describe("skills", () => {
 
 			const result = formatSkillsForPrompt(skills);
 			expect(result).toBe("");
+		});
+
+		it("orders model-visible metadata deterministically and removes duplicate names", () => {
+			const result = formatSkillsForPromptWithDiagnostics([
+				createTestSkill({
+					name: "zeta-skill",
+					description: "Zeta skill.",
+					filePath: "/skills/zeta/SKILL.md",
+					baseDir: "/skills/zeta",
+				}),
+				createTestSkill({
+					name: "alpha-skill",
+					description: "Alpha skill.",
+					filePath: "/skills/alpha/SKILL.md",
+					baseDir: "/skills/alpha",
+				}),
+				createTestSkill({
+					name: "alpha-skill",
+					description: "Duplicate alpha skill.",
+					filePath: "/other/alpha/SKILL.md",
+					baseDir: "/other/alpha",
+				}),
+				createTestSkill({
+					name: "manual-skill",
+					description: "Manual skill.",
+					filePath: "/skills/manual/SKILL.md",
+					baseDir: "/skills/manual",
+					disableModelInvocation: true,
+				}),
+			]);
+
+			expect(result.prompt.indexOf("alpha-skill")).toBeLessThan(result.prompt.indexOf("zeta-skill"));
+			expect(result.prompt).not.toContain("manual-skill");
+			expect((result.prompt.match(/<skill>/g) || []).length).toBe(2);
+			expect(result.diagnostics).toMatchObject({
+				discoveredCount: 4,
+				visibleCount: 2,
+				manualOnlyCount: 1,
+				renderedCount: 2,
+				omittedCount: 0,
+				duplicateNames: ["alpha-skill"],
+			});
+		});
+
+		it("reports duplicate canonical paths without hiding the diagnostic", () => {
+			const result = formatSkillsForPromptWithDiagnostics([
+				createTestSkill({
+					name: "same-path-one",
+					description: "First path entry.",
+					filePath: "/skills/shared/SKILL.md",
+					baseDir: "/skills/shared",
+				}),
+				createTestSkill({
+					name: "same-path-two",
+					description: "Second path entry.",
+					filePath: "/skills/shared/SKILL.md",
+					baseDir: "/skills/shared",
+				}),
+			]);
+
+			expect(result.diagnostics.duplicatePaths).toEqual(["/skills/shared/SKILL.md"]);
+			expect(result.prompt).toContain("same-path-one");
+			expect(result.prompt).not.toContain("same-path-two");
+		});
+
+		it("fits metadata within a character budget and reports omitted skills", () => {
+			const skills = Array.from({ length: 6 }, (_, index) =>
+				createTestSkill({
+					name: `budget-skill-${index}`,
+					description: `A deliberately long description for budget skill ${index}. `.repeat(8),
+					filePath: `/skills/budget-${index}/SKILL.md`,
+					baseDir: `/skills/budget-${index}`,
+				}),
+			);
+
+			const result = formatSkillsForPromptWithDiagnostics(skills, { maxChars: 500 });
+
+			expect(result.prompt.length).toBeLessThanOrEqual(500);
+			expect(result.diagnostics.budgetChars).toBe(500);
+			expect(result.diagnostics.budgetSource).toBe("maxChars");
+			expect(result.diagnostics.omittedCount).toBeGreaterThan(0);
+			expect(result.diagnostics.omittedSkills.length).toBe(result.diagnostics.omittedCount);
+			expect(result.diagnostics.omittedSkills).toContain("budget-skill-5");
+			expect(result.prompt).toContain("omitted");
+		});
+
+		it("does not exceed a budget smaller than the metadata wrapper", () => {
+			const result = formatSkillsForPromptWithDiagnostics(
+				[
+					createTestSkill({
+						name: "tiny-budget-skill",
+						description: "This entry cannot fit in a one-character budget.",
+						filePath: "/skills/tiny/SKILL.md",
+						baseDir: "/skills/tiny",
+					}),
+				],
+				{ maxChars: 1 },
+			);
+
+			expect(result.prompt.length).toBeLessThanOrEqual(1);
+			expect(result.diagnostics.metadataChars).toBeLessThanOrEqual(1);
+			expect(result.diagnostics.omittedSkills).toEqual(["tiny-budget-skill"]);
+		});
+
+		it("reports every visible skill when the configured budget is zero", () => {
+			const result = formatSkillsForPromptWithDiagnostics(
+				[
+					createTestSkill({
+						name: "zero-budget-one",
+						description: "First zero-budget skill.",
+						filePath: "/skills/zero-one/SKILL.md",
+						baseDir: "/skills/zero-one",
+					}),
+					createTestSkill({
+						name: "zero-budget-two",
+						description: "Second zero-budget skill.",
+						filePath: "/skills/zero-two/SKILL.md",
+						baseDir: "/skills/zero-two",
+					}),
+				],
+				{ maxChars: 0 },
+			);
+
+			expect(result.prompt).toBe("");
+			expect(result.diagnostics.omittedCount).toBe(2);
+			expect(result.diagnostics.omittedSkills).toEqual(["zero-budget-one", "zero-budget-two"]);
+		});
+
+		it("derives a character budget from an explicit context percentage", () => {
+			const result = formatSkillsForPromptWithDiagnostics(
+				[
+					createTestSkill({
+						name: "percent-skill",
+						description: "A skill whose budget is derived from context.",
+						filePath: "/skills/percent/SKILL.md",
+						baseDir: "/skills/percent",
+					}),
+				],
+				{ contextWindow: 1_000, maxContextPercent: 10 },
+			);
+
+			expect(result.diagnostics.budgetChars).toBe(400);
+			expect(result.diagnostics.budgetSource).toBe("maxContextPercent");
+			expect(result.prompt.length).toBeLessThanOrEqual(400);
+		});
+
+		it("uses the fixed default when the model context window is unknown", () => {
+			const result = formatSkillsForPromptWithDiagnostics(
+				[
+					createTestSkill({
+						name: "unknown-context-skill",
+						description: "A skill with an unknown model context window.",
+						filePath: "/skills/unknown-context/SKILL.md",
+						baseDir: "/skills/unknown-context",
+					}),
+				],
+				{ maxContextPercent: 2 },
+			);
+
+			expect(result.diagnostics.budgetSource).toBe("default");
+			expect(result.diagnostics.budgetChars).toBe(8_000);
 		});
 	});
 

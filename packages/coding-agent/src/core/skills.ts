@@ -324,21 +324,85 @@ function loadSkillFromFile(
 	}
 }
 
-/**
- * Format skills for inclusion in a system prompt.
- * Uses XML format per Agent Skills standard.
- * See: https://agentskills.io/integrate-skills
- *
- * Skills with disableModelInvocation=true are excluded from the prompt
- * (they can only be invoked explicitly via /skill:name commands).
- */
-export function formatSkillsForPrompt(skills: Skill[]): string {
-	const visibleSkills = skills.filter((s) => !s.disableModelInvocation);
+/** Initial fixed character cap used when no explicit budget is configured. */
+export const DEFAULT_SKILL_METADATA_MAX_CHARS = 8_000;
 
-	if (visibleSkills.length === 0) {
-		return "";
+export interface SkillMetadataBudgetOptions {
+	/** Maximum characters for the complete model-visible skills section. */
+	maxChars?: number;
+	/** Optional percentage of the model context window to use for skill metadata. */
+	maxContextPercent?: number;
+	/** Model context window in tokens, required when maxContextPercent is used. */
+	contextWindow?: number;
+}
+
+export type SkillMetadataBudgetSource = "default" | "maxChars" | "maxContextPercent";
+
+export interface SkillMetadataDiagnostics {
+	discoveredCount: number;
+	visibleCount: number;
+	manualOnlyCount: number;
+	renderedCount: number;
+	omittedCount: number;
+	truncatedDescriptionCount: number;
+	metadataChars: number;
+	metadataBytes: number;
+	budgetChars: number;
+	budgetUsedChars: number;
+	budgetSource: SkillMetadataBudgetSource;
+	duplicateNames: string[];
+	duplicatePaths: string[];
+	omittedSkills: string[];
+}
+
+export interface FormattedSkillsForPrompt {
+	prompt: string;
+	diagnostics: SkillMetadataDiagnostics;
+}
+
+function normalizeNonNegativeInteger(value: number | undefined): number | undefined {
+	if (value === undefined || !Number.isFinite(value) || value < 0) {
+		return undefined;
+	}
+	return Math.floor(value);
+}
+
+function resolveSkillMetadataBudget(options: SkillMetadataBudgetOptions): {
+	maxChars: number;
+	source: SkillMetadataBudgetSource;
+} {
+	const explicitMaxChars = normalizeNonNegativeInteger(options.maxChars);
+	if (explicitMaxChars !== undefined) {
+		return { maxChars: explicitMaxChars, source: "maxChars" };
 	}
 
+	const contextWindow = normalizeNonNegativeInteger(options.contextWindow);
+	const contextPercent = normalizeNonNegativeInteger(options.maxContextPercent);
+	if (contextWindow !== undefined && contextWindow > 0 && contextPercent !== undefined) {
+		return {
+			maxChars: Math.floor((contextWindow * contextPercent * 4) / 100),
+			source: "maxContextPercent",
+		};
+	}
+
+	return { maxChars: DEFAULT_SKILL_METADATA_MAX_CHARS, source: "default" };
+}
+
+function renderSkillEntry(skill: Skill, includeDescription: boolean): string[] {
+	return [
+		"  <skill>",
+		`    <name>${escapeXml(skill.name)}</name>`,
+		`    <description>${includeDescription ? escapeXml(skill.description) : ""}</description>`,
+		`    <location>${escapeXml(skill.filePath)}</location>`,
+		"  </skill>",
+	];
+}
+
+function renderSkillsPrompt(
+	entries: Array<{ skill: Skill; includeDescription: boolean }>,
+	omittedCount: number,
+	includeNotice: boolean,
+): string {
 	const lines = [
 		"\n\nThe following skills provide specialized instructions for specific tasks.",
 		"Use the read tool to load a skill's file when the task matches its description.",
@@ -347,17 +411,243 @@ export function formatSkillsForPrompt(skills: Skill[]): string {
 		"<available_skills>",
 	];
 
-	for (const skill of visibleSkills) {
-		lines.push("  <skill>");
-		lines.push(`    <name>${escapeXml(skill.name)}</name>`);
-		lines.push(`    <description>${escapeXml(skill.description)}</description>`);
-		lines.push(`    <location>${escapeXml(skill.filePath)}</location>`);
-		lines.push("  </skill>");
+	for (const entry of entries) {
+		lines.push(...renderSkillEntry(entry.skill, entry.includeDescription));
+	}
+
+	if (includeNotice && omittedCount > 0) {
+		const skillWord = omittedCount === 1 ? "skill" : "skills";
+		lines.push(
+			`  <metadata_notice>${omittedCount} ${skillWord} omitted because the configured skill metadata budget was reached.</metadata_notice>`,
+		);
 	}
 
 	lines.push("</available_skills>");
-
 	return lines.join("\n");
+}
+
+function renderCompactSkillsPrompt(skills: Skill[], omittedCount: number, includeNotice: boolean): string {
+	const lines = ["\n\n<available_skills>"];
+
+	for (const skill of skills) {
+		lines.push(
+			`  <skill><name>${escapeXml(skill.name)}</name><location>${escapeXml(skill.filePath)}</location></skill>`,
+		);
+	}
+
+	if (includeNotice && omittedCount > 0) {
+		const skillWord = omittedCount === 1 ? "skill" : "skills";
+		lines.push(
+			`  <metadata_notice>${omittedCount} ${skillWord} omitted due to the metadata budget.</metadata_notice>`,
+		);
+	}
+
+	lines.push("</available_skills>");
+	return lines.join("\n");
+}
+
+function dedupeVisibleSkills(skills: Skill[]): {
+	visibleSkills: Skill[];
+	manualOnlyCount: number;
+	duplicateNames: string[];
+	duplicatePaths: string[];
+} {
+	const manualOnlyCount = skills.filter((skill) => skill.disableModelInvocation).length;
+	const candidates = skills
+		.filter((skill) => !skill.disableModelInvocation)
+		.sort((left, right) => {
+			const nameOrder = left.name.localeCompare(right.name);
+			if (nameOrder !== 0) return nameOrder;
+			return canonicalizePath(left.filePath).localeCompare(canonicalizePath(right.filePath));
+		});
+
+	const visibleSkills: Skill[] = [];
+	const names = new Set<string>();
+	const paths = new Set<string>();
+	const duplicateNames = new Set<string>();
+	const duplicatePaths = new Set<string>();
+
+	for (const skill of candidates) {
+		const canonicalPath = canonicalizePath(skill.filePath);
+		if (names.has(skill.name)) {
+			duplicateNames.add(skill.name);
+		}
+		if (paths.has(canonicalPath)) {
+			duplicatePaths.add(canonicalPath);
+		}
+		if (names.has(skill.name) || paths.has(canonicalPath)) {
+			continue;
+		}
+		names.add(skill.name);
+		paths.add(canonicalPath);
+		visibleSkills.push(skill);
+	}
+
+	return {
+		visibleSkills,
+		manualOnlyCount,
+		duplicateNames: [...duplicateNames].sort(),
+		duplicatePaths: [...duplicatePaths].sort(),
+	};
+}
+
+/**
+ * Format skills for inclusion in a system prompt and report the effective
+ * metadata budget. Skills with disableModelInvocation=true remain available
+ * for explicit /skill:name commands but are not model-visible.
+ */
+export function formatSkillsForPromptWithDiagnostics(
+	skills: Skill[],
+	options: SkillMetadataBudgetOptions = {},
+): FormattedSkillsForPrompt {
+	const budget = resolveSkillMetadataBudget(options);
+	const { visibleSkills, manualOnlyCount, duplicateNames, duplicatePaths } = dedupeVisibleSkills(skills);
+	const emptyDiagnostics: SkillMetadataDiagnostics = {
+		discoveredCount: skills.length,
+		visibleCount: visibleSkills.length,
+		manualOnlyCount,
+		renderedCount: 0,
+		omittedCount: 0,
+		truncatedDescriptionCount: 0,
+		metadataChars: 0,
+		metadataBytes: 0,
+		budgetChars: budget.maxChars,
+		budgetUsedChars: 0,
+		budgetSource: budget.source,
+		duplicateNames,
+		duplicatePaths,
+		omittedSkills: [],
+	};
+
+	if (visibleSkills.length === 0) {
+		return { prompt: "", diagnostics: emptyDiagnostics };
+	}
+
+	if (budget.maxChars === 0) {
+		const omittedSkills = visibleSkills.map((skill) => skill.name).sort();
+		return {
+			prompt: "",
+			diagnostics: {
+				...emptyDiagnostics,
+				omittedCount: omittedSkills.length,
+				omittedSkills,
+			},
+		};
+	}
+
+	const fullEntries = visibleSkills.map((skill) => ({ skill, includeDescription: true }));
+	const fullPrompt = renderSkillsPrompt(fullEntries, 0, false);
+	if (fullPrompt.length <= budget.maxChars) {
+		return {
+			prompt: fullPrompt,
+			diagnostics: {
+				...emptyDiagnostics,
+				renderedCount: visibleSkills.length,
+				metadataChars: fullPrompt.length,
+				metadataBytes: Buffer.byteLength(fullPrompt, "utf8"),
+				budgetUsedChars: fullPrompt.length,
+			},
+		};
+	}
+
+	const included: Array<{ skill: Skill; includeDescription: boolean }> = [];
+	const omittedSkills: string[] = [];
+	let truncatedDescriptionCount = 0;
+
+	for (const skill of visibleSkills) {
+		const fullEntry = [...included, { skill, includeDescription: true }];
+		if (renderSkillsPrompt(fullEntry, 0, false).length <= budget.maxChars) {
+			included.push({ skill, includeDescription: true });
+			continue;
+		}
+
+		const minimumEntry = [...included, { skill, includeDescription: false }];
+		if (renderSkillsPrompt(minimumEntry, 0, false).length <= budget.maxChars) {
+			included.push({ skill, includeDescription: false });
+			truncatedDescriptionCount += 1;
+		} else {
+			omittedSkills.push(skill.name);
+		}
+	}
+
+	let prompt = renderSkillsPrompt(included, omittedSkills.length, true);
+	while (prompt.length > budget.maxChars && included.length > 0) {
+		const removed = included.pop();
+		if (!removed) break;
+		omittedSkills.push(removed.skill.name);
+		if (!removed.includeDescription) {
+			truncatedDescriptionCount -= 1;
+		}
+		prompt = renderSkillsPrompt(included, omittedSkills.length, true);
+	}
+
+	if (prompt.length > budget.maxChars) {
+		prompt = renderSkillsPrompt(included, omittedSkills.length, false);
+		if (prompt.length > budget.maxChars) {
+			prompt = "";
+		}
+	}
+
+	if (prompt.length > budget.maxChars || prompt.length === 0 || (included.length === 0 && omittedSkills.length > 0)) {
+		const compactIncluded: Skill[] = [];
+		const compactOmittedSkills: string[] = [];
+
+		for (const skill of visibleSkills) {
+			const candidate = renderCompactSkillsPrompt([...compactIncluded, skill], 0, false);
+			if (candidate.length <= budget.maxChars) {
+				compactIncluded.push(skill);
+			} else {
+				compactOmittedSkills.push(skill.name);
+			}
+		}
+
+		let compactPrompt = renderCompactSkillsPrompt(compactIncluded, compactOmittedSkills.length, true);
+		while (compactPrompt.length > budget.maxChars && compactIncluded.length > 0) {
+			const removed = compactIncluded.pop();
+			if (!removed) break;
+			compactOmittedSkills.push(removed.name);
+			compactPrompt = renderCompactSkillsPrompt(compactIncluded, compactOmittedSkills.length, true);
+		}
+
+		if (compactPrompt.length <= budget.maxChars) {
+			prompt = compactPrompt;
+			omittedSkills.length = 0;
+			omittedSkills.push(...compactOmittedSkills);
+			truncatedDescriptionCount = compactIncluded.filter((skill) => skill.description.length > 0).length;
+			included.length = 0;
+			included.push(...compactIncluded.map((skill) => ({ skill, includeDescription: false })));
+		} else {
+			const compactPromptWithoutNotice = renderCompactSkillsPrompt(compactIncluded, 0, false);
+			if (compactPromptWithoutNotice.length <= budget.maxChars) {
+				prompt = compactPromptWithoutNotice;
+				omittedSkills.length = 0;
+				omittedSkills.push(...compactOmittedSkills);
+				truncatedDescriptionCount = compactIncluded.filter((skill) => skill.description.length > 0).length;
+				included.length = 0;
+				included.push(...compactIncluded.map((skill) => ({ skill, includeDescription: false })));
+			}
+		}
+	}
+
+	omittedSkills.sort();
+	return {
+		prompt,
+		diagnostics: {
+			...emptyDiagnostics,
+			renderedCount: included.length,
+			omittedCount: omittedSkills.length,
+			truncatedDescriptionCount,
+			metadataChars: prompt.length,
+			metadataBytes: Buffer.byteLength(prompt, "utf8"),
+			budgetUsedChars: prompt.length,
+			omittedSkills,
+		},
+	};
+}
+
+/** Format skills for inclusion in a system prompt. */
+export function formatSkillsForPrompt(skills: Skill[], options?: SkillMetadataBudgetOptions): string {
+	return formatSkillsForPromptWithDiagnostics(skills, options).prompt;
 }
 
 function escapeXml(str: string): string {

@@ -34,6 +34,71 @@ export interface Phase4SkillCollectionMeasurement {
 
 export const DEFAULT_PHASE4_CONTEXT_WINDOWS = [8_192, 16_384, 32_768, 128_000, 1_000_000];
 export const DEFAULT_PHASE4_SYNTHETIC_SKILL_COUNTS = [0, 2, 10, 50, 100, 500];
+const UNBOUNDED_BASELINE_SKILL_METADATA_CHARS = Number.MAX_SAFE_INTEGER;
+
+export interface Phase4BaselineTaskCategory {
+	id: string;
+	description: string;
+	requiredMetrics: string[];
+	executionStatus: "deferred-live-evaluation";
+}
+
+export const PHASE4_BASELINE_TASK_CATEGORIES: ReadonlyArray<Phase4BaselineTaskCategory> = [
+	{
+		id: "small-bug-fix",
+		description: "A localized defect with a focused regression test.",
+		requiredMetrics: ["validation result", "tool calls", "model turns", "input tokens", "output tokens"],
+		executionStatus: "deferred-live-evaluation",
+	},
+	{
+		id: "multi-file-feature",
+		description: "A feature crossing several files while preserving existing behavior.",
+		requiredMetrics: ["correctness", "regressions", "validation result", "context occupancy"],
+		executionStatus: "deferred-live-evaluation",
+	},
+	{
+		id: "refactor",
+		description: "A behavior-preserving refactor with package-level validation.",
+		requiredMetrics: ["regressions", "validation result", "model turns", "latency"],
+		executionStatus: "deferred-live-evaluation",
+	},
+	{
+		id: "test-failure",
+		description: "A failing test investigation and repair.",
+		requiredMetrics: ["correctness", "validation result", "tool calls", "repeated reads"],
+		executionStatus: "deferred-live-evaluation",
+	},
+	{
+		id: "unfamiliar-repository-exploration",
+		description: "A bounded investigation of an unfamiliar subsystem.",
+		requiredMetrics: ["task completion", "model turns", "tool calls", "context occupancy"],
+		executionStatus: "deferred-live-evaluation",
+	},
+	{
+		id: "large-command-output",
+		description: "A task that produces large build, test, or search output.",
+		requiredMetrics: ["raw tool-output bytes", "injected tool-output bytes", "truncation count", "follow-up retrieval count"],
+		executionStatus: "deferred-live-evaluation",
+	},
+	{
+		id: "long-session",
+		description: "A multi-turn task crossing compaction or retry boundaries.",
+		requiredMetrics: ["model turns", "cache-read tokens", "cache-write tokens", "compaction", "retry outcomes"],
+		executionStatus: "deferred-live-evaluation",
+	},
+	{
+		id: "documentation-task",
+		description: "A documentation change grounded in current repository behavior.",
+		requiredMetrics: ["correctness", "validation result", "context occupancy", "regressions"],
+		executionStatus: "deferred-live-evaluation",
+	},
+	{
+		id: "high-risk-architecture-change",
+		description: "A constrained architecture change with independent safety review.",
+		requiredMetrics: ["correctness", "regressions", "validation result", "estimated cost", "latency"],
+		executionStatus: "deferred-live-evaluation",
+	},
+];
 
 export interface Phase4BaselineOptions {
 	cwd: string;
@@ -55,6 +120,7 @@ export interface Phase4ContextFileMeasurement {
 
 export interface Phase4BaselineReport {
 	schemaVersion: 1;
+	evaluationPlan: Phase4BaselineTaskCategory[];
 	environment: {
 		cwd: string;
 		agentDir: string;
@@ -178,7 +244,9 @@ export function measureSkillCollection(
 	skills: readonly Skill[],
 	contextWindows: readonly number[],
 ): Phase4SkillCollectionMeasurement {
-	const metadata = formatSkillsForPrompt(Array.from(skills));
+	const metadata = formatSkillsForPrompt(Array.from(skills), {
+		maxChars: UNBOUNDED_BASELINE_SKILL_METADATA_CHARS,
+	});
 	const metadataTokensEstimate = estimateTextTokens(metadata);
 	const referenceBudgets = normalizeContextWindows(contextWindows).map((contextWindow) => {
 		const referenceTokenBudget = Math.floor(
@@ -276,10 +344,15 @@ export async function collectPhase4Baseline(options: Phase4BaselineOptions): Pro
 		promptGuidelines,
 		customPrompt: resourceLoader.getSystemPrompt(),
 		appendSystemPrompt: appendSystemPrompt.length > 0 ? appendSystemPrompt.join("\n\n") : undefined,
+		skillMetadataBudget: { maxChars: UNBOUNDED_BASELINE_SKILL_METADATA_CHARS },
 	});
 
 	return {
 		schemaVersion: 1,
+		evaluationPlan: PHASE4_BASELINE_TASK_CATEGORIES.map((task) => ({
+			...task,
+			requiredMetrics: [...task.requiredMetrics],
+		})),
 		environment: {
 			cwd,
 			agentDir,
@@ -328,7 +401,7 @@ export async function collectPhase4Baseline(options: Phase4BaselineOptions): Pro
 		limitations: [
 			"Token counts use the repository's four-characters-per-token estimate, not provider tokenization.",
 			"This baseline does not run live model tasks or measure correctness, latency, cost, compaction, or retry outcomes.",
-			"Tool-result raw bytes, repeated reads, follow-up retrieval, and truncation telemetry are not centrally captured yet.",
+			"This baseline command does not execute a live session, so tool-result raw bytes, repeated reads, follow-up retrieval, and truncation telemetry are outside its scope; the runtime exposes those measurements through AgentSession and /context.",
 			"Extensions are not loaded or executed; the tool surface measures built-in tools only.",
 			"No skill metadata budget is applied, so omittedSkills is always empty in P4.0.",
 		],
@@ -471,6 +544,9 @@ export function formatPhase4BaselineText(report: Phase4BaselineReport): string {
 		`  source: ${report.current.systemPrompt.source}`,
 		`  append prompts: ${report.current.systemPrompt.appendSystemPromptCount}`,
 		`  size: ${report.current.systemPrompt.chars.toLocaleString("en-US")} chars / ${formatBytes(report.current.systemPrompt.bytes)} / ${report.current.systemPrompt.tokensEstimate.toLocaleString("en-US")} estimated tokens`,
+		"",
+		"Representative workload plan (live execution deferred):",
+		...report.evaluationPlan.map((task) => `  - ${task.id}: ${task.description}`),
 		"",
 		"Synthetic skill collections (2% reference comparison only; no budget applied):",
 		...report.skillCollections.map(

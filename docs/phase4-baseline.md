@@ -30,7 +30,23 @@ The report includes:
 - synthetic skill collections for representative collection sizes;
 - comparison with representative context windows.
 
-Default synthetic collections are `0, 2, 10, 50, 100, 500` skills. Default context windows are `8192, 16384, 32768, 128000, 1000000` tokens. Override them with repeatable options:
+## Representative workload plan
+
+The report carries a small workload plan for later live evaluation:
+
+- small bug fix;
+- multi-file feature;
+- refactor;
+- test failure;
+- unfamiliar repository exploration;
+- large command output;
+- long session;
+- documentation task;
+- high-risk architecture change.
+
+The current command deliberately does not execute model tasks. Each category records the metrics that should be collected when a controlled model/evaluation environment is available.
+
+Default synthetic collections are `0, 2, 10, 50, 100, 500` skills. The synthetic and baseline prompt measurements explicitly disable the production metadata cap so P4.0 remains a pre-policy comparison. Default context windows are `8192, 16384, 32768, 128000, 1000000` tokens. Override them with repeatable options:
 
 ```bash
 npm run baseline:phase4 -- \
@@ -46,4 +62,4 @@ Use `--cwd`, `--agent-dir`, and repeatable `--skill-path` to measure another res
 
 The 2% value is reported only as an external comparison based on [Codex issue #19679](https://github.com/openai/codex/issues/19679). This command does not enforce a budget, truncate metadata, or claim that 2% is optimal for All-For-One. `omittedSkills` remains empty because no budget policy exists in P4.0.
 
-Token counts use the repository's four-characters-per-token estimate, not provider tokenization. The baseline does not yet measure live task correctness, latency, cost, compaction/retry outcomes, tool-result byte telemetry, repeated reads, or follow-up retrieval. Those are P4.0 evidence gaps, not inferred results.
+Token counts use the repository's four-characters-per-token estimate, not provider tokenization. The baseline command does not execute a live session, so it does not measure task correctness, latency, cost, compaction/retry outcomes, tool-result byte telemetry, repeated reads, or follow-up retrieval. Those remain outside the P4.0 command's scope, not inferred results.

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getModel } from "@earendil-works/pi-ai/compat";
@@ -179,6 +179,229 @@ describe("AgentSession dynamic tool registration", () => {
 		expect(session.getActiveToolNames()).toContain("hidden_tool");
 		expect(session.systemPrompt).not.toContain("hidden_tool");
 		expect(session.systemPrompt).not.toContain("Description should not appear in available tools");
+
+		session.dispose();
+	});
+
+	it("applies the configured skill metadata budget to the live session prompt", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		settingsManager.setSkillMetadataBudget({ maxChars: 500 });
+		const skillDir = join(tempDir, "skills", "budget-skill");
+		mkdirSync(skillDir, { recursive: true });
+		writeFileSync(
+			join(skillDir, "SKILL.md"),
+			`---
+name: budget-skill
+description: ${"A long live-session skill description. ".repeat(30)}
+---
+Skill instructions.
+`,
+		);
+
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+			additionalSkillPaths: [skillDir],
+		});
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager: SessionManager.inMemory(),
+			resourceLoader,
+		});
+
+		const diagnostics = session.getSkillMetadataDiagnostics();
+		expect(diagnostics).toMatchObject({ budgetChars: 500, budgetSource: "maxChars" });
+		expect(diagnostics?.metadataChars).toBeLessThanOrEqual(500);
+		expect(session.systemPrompt).toContain("budget-skill");
+
+		session.dispose();
+	});
+
+	it("loads path-scoped instructions during tool preflight", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const frontendDir = join(tempDir, "frontend", "src");
+		mkdirSync(frontendDir, { recursive: true });
+		writeFileSync(join(tempDir, "AGENTS.md"), "Root project instructions.");
+		writeFileSync(join(tempDir, "frontend", "AGENTS.md"), "Frontend-only instructions.");
+
+		const resourceLoader = new DefaultResourceLoader({
+			cwd: tempDir,
+			agentDir,
+			settingsManager,
+		});
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager: SessionManager.inMemory(),
+			resourceLoader,
+		});
+
+		expect(session.systemPrompt).toContain("Root project instructions.");
+		expect(session.systemPrompt).not.toContain("Frontend-only instructions.");
+
+		const beforeToolCall = session.agent.beforeToolCall;
+		expect(beforeToolCall).toBeDefined();
+		const beforeToolCallContext = {
+			toolCall: { id: "call-1", name: "read", arguments: { path: "frontend/src/App.tsx" } },
+			args: { path: "frontend/src/App.tsx" },
+			assistantMessage: {},
+			context: {},
+		} as unknown as Parameters<NonNullable<typeof beforeToolCall>>[0];
+		await beforeToolCall?.(beforeToolCallContext);
+
+		expect(session.systemPrompt).toContain("Frontend-only instructions.");
+		expect(session.getContextInfo().contextFiles.map((file) => file.path)).toEqual([
+			join(tempDir, "AGENTS.md"),
+			join(tempDir, "frontend", "AGENTS.md"),
+		]);
+
+		const prepareNextTurnWithContext = session.agent.prepareNextTurnWithContext;
+		const nextTurn = await prepareNextTurnWithContext?.({
+			context: { systemPrompt: "stale prompt", messages: [], tools: [] },
+		} as unknown as Parameters<NonNullable<typeof prepareNextTurnWithContext>>[0]);
+		expect(nextTurn?.context?.systemPrompt).toContain("Frontend-only instructions.");
+		expect(nextTurn?.context?.systemPrompt).toContain("Root project instructions.");
+		expect(nextTurn?.context?.tools).toEqual(session.agent.state.tools);
+
+		session.dispose();
+	});
+
+	it("records bounded tool-output telemetry without exposing output contents", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager: SessionManager.inMemory(),
+			resourceLoader,
+		});
+
+		const afterToolCall = session.agent.afterToolCall;
+		expect(afterToolCall).toBeDefined();
+		const truncation = {
+			content: "returned",
+			truncated: true,
+			truncatedBy: "bytes",
+			totalLines: 20,
+			totalBytes: 200,
+			outputLines: 1,
+			outputBytes: 8,
+			lastLinePartial: false,
+			firstLineExceedsLimit: false,
+			maxLines: 2_000,
+			maxBytes: 50 * 1024,
+		};
+		const afterToolCallContext = {
+			toolCall: { id: "call-1", name: "read", arguments: { path: "README.md" } },
+			args: { path: "README.md" },
+			assistantMessage: {},
+			result: { content: [{ type: "text", text: "returned" }], details: { truncation } },
+			isError: false,
+		} as unknown as Parameters<NonNullable<typeof afterToolCall>>[0];
+		await afterToolCall?.(afterToolCallContext);
+		await afterToolCall?.({
+			...afterToolCallContext,
+			isError: true,
+		} as unknown as Parameters<NonNullable<typeof afterToolCall>>[0]);
+
+		expect(session.getToolOutputTelemetry()).toEqual([
+			{
+				toolName: "read",
+				calls: 2,
+				successes: 1,
+				failures: 1,
+				rawOutputBytes: 400,
+				returnedOutputBytes: 16,
+				rawOutputLines: 40,
+				returnedOutputLines: 2,
+				truncationCount: 2,
+				truncatedBy: { lines: 0, bytes: 2 },
+				fullOutputAvailable: 0,
+				followUpRetrievals: 0,
+				repeatedReads: 1,
+			},
+		]);
+		expect(session.getContextInfo().approximateUsage.toolSchemaChars).toBeGreaterThan(0);
+
+		session.dispose();
+	});
+
+	it("counts a read of saved full output as a follow-up retrieval", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager: SessionManager.inMemory(),
+			resourceLoader,
+		});
+
+		const afterToolCall = session.agent.afterToolCall;
+		expect(afterToolCall).toBeDefined();
+		const fullOutputPath = join(tempDir, "full-output.txt");
+		const bashCall = {
+			toolCall: { id: "call-bash", name: "bash", arguments: { command: "long-command" } },
+			args: { command: "long-command" },
+			assistantMessage: {},
+			result: {
+				content: [{ type: "text", text: "truncated output" }],
+				details: { fullOutputPath },
+			},
+			isError: false,
+		} as unknown as Parameters<NonNullable<typeof afterToolCall>>[0];
+		await afterToolCall?.(bashCall);
+
+		await afterToolCall?.({
+			toolCall: { id: "call-read", name: "read", arguments: { path: fullOutputPath } },
+			args: { path: fullOutputPath },
+			assistantMessage: {},
+			result: { content: [{ type: "text", text: "full output" }], details: {} },
+			isError: false,
+		} as unknown as Parameters<NonNullable<typeof afterToolCall>>[0]);
+
+		expect(session.getToolOutputTelemetry().find((item) => item.toolName === "bash")).toMatchObject({
+			fullOutputAvailable: 1,
+			followUpRetrievals: 1,
+		});
+
+		session.dispose();
+	});
+
+	it("keeps explicit memory out of the automatic system prompt", async () => {
+		const settingsManager = SettingsManager.create(tempDir, agentDir);
+		const resourceLoader = new DefaultResourceLoader({ cwd: tempDir, agentDir, settingsManager });
+		await resourceLoader.reload();
+
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir,
+			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			settingsManager,
+			sessionManager: SessionManager.inMemory(),
+			resourceLoader,
+		});
+
+		session.addMemory("This fact must be retrieved explicitly.");
+		expect(session.getMemory().entries).toHaveLength(1);
+		expect(session.systemPrompt).not.toContain("This fact must be retrieved explicitly.");
 
 		session.dispose();
 	});

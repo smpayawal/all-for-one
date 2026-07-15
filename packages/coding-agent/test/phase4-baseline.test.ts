@@ -7,6 +7,7 @@ import {
 	collectPhase4Baseline,
 	createSyntheticSkillCollection,
 	measureSkillCollection,
+	PHASE4_BASELINE_TASK_CATEGORIES,
 } from "../../../scripts/phase4-baseline.ts";
 
 describe("Phase 4.0 baseline measurements", () => {
@@ -18,6 +19,23 @@ describe("Phase 4.0 baseline measurements", () => {
 		expect(result.omittedSkills).toEqual([]);
 		expect(result.budgetApplied).toBe(false);
 		expect(result.referenceBudgets.map((budget) => budget.contextWindow)).toEqual([8_192, 16_384]);
+	});
+
+	it("defines representative workload categories without executing model tasks", () => {
+		expect(PHASE4_BASELINE_TASK_CATEGORIES.map((task) => task.id)).toEqual([
+			"small-bug-fix",
+			"multi-file-feature",
+			"refactor",
+			"test-failure",
+			"unfamiliar-repository-exploration",
+			"large-command-output",
+			"long-session",
+			"documentation-task",
+			"high-risk-architecture-change",
+		]);
+		expect(PHASE4_BASELINE_TASK_CATEGORIES.every((task) => task.executionStatus === "deferred-live-evaluation")).toBe(
+			true,
+		);
 	});
 
 	it("measures visible metadata against representative context windows", () => {
@@ -32,6 +50,14 @@ describe("Phase 4.0 baseline measurements", () => {
 		]);
 		expect(result.omittedSkills).toEqual([]);
 		expect(result.budgetApplied).toBe(false);
+	});
+
+	it("keeps large synthetic measurements unbounded for the pre-policy comparison", () => {
+		const result = measureSkillCollection(createSyntheticSkillCollection(500), [8_192]);
+
+		expect(result.metadataChars).toBeGreaterThan(8_000);
+		expect(result.budgetApplied).toBe(false);
+		expect(result.omittedSkills).toEqual([]);
 	});
 
 	it("collects resource, prompt, tool, and synthetic baseline measurements", async () => {
