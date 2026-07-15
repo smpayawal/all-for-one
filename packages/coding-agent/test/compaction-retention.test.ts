@@ -10,6 +10,7 @@ import {
 	formatEvidenceReferences,
 	formatRetainedUserMessages,
 	generateSummary,
+	MAX_EVIDENCE_REFERENCES,
 	prepareCompaction,
 	renderContextRetentionContract,
 	selectRetainedUserMessages,
@@ -203,6 +204,37 @@ describe("context retention contract", () => {
 		]);
 	});
 
+	it("inherits prior native evidence references across repeated compactions", () => {
+		const entries: SessionEntry[] = [
+			createUserEntry("u1", "first request", null),
+			{
+				type: "compaction",
+				id: "c1",
+				parentId: "u1",
+				timestamp: new Date(2026, 0, 1, 0, 0, 20).toISOString(),
+				summary: "## Goal\nContinue",
+				firstKeptEntryId: "u1",
+				tokensBefore: 100,
+				details: {
+					readFiles: [],
+					modifiedFiles: [],
+					evidenceRefs: [{ kind: "tool-output", label: "prior output", ref: "/tmp/prior.log" }],
+				},
+			},
+			createUserEntry("u2", "second request", "c1"),
+			createUserEntry("u3", "recent suffix", "u2"),
+		];
+
+		const preparation = prepareCompaction(entries, {
+			...DEFAULT_COMPACTION_SETTINGS,
+			keepRecentTokens: 1,
+		});
+
+		expect(preparation?.evidenceRefs).toEqual([
+			{ kind: "tool-output", label: "prior output", ref: "/tmp/prior.log" },
+		]);
+	});
+
 	it("collects and formats only explicit saved-output references", () => {
 		const references = collectEvidenceReferences([
 			{
@@ -221,6 +253,24 @@ describe("context retention contract", () => {
 		]);
 		expect(formatEvidenceReferences(references)).toContain("## Evidence References");
 		expect(formatEvidenceReferences(references)).toContain("/tmp/pi-tool-output/phase5.log");
+	});
+
+	it("bounds the number of carried evidence references", () => {
+		const messages: AgentMessage[] = Array.from({ length: MAX_EVIDENCE_REFERENCES + 5 }, (_, index) => ({
+			role: "toolResult" as const,
+			toolCallId: `tool-${index}`,
+			toolName: "bash",
+			content: [{ type: "text" as const, text: "partial output" }],
+			details: { fullOutputPath: `/tmp/pi-tool-output/${index}.log` },
+			isError: false,
+			timestamp: Date.now(),
+		}));
+
+		const references = collectEvidenceReferences(messages);
+
+		expect(references).toHaveLength(MAX_EVIDENCE_REFERENCES);
+		expect(references[0]?.ref).toBe(`/tmp/pi-tool-output/5.log`);
+		expect(references.at(-1)?.ref).toBe(`/tmp/pi-tool-output/${MAX_EVIDENCE_REFERENCES + 4}.log`);
 	});
 
 	it("appends retained exact user context after the generated summary", async () => {

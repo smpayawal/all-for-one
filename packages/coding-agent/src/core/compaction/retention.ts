@@ -44,6 +44,8 @@ export interface EvidenceReference {
 export const DEFAULT_RETAINED_USER_MESSAGE_CHARS = 8_000;
 export const MAX_RETAINED_USER_MESSAGES = 8;
 export const MAX_RETAINED_USER_MESSAGE_CHARS = 16_000;
+export const MAX_EVIDENCE_REFERENCES = 64;
+export const MAX_EVIDENCE_REFERENCE_CHARS = 2_048;
 
 export const CONTEXT_RETENTION_CONTRACT: readonly ContextRetentionRule[] = [
 	{
@@ -93,9 +95,14 @@ function normalizeLimit(value: number | undefined, fallback: number, maximum: nu
 	return Math.min(maximum, Math.max(0, Math.floor(value)));
 }
 
-function renderUserMessageContent(content: UserMessage["content"]): string {
+function renderUserMessageContent(content: UserMessage["content"]): string | undefined {
 	if (typeof content === "string") return content;
-	return content.map((block) => (block.type === "text" ? block.text : "[image content]")).join("\n");
+	const textBlocks: string[] = [];
+	for (const block of content) {
+		if (block.type !== "text") return undefined;
+		textBlocks.push(block.text);
+	}
+	return textBlocks.join("\n");
 }
 
 /**
@@ -128,7 +135,7 @@ export function selectRetainedUserMessages(
 		if (entry?.type !== "message" || entry.message.role !== "user") continue;
 
 		const content = renderUserMessageContent(entry.message.content);
-		if (content.length === 0 || content.length > remainingChars) continue;
+		if (content === undefined || content.length === 0 || content.length > remainingChars) continue;
 
 		selected.push({ entryId: entry.id, message: entry.message });
 		remainingChars -= content.length;
@@ -140,10 +147,11 @@ export function selectRetainedUserMessages(
 export function formatRetainedUserMessages(messages: readonly RetainedUserMessage[]): string {
 	if (messages.length === 0) return "";
 
-	const lines = messages.map(({ entryId, message }) => {
+	const lines = messages.flatMap(({ entryId, message }) => {
 		const content = renderUserMessageContent(message.content);
-		return `- [source entry: ${entryId}] ${content}`;
+		return content === undefined ? [] : [`- [source entry: ${entryId}] ${content}`];
 	});
+	if (lines.length === 0) return "";
 	return [
 		"## Retained User Context",
 		"The following user-authored messages were retained exactly from before compaction:",
@@ -173,9 +181,13 @@ export function collectEvidenceReferences(messages: readonly AgentMessage[]): Ev
 			label = message.role === "bashExecution" ? "bash output" : "tool output";
 		}
 
-		if (!ref || !label || seen.has(ref)) continue;
+		if (!ref || !label || ref.length > MAX_EVIDENCE_REFERENCE_CHARS || seen.has(ref)) continue;
 		seen.add(ref);
 		references.push({ kind: "tool-output", label, ref });
+		if (references.length > MAX_EVIDENCE_REFERENCES) {
+			const removed = references.shift();
+			if (removed) seen.delete(removed.ref);
+		}
 	}
 
 	return references;
@@ -187,6 +199,8 @@ export function formatEvidenceReferences(references: readonly EvidenceReference[
 	return [
 		"## Evidence References",
 		"Exact external evidence already available for on-demand retrieval:",
-		...references.map((reference) => `- [${reference.kind}] ${reference.label}: ${reference.ref}`),
+		...references
+			.slice(0, MAX_EVIDENCE_REFERENCES)
+			.map((reference) => `- [${reference.kind}] ${reference.label}: ${reference.ref}`),
 	].join("\n");
 }

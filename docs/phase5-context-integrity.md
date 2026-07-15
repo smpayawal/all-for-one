@@ -1,4 +1,4 @@
-# Phase 5.0 context integrity baseline
+# Phase 5 context integrity
 
 Phase 5 begins with context-integrity evidence, not another context manager. P5.0 is a deterministic, offline foundation for observing how the existing Native Pi compaction and session reconstruction paths treat critical state across context boundaries.
 
@@ -25,17 +25,20 @@ npm run baseline:phase5 -- --json --cwd /tmp
 
 `--json` emits the complete schema-version-1 report. `--cwd` controls the telemetry path root used by the in-memory observation; the runner does not create that path or write output. Without `--json`, the command prints a compact scenario summary.
 
+The report carries the Phase 4 representative live-workload taxonomy unchanged under `evaluationPlan`. The six P5.0 scenarios below are focused structural probes layered onto that shared workload plan; they are not a second live benchmark taxonomy.
+
 ## Scenarios
 
 | Scenario | Structural observation |
 | --- | --- |
 | `constraint-survival` | A critical constraint is in the summarized range while the newest follow-up remains exact. |
 | `superseded-decision` | An older decision is summarized while a correction remains in the retained exact suffix. |
-| `repeated-compaction` | Two native compaction preparations exercise iterative use of the previous summary. |
+| `repeated-compaction` | Three native compaction preparations exercise iterative use of the previous summary. |
 | `split-turn` | An assistant-boundary cut records the native split-turn path and retains the suffix. |
 | `large-evidence` | A tool result exceeds the existing serialization bound, then exercises saved-output follow-up and repeated-read telemetry. |
+| `interrupted-continuation` | A task resumes after compaction with its saved goal and validation state available in the resumed suffix. |
 
-Each scenario reports compaction count, before/after token samples where applicable, previous-summary use, split-turn detection, critical-marker disposition, tool-call count, and explicit limitations. The evidence scenario also reports raw versus serialized characters, tail-marker retention, truncations, follow-up retrievals, and repeated reads.
+Each scenario reports compaction count, before/after token samples where applicable, previous-summary use, split-turn/interrupted-continuation detection, critical-marker disposition, tool-call count, and explicit limitations. The evidence scenario also reports raw versus serialized characters, tail-marker retention, truncations, follow-up retrievals, and repeated reads.
 
 ## Interpretation
 
@@ -73,15 +76,15 @@ The native compaction settings support an opt-in bounded experiment:
 }
 ```
 
-The default count is `0`, so existing sessions keep the prior behavior until a workload evaluation enables the experiment. When enabled, the selector walks the summarized range from newest to oldest, keeps only complete user-authored messages, enforces both the count and character caps, and omits a message rather than truncating it. The resulting exact text is appended under `## Retained User Context`; `CompactionDetails` records the source entry IDs for diagnostics.
+The default count is `0`, so existing sessions keep the prior behavior until a workload evaluation enables the experiment. When enabled, the selector walks the summarized range from newest to oldest, keeps complete user-authored text within both the count and character caps, and omits a message rather than truncating it. The resulting exact text is appended under `## Retained User Context`; `CompactionDetails` records the source entry IDs for diagnostics.
 
 This is bounded exact retention, not automatic semantic anchoring. It does not classify every message, persist a new memory store, or retain assistant/tool history outside the native recent suffix.
 
 ## P5.4 lightweight evidence references
 
-When a tool result or bash execution already carries an explicit `fullOutputPath`, compaction serialization preserves that path as an evidence reference. Native compaction carries deduplicated references into the summary under `## Evidence References` and records them in `CompactionDetails.evidenceRefs`. Repeated compactions inherit prior native references. No new output file or evidence database is created by this feature.
+When a tool result or bash execution already carries an explicit `fullOutputPath`, compaction serialization preserves that path as an evidence reference. Native compaction carries deduplicated references into the summary under `## Evidence References` and records them in `CompactionDetails.evidenceRefs`. The carried metadata is bounded to 64 references with 2,048-character reference paths. Repeated compactions inherit prior native references without allowing the list to grow without bound. No new output file or evidence database is created by this feature.
 
-The reference is only a pointer to an existing saved output. It does not claim that the file still exists or that the model has retrieved it; the existing tool-output telemetry remains the source for follow-up and repeated-read measurements.
+The reference is only a pointer to an existing saved output. `resolveEvidenceReference(s)` checks local references on demand and reports `available`, `missing`, or `non-local` with an actionable message; compaction does not fail merely because an older output has been removed. The existing tool-output telemetry remains the source for follow-up and repeated-read measurements.
 
 ## P5.5 telemetry-driven tool-output lifecycle
 
@@ -89,13 +92,45 @@ No automatic tool-output compression or eviction policy is enabled in this slice
 
 ## P5.6 compaction health in `/context`
 
-`AgentSession.getContextInfo()` now reports a local compaction-health snapshot for the current session path, and `/context` renders it when requested. The snapshot includes compaction count, latest tokens before/after, reduction percentage, summary size, retained user-message count, and evidence-reference count. The post-boundary token estimate uses the repository’s existing estimator and is not provider-token accounting.
+`AgentSession.getContextInfo()` now reports a local compaction-health snapshot for the current session path, and `/context` renders it when requested. The snapshot includes compaction count, latest tokens before/after, reduction percentage, summary size, retained user-message count, evidence-reference count, and on-demand evidence availability counts. The post-boundary token estimate uses the repository’s existing estimator and is not provider-token accounting.
 
 ## Next gate
 
-Before enabling exact user-message retention by default or expanding correction/evidence policy, run paired baseline-versus-Phase-5 workloads with the same model, task inputs, and context-window conditions. Include short and long sessions, corrections, split turns, large outputs, and interrupted continuation. Record correctness, constraint/correction retention, rediscovery, turns, prompt and cumulative tokens, truncation/retrieval behavior, latency, cost, cache behavior, and regressions.
+Before enabling exact user-message retention by default or expanding correction/evidence policy, run paired baseline-versus-Phase-5 workloads with the same model, provider configuration, task inputs, initial context, and context-window conditions. Use multiple context sizes where practical. Include short and long sessions, corrections, split turns, large outputs, and interrupted continuation. Record correctness, constraint/correction retention, rediscovery, turns, prompt and cumulative tokens, truncation/retrieval behavior, latency, cost, cache behavior, and regressions; establish meaningful efficiency thresholds only after collecting the baseline.
 
-That live gate determines whether a bounded retention contract or additional evidence references are justified. P5.0 intentionally leaves those policy changes deferred.
+That live gate determines whether the opt-in retention and evidence-reference slices should be enabled more broadly. The telemetry-driven tool-output lifecycle remains deferred until the workload evidence justifies it.
+
+## Recorded live-evaluation comparator
+
+The repository now includes an offline comparator for the deferred gate. Record one JSON input with `variant: "baseline"` and one with `variant: "phase5"`, using the same `workloadId`, provider/model, context window, task-input hash, initial-context hash, and shared runtime-configuration hash for each pair. Each run records `metrics.outcome` as `pass`, `fail`, or `unknown`, plus compaction `tokensBefore`/`tokensAfter`, `summaryTokens`, compaction latency/cost, critical-constraint failures, stale decisions, rediscovery, turns, tool calls, prompt/cumulative tokens, compaction count, truncation and retrieval counts, overall latency/cost, cache tokens, and evidence-reference resolution counts.
+
+Run it with:
+
+```bash
+npm run evaluate:phase5 -- \
+  --baseline /path/to/baseline.json \
+  --phase5 /path/to/phase5.json \
+  --json
+```
+
+The comparator rejects unpaired or mismatched runs, marks correctness, critical-constraint, and stale-decision regressions as `blocked`, marks unknown correctness as `inconclusive`, and reports metric deltas without claiming an efficiency improvement. It reads recorded results only; it does not call a provider or change production policy.
+
+For an existing Pi session JSONL file, the same evaluator can derive a cautious single-run record without replaying the session or calling a provider:
+
+```bash
+npm run evaluate:phase5 -- \
+  --session /path/to/session.jsonl \
+  --variant baseline \
+  --workload-id long-session \
+  --context-window 128000 \
+  --task-input-hash TASK_HASH \
+  --initial-context-hash INITIAL_CONTEXT_HASH \
+  --runtime-config-hash RUNTIME_CONFIG_HASH \
+  --annotations /path/to/annotations.json \
+  --json
+```
+
+The optional annotation file can contain `outcome` (`pass`, `fail`, or `unknown`), `criticalConstraintFailures`, `staleDecisionCount`, `rediscoveryCount`, `truncationCount`, `followUpRetrievals`, and `repeatedReads`. The recorder derives provider/model, usage, turns, tool calls, compaction boundaries, summary size, timestamps, cache fields, and evidence-reference availability from the session. Compaction latency and cost are not persisted in native session JSONL. Missing measurements are emitted as `limitations`, and the comparator keeps a pair `inconclusive` until those gaps are resolved.
 
 ## Validation
 
@@ -104,6 +139,13 @@ Focused P5.0 coverage:
 ```bash
 cd packages/coding-agent
 node node_modules/vitest/dist/cli.js --run test/phase5-baseline.test.ts
+node node_modules/vitest/dist/cli.js --run test/phase5-evaluation.test.ts
+```
+
+The evaluator CLI is also available through the root script:
+
+```bash
+npm run evaluate:phase5 -- --help
 ```
 
 The Phase 4 structural gates remain complementary:
@@ -118,6 +160,6 @@ Focused retention-contract coverage:
 ```bash
 cd packages/coding-agent
 node node_modules/vitest/dist/cli.js --run test/compaction-retention.test.ts
-node node_modules/vitest/dist/cli.js --run test/compaction-validation.test.ts test/compaction-serialization.test.ts test/compaction-health.test.ts
+node node_modules/vitest/dist/cli.js --run test/compaction-validation.test.ts test/compaction-serialization.test.ts test/compaction-health.test.ts test/compaction-evidence.test.ts
 node node_modules/vitest/dist/cli.js --run test/settings-manager.test.ts
 ```

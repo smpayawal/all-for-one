@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { MAX_COMPACTION_SUMMARY_CHARS, validateCompactionResult } from "../src/core/compaction/index.ts";
+import {
+	MAX_COMPACTION_SUMMARY_CHARS,
+	MAX_EVIDENCE_REFERENCES,
+	validateCompactionResult,
+} from "../src/core/compaction/index.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
 
 const STRUCTURED_SUMMARY = `## Goal
@@ -101,5 +105,28 @@ describe("validateCompactionResult", () => {
 				"invalid-evidence-reference",
 			]),
 		);
+	});
+
+	it("rejects unbounded evidence metadata", () => {
+		const result = validateCompactionResult(
+			{
+				summary: STRUCTURED_SUMMARY,
+				firstKeptEntryId: "keep",
+				tokensBefore: 100,
+				details: {
+					readFiles: [],
+					modifiedFiles: [],
+					evidenceRefs: Array.from({ length: MAX_EVIDENCE_REFERENCES + 1 }, (_, index) => ({
+						kind: "tool-output" as const,
+						label: `output-${index}`,
+						ref: `/tmp/output-${index}.log`,
+					})),
+				},
+			},
+			[createUserEntry("keep", "kept message")],
+		);
+
+		expect(result.valid).toBe(false);
+		expect(result.issues.map((issue) => issue.code)).toContain("invalid-evidence-reference");
 	});
 });

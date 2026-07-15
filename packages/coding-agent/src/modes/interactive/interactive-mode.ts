@@ -5790,6 +5790,9 @@ export class InteractiveMode {
 			output += `  Latest boundary: ${latest.tokensBefore.toLocaleString()} -> ${latest.tokensAfter.toLocaleString()} tokens (${latest.reductionPercent.toFixed(1)}% reduction)\n`;
 			output += `  Summary: ${latest.summaryChars.toLocaleString()} chars (~${latest.summaryTokens.toLocaleString()} tokens)\n`;
 			output += `  Retained user messages: ${latest.retainedUserMessageCount}; evidence references: ${latest.evidenceReferenceCount}\n`;
+			if (latest.missingEvidenceReferenceCount !== undefined) {
+				output += `  Evidence availability: ${latest.availableEvidenceReferenceCount ?? 0} available, ${latest.missingEvidenceReferenceCount} missing, ${latest.nonLocalEvidenceReferenceCount ?? 0} non-local\n`;
+			}
 		}
 
 		output += `\n${theme.bold("Approximate persistent context")}: instructions ${info.approximateUsage.instructionsChars.toLocaleString()} chars, skill metadata ${info.approximateUsage.skillMetadataChars.toLocaleString()} chars, tool prompt metadata ${info.approximateUsage.toolMetadataChars.toLocaleString()} chars, tool schemas ${info.approximateUsage.toolSchemaChars.toLocaleString()} chars\n`;

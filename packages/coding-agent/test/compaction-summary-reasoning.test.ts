@@ -1,7 +1,13 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Model } from "@earendil-works/pi-ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { type CompactionPreparation, compact, generateSummary } from "../src/core/compaction/index.ts";
+import {
+	type CompactionPreparation,
+	compact,
+	generateSummary,
+	validateCompactionResult,
+} from "../src/core/compaction/index.ts";
+import type { SessionEntry } from "../src/core/session-manager.ts";
 
 const { completeSimpleMock } = vi.hoisted(() => ({
 	completeSimpleMock: vi.fn(),
@@ -49,6 +55,25 @@ const mockSummaryResponse: AssistantMessage = {
 };
 
 const messages: AgentMessage[] = [{ role: "user", content: "Summarize this.", timestamp: Date.now() }];
+
+const TURN_PREFIX_SUMMARY = `## Original Request
+Continue the current task.
+
+## Early Progress
+- The first part of the turn has been summarized.
+
+## Context for Suffix
+- Continue with the retained suffix.`;
+
+function createKeptEntry(): SessionEntry {
+	return {
+		type: "message",
+		id: "entry-keep",
+		parentId: null,
+		timestamp: new Date(2026, 0, 1).toISOString(),
+		message: { role: "user", content: "retained suffix", timestamp: Date.now() },
+	};
+}
 
 describe("generateSummary reasoning options", () => {
 	beforeEach(() => {
@@ -117,6 +142,10 @@ describe("generateSummary reasoning options", () => {
 	});
 
 	it("clamps compaction summary maxTokens to the model output cap", async () => {
+		completeSimpleMock.mockResolvedValue({
+			...mockSummaryResponse,
+			content: [{ type: "text", text: TURN_PREFIX_SUMMARY }],
+		});
 		const preparation: CompactionPreparation = {
 			firstKeptEntryId: "entry-keep",
 			messagesToSummarize: messages,
@@ -130,5 +159,72 @@ describe("generateSummary reasoning options", () => {
 		await compact(preparation, createModel(false, 128000), "test-key");
 
 		expect(completeSimpleMock.mock.calls.map((call) => call[2]?.maxTokens)).toEqual([128000, 128000]);
+	});
+
+	it("keeps a first-turn split compaction compatible with native summary validation", async () => {
+		completeSimpleMock.mockResolvedValue({
+			...mockSummaryResponse,
+			content: [{ type: "text", text: TURN_PREFIX_SUMMARY }],
+		});
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: [],
+			turnPrefixMessages: messages,
+			isSplitTurn: true,
+			tokensBefore: 600000,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 500000, keepRecentTokens: 20000 },
+		};
+
+		const result = await compact(preparation, createModel(false), "test-key");
+		const validation = validateCompactionResult(result, [createKeptEntry()]);
+
+		expect(validation).toEqual({ valid: true, issues: [] });
+	});
+
+	it("does not nest an already structured prior summary in the split-turn fallback", async () => {
+		completeSimpleMock.mockResolvedValue({
+			...mockSummaryResponse,
+			content: [{ type: "text", text: TURN_PREFIX_SUMMARY }],
+		});
+		const previousSummary = `## Goal
+Prior task state.
+
+## Constraints & Preferences
+- Keep the prior constraint.
+
+## Progress
+### Done
+- [x] Prior work.
+
+### In Progress
+- [ ] Current work.
+
+### Blocked
+- (none)
+
+## Key Decisions
+- **Prior decision**: Keep it.
+
+## Next Steps
+1. Continue.
+
+## Critical Context
+- Prior validation passed.`;
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: [],
+			turnPrefixMessages: messages,
+			isSplitTurn: true,
+			tokensBefore: 600000,
+			previousSummary,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 500000, keepRecentTokens: 20000 },
+		};
+
+		const result = await compact(preparation, createModel(false), "test-key");
+
+		expect(result.summary).toContain("Prior task state.");
+		expect(result.summary).not.toContain("- Prior compaction state:");
 	});
 });

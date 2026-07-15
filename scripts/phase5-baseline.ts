@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai/compat";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { PHASE4_BASELINE_TASK_CATEGORIES, type Phase4BaselineTaskCategory } from "./phase4-baseline.ts";
 import {
 	estimateContextTokens,
 	prepareCompaction,
@@ -24,6 +25,7 @@ export const PHASE5_SCENARIO_IDS = [
 	"repeated-compaction",
 	"split-turn",
 	"large-evidence",
+	"interrupted-continuation",
 ] as const;
 
 export type Phase5ScenarioId = (typeof PHASE5_SCENARIO_IDS)[number];
@@ -43,6 +45,8 @@ export interface Phase5ScenarioReport {
 	tokensAfter: number[];
 	previousSummaryUsed: boolean;
 	splitTurnObserved: boolean;
+	interruptedContinuationObserved: boolean;
+	supersessionObserved: boolean;
 	criticalMarkers: Phase5CriticalMarker[];
 	rawEvidenceChars: number;
 	serializedEvidenceChars: number;
@@ -58,6 +62,7 @@ export interface Phase5BaselineReport {
 	schemaVersion: 1;
 	phase: "P5.0";
 	title: "Context integrity and compaction baseline";
+	evaluationPlan: ReadonlyArray<Phase4BaselineTaskCategory>;
 	environment: {
 		cwd: string;
 		resourceLoading: "offline-read-only";
@@ -81,6 +86,7 @@ interface FixtureBuilder {
 interface CompactionObservation {
 	preparation: CompactionPreparation;
 	entriesBefore: SessionEntry[];
+	compactionEntryId: string;
 	summary: string;
 	tokensAfter: number;
 }
@@ -232,7 +238,7 @@ function appendCompaction(
 	builder.lastId = entry.id;
 
 	const tokensAfter = estimateContextTokens(buildSessionContext(builder.entries).messages).tokens;
-	return { preparation, entriesBefore, summary, tokensAfter };
+	return { preparation, entriesBefore, compactionEntryId: entry.id, summary, tokensAfter };
 }
 
 function messageContentText(content: unknown): string {
@@ -294,6 +300,16 @@ function markerDisposition(observation: CompactionObservation, marker: string): 
 	return "not-retained";
 }
 
+function resumedMarkerDisposition(
+	entries: SessionEntry[],
+	observation: CompactionObservation,
+	marker: string,
+): Phase5MarkerDisposition {
+	const compactionIndex = entries.findIndex((entry) => entry.id === observation.compactionEntryId);
+	if (compactionIndex < 0) return "not-retained";
+	return entriesText(entries.slice(compactionIndex + 1)).includes(marker) ? "recent-exact" : "not-retained";
+}
+
 function countToolCalls(entries: SessionEntry[]): number {
 	return entries.reduce((count, entry) => {
 		if (entry.type !== "message" || entry.message.role !== "assistant") return count;
@@ -318,6 +334,8 @@ function createScenarioReport(
 		tokensAfter: observations.map((observation) => observation.tokensAfter),
 		previousSummaryUsed: observations.some((observation) => observation.preparation.previousSummary !== undefined),
 		splitTurnObserved: observations.some((observation) => observation.preparation.isSplitTurn),
+		interruptedContinuationObserved: false,
+		supersessionObserved: false,
 		criticalMarkers,
 		rawEvidenceChars: 0,
 		serializedEvidenceChars: 0,
@@ -360,13 +378,15 @@ function collectSupersededDecision(): Phase5ScenarioReport {
 	appendNoise(builder, "decision-noise", 2);
 	appendUser(builder, "[decision:B] Correction: use the newer retention rule instead.");
 
+	const summary =
+		"## Key Decisions\n- [decision:A] Superseded: do not use the original retention rule.\n- [decision:B] Active correction: use the newer retention rule instead.\n\n## Progress\n- The correction remains the newest exact user state.";
 	const observation = appendCompaction(
 		builder,
 		COMPACTION_SETTINGS,
-		"## Key Decisions\n- [decision:A] Use the original retention rule for this fixture.\n\n## Progress\n- The correction remains the newest exact user state.",
+		summary,
 	);
 
-	return createScenarioReport(
+	const report = createScenarioReport(
 		"superseded-decision",
 		"An older decision is summarized while a correction remains in the retained exact suffix.",
 		builder,
@@ -377,6 +397,7 @@ function collectSupersededDecision(): Phase5ScenarioReport {
 		],
 		["Supersession is represented structurally; no model-generated conflict resolution is performed."],
 	);
+	return { ...report, supersessionObserved: summary.includes("Superseded") && summary.includes("Active correction") };
 }
 
 function collectRepeatedCompaction(): Phase5ScenarioReport {
@@ -398,17 +419,25 @@ function collectRepeatedCompaction(): Phase5ScenarioReport {
 		COMPACTION_SETTINGS,
 		"## Progress\n- [repeat:checkpoint-2] Second checkpoint created.\n\n## Critical Context\n- Preserve [repeat:checkpoint-1] from the previous summary.",
 	);
+	appendUser(builder, "[repeat:checkpoint-3] Continue after the third checkpoint boundary.");
+
+	const thirdObservation = appendCompaction(
+		builder,
+		COMPACTION_SETTINGS,
+		"## Progress\n- [repeat:checkpoint-3] Third deterministic checkpoint created.\n\n## Critical Context\n- Preserve [repeat:checkpoint-1] and [repeat:checkpoint-2] from prior summaries.",
+	);
 
 	return createScenarioReport(
 		"repeated-compaction",
-		"Two sequential native compaction preparations exercise iterative previous-summary input.",
+		"Three sequential native compaction preparations exercise iterative previous-summary input.",
 		builder,
-		[firstObservation, secondObservation],
+		[firstObservation, secondObservation, thirdObservation],
 		[
-			{ marker: "repeat:checkpoint-1", disposition: markerDisposition(secondObservation, "repeat:checkpoint-1") },
-			{ marker: "repeat:checkpoint-2", disposition: markerDisposition(secondObservation, "repeat:checkpoint-2") },
+			{ marker: "repeat:checkpoint-1", disposition: markerDisposition(thirdObservation, "repeat:checkpoint-1") },
+			{ marker: "repeat:checkpoint-2", disposition: markerDisposition(thirdObservation, "repeat:checkpoint-2") },
+			{ marker: "repeat:checkpoint-3", disposition: markerDisposition(thirdObservation, "repeat:checkpoint-3") },
 		],
-		["The repeated pass validates boundary bookkeeping, not summary quality."],
+		["The repeated pass validates three boundary transitions and previous-summary bookkeeping, not summary quality."],
 	);
 }
 
@@ -512,12 +541,45 @@ function collectLargeEvidence(cwd: string): Phase5ScenarioReport {
 	};
 }
 
+function collectInterruptedContinuation(): Phase5ScenarioReport {
+	const builder = createBuilder();
+	appendUser(builder, "[interrupted:goal] Complete the migration while preserving the public API.");
+	appendAssistantText(builder, "[interrupted:progress] The first file was inspected and the validation command was recorded.");
+	appendNoise(builder, "interrupted-noise", 2);
+	appendUser(builder, "[interrupted:checkpoint] The task stopped after validation failed with TS2322.");
+
+	const observation = appendCompaction(
+		builder,
+		COMPACTION_SETTINGS,
+		"## Goal\n- [interrupted:goal] Complete the migration while preserving the public API.\n\n## Progress\n- [interrupted:checkpoint] The task stopped after validation failed with TS2322.\n\n## Next Steps\n- Resume from the saved validation state without redoing completed file reads.",
+	);
+	appendUser(
+		builder,
+		"[interrupted:resume] Resume the interrupted task from the saved session. Address TS2322 without re-reading completed files.",
+	);
+	appendAssistantText(builder, "[interrupted:response] Resumed from the compaction boundary and kept the recorded validation state.");
+
+	const report = createScenarioReport(
+		"interrupted-continuation",
+		"An interrupted task resumes after a native compaction boundary with the saved goal and validation state available.",
+		builder,
+		[observation],
+		[
+			{ marker: "interrupted:goal", disposition: markerDisposition(observation, "interrupted:goal") },
+			{ marker: "interrupted:resume", disposition: resumedMarkerDisposition(builder.entries, observation, "interrupted:resume") },
+		],
+		["The fixture observes a resumed session entry after compaction; it does not measure a model's rediscovery behavior."],
+	);
+	return { ...report, interruptedContinuationObserved: true };
+}
+
 export function collectPhase5Baseline(options: Phase5BaselineOptions): Phase5BaselineReport {
 	const cwd = resolve(options.cwd);
 	return {
 		schemaVersion: 1,
 		phase: "P5.0",
 		title: "Context integrity and compaction baseline",
+		evaluationPlan: PHASE4_BASELINE_TASK_CATEGORIES,
 		environment: {
 			cwd,
 			resourceLoading: "offline-read-only",
@@ -529,6 +591,7 @@ export function collectPhase5Baseline(options: Phase5BaselineOptions): Phase5Bas
 			collectRepeatedCompaction(),
 			collectSplitTurn(),
 			collectLargeEvidence(cwd),
+			collectInterruptedContinuation(),
 		],
 		limitations: [
 			"P5.0 is model-free and does not measure model answer quality, latency, or cost.",

@@ -1,6 +1,11 @@
 import type { SessionEntry } from "../session-manager.ts";
 import type { CompactionResult } from "./compaction.ts";
-import type { EvidenceReference, EvidenceReferenceKind } from "./retention.ts";
+import {
+	type EvidenceReference,
+	type EvidenceReferenceKind,
+	MAX_EVIDENCE_REFERENCE_CHARS,
+	MAX_EVIDENCE_REFERENCES,
+} from "./retention.ts";
 
 export const REQUIRED_COMPACTION_SECTIONS = [
 	"Goal",
@@ -114,6 +119,12 @@ function validateDetails(
 	if (candidate.evidenceRefs !== undefined) {
 		if (!Array.isArray(candidate.evidenceRefs)) {
 			addIssue(issues, "invalid-evidence-reference", "evidenceRefs must be an array.");
+		} else if (candidate.evidenceRefs.length > MAX_EVIDENCE_REFERENCES) {
+			addIssue(
+				issues,
+				"invalid-evidence-reference",
+				`evidenceRefs cannot contain more than ${MAX_EVIDENCE_REFERENCES} references.`,
+			);
 		} else {
 			for (const reference of candidate.evidenceRefs) {
 				if (!isValidEvidenceReference(reference)) {
@@ -121,6 +132,12 @@ function validateDetails(
 						issues,
 						"invalid-evidence-reference",
 						"Every evidence reference needs a valid kind, label, and ref.",
+					);
+				} else if (reference.ref.length > MAX_EVIDENCE_REFERENCE_CHARS) {
+					addIssue(
+						issues,
+						"invalid-evidence-reference",
+						`Evidence references cannot exceed ${MAX_EVIDENCE_REFERENCE_CHARS} characters.`,
 					);
 				}
 			}

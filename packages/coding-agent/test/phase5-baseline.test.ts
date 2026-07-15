@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { PHASE4_BASELINE_TASK_CATEGORIES } from "../../../scripts/phase4-baseline.ts";
 import { collectPhase5Baseline, PHASE5_SCENARIO_IDS } from "../../../scripts/phase5-baseline.ts";
 
 describe("Phase 5.0 context-integrity baseline", () => {
-	it("exposes the five approved deterministic scenarios", () => {
+	it("exposes the six approved deterministic scenarios", () => {
 		const report = collectPhase5Baseline({ cwd: process.cwd() });
 
 		expect(PHASE5_SCENARIO_IDS).toEqual([
@@ -11,6 +12,7 @@ describe("Phase 5.0 context-integrity baseline", () => {
 			"repeated-compaction",
 			"split-turn",
 			"large-evidence",
+			"interrupted-continuation",
 		]);
 		expect(report.schemaVersion).toBe(1);
 		expect(report.phase).toBe("P5.0");
@@ -35,6 +37,15 @@ describe("Phase 5.0 context-integrity baseline", () => {
 		);
 	});
 
+	it("reuses the Phase 4 live-workload taxonomy", () => {
+		const report = collectPhase5Baseline({ cwd: process.cwd() });
+
+		expect(report.evaluationPlan.map((category) => category.id)).toEqual(
+			PHASE4_BASELINE_TASK_CATEGORIES.map((category) => category.id),
+		);
+		expect(report.evaluationPlan).toEqual(PHASE4_BASELINE_TASK_CATEGORIES);
+	});
+
 	it("records correction supersession as old state summarized and new state recent-exact", () => {
 		const scenario = collectPhase5Baseline({ cwd: process.cwd() }).scenarios.find(
 			(item) => item.id === "superseded-decision",
@@ -46,17 +57,21 @@ describe("Phase 5.0 context-integrity baseline", () => {
 				expect.objectContaining({ marker: "decision:B", disposition: "recent-exact" }),
 			]),
 		);
+		expect(scenario?.supersessionObserved).toBe(true);
 	});
 
-	it("records repeated compaction and prior-summary use", () => {
+	it("records three repeated compactions and prior-summary use", () => {
 		const scenario = collectPhase5Baseline({ cwd: process.cwd() }).scenarios.find(
 			(item) => item.id === "repeated-compaction",
 		);
 
-		expect(scenario?.compactionCount).toBe(2);
-		expect(scenario?.tokensBefore).toHaveLength(2);
-		expect(scenario?.tokensAfter).toHaveLength(2);
+		expect(scenario?.compactionCount).toBe(3);
+		expect(scenario?.tokensBefore).toHaveLength(3);
+		expect(scenario?.tokensAfter).toHaveLength(3);
 		expect(scenario?.previousSummaryUsed).toBe(true);
+		expect(scenario?.criticalMarkers).toContainEqual(
+			expect.objectContaining({ marker: "repeat:checkpoint-3", disposition: "recent-exact" }),
+		);
 	});
 
 	it("records split-turn handling without changing the native cut-point algorithm", () => {
@@ -76,5 +91,17 @@ describe("Phase 5.0 context-integrity baseline", () => {
 		expect(scenario?.truncationCount).toBe(1);
 		expect(scenario?.followUpRetrievals).toBe(1);
 		expect(scenario?.repeatedReads).toBe(1);
+	});
+
+	it("records interrupted continuation with the resumed request in the exact suffix", () => {
+		const scenario = collectPhase5Baseline({ cwd: process.cwd() }).scenarios.find(
+			(item) => item.id === "interrupted-continuation",
+		);
+
+		expect(scenario?.interruptedContinuationObserved).toBe(true);
+		expect(scenario?.compactionCount).toBe(1);
+		expect(scenario?.criticalMarkers).toContainEqual(
+			expect.objectContaining({ marker: "interrupted:resume", disposition: "recent-exact" }),
+		);
 	});
 });

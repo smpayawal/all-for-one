@@ -1018,6 +1018,7 @@ export class AgentSession {
 		const compactionHealth = collectCompactionHealth(
 			this.sessionManager.getBranch(),
 			(messages) => estimateContextTokens(messages).tokens,
+			this._cwd,
 		);
 		const skillDiagnostics = this._skillMetadataDiagnostics;
 		if (skillDiagnostics?.omittedCount) {

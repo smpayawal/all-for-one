@@ -51,7 +51,7 @@ describe("compaction health", () => {
 			},
 		];
 
-		const health = collectCompactionHealth(entries, (messages) => messages.length * 10);
+		const health = collectCompactionHealth(entries, (messages) => messages.length * 10, "/tmp");
 
 		expect(health.count).toBe(1);
 		expect(health.latest).toMatchObject({
@@ -60,6 +60,9 @@ describe("compaction health", () => {
 			reductionPercent: 80,
 			retainedUserMessageCount: 2,
 			evidenceReferenceCount: 1,
+			availableEvidenceReferenceCount: 0,
+			missingEvidenceReferenceCount: 1,
+			nonLocalEvidenceReferenceCount: 0,
 		});
 	});
 });

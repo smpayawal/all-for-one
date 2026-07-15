@@ -20,6 +20,8 @@ import {
 	type EvidenceReference,
 	formatEvidenceReferences,
 	formatRetainedUserMessages,
+	MAX_EVIDENCE_REFERENCE_CHARS,
+	MAX_EVIDENCE_REFERENCES,
 	type RetainedUserMessage,
 	renderContextRetentionContract,
 	selectRetainedUserMessages,
@@ -88,7 +90,8 @@ function isEvidenceReference(value: unknown): value is EvidenceReference {
 		(candidate.kind === "tool-output" || candidate.kind === "validation" || candidate.kind === "file") &&
 		typeof candidate.label === "string" &&
 		typeof candidate.ref === "string" &&
-		candidate.ref.length > 0
+		candidate.ref.length > 0 &&
+		candidate.ref.length <= MAX_EVIDENCE_REFERENCE_CHARS
 	);
 }
 
@@ -107,6 +110,7 @@ function collectCompactionEvidenceReferences(
 	if (!Array.isArray(details.evidenceRefs)) return references;
 
 	for (const reference of details.evidenceRefs) {
+		if (references.length >= MAX_EVIDENCE_REFERENCES) break;
 		if (!isEvidenceReference(reference) || seen.has(reference.ref)) continue;
 		seen.add(reference.ref);
 		references.push(reference);
@@ -572,6 +576,69 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
+const STRUCTURED_SUMMARY_REQUIRED_SECTIONS = [
+	"Goal",
+	"Constraints & Preferences",
+	"Progress",
+	"Key Decisions",
+	"Next Steps",
+	"Critical Context",
+] as const;
+
+function createStructuredSplitTurnHistoryFallback(previousSummary?: string): string {
+	const priorSummary = previousSummary?.trim();
+	if (
+		priorSummary &&
+		STRUCTURED_SUMMARY_REQUIRED_SECTIONS.every((section) => priorSummary.includes(`## ${section}`))
+	) {
+		return priorSummary;
+	}
+	const priorContext = priorSummary
+		? `\n- Prior compaction state:\n${priorSummary
+				.split(/\r?\n/)
+				.map((line) => `  ${line}`)
+				.join("\n")}`
+		: "";
+
+	return `## Goal
+Continue the current task from the retained split turn.
+
+## Constraints & Preferences
+- Preserve the constraints and preferences carried by the retained turn context.
+
+## Progress
+### Done
+- [x] Reached a split-turn compaction boundary.
+
+### In Progress
+- [ ] Continue the retained turn.
+
+### Blocked
+- (none)
+
+## Key Decisions
+- **Retained turn context**: Preserve the native split-turn suffix while continuing the task.
+
+## Next Steps
+1. Continue from the retained split-turn context.
+
+## Critical Context
+- No separate earlier-history summary was available at this boundary.${priorContext}`;
+}
+
+const TURN_PREFIX_REQUIRED_SECTIONS = ["Original Request", "Early Progress", "Context for Suffix"] as const;
+
+function assertTurnPrefixSummaryValid(summary: string): void {
+	const missingSections = TURN_PREFIX_REQUIRED_SECTIONS.filter((section) => !summary.includes(`## ${section}`));
+	const hasStructuredSummary = STRUCTURED_SUMMARY_REQUIRED_SECTIONS.every((section) =>
+		summary.includes(`## ${section}`),
+	);
+	if (summary.trim().length === 0 || (missingSections.length > 0 && !hasStructuredSummary)) {
+		const missing = missingSections.length > 0 ? ` Missing sections: ${missingSections.join(", ")}.` : "";
+		throw new Error(`Native compaction validation failed: turn-prefix summary is malformed.${missing}`);
+	}
+}
+
 function createSummarizationOptions(
 	model: Model<any>,
 	maxTokens: number,
@@ -858,7 +925,7 @@ export async function compact(
 						streamFn,
 						env,
 					)
-				: "No prior history.";
+				: createStructuredSplitTurnHistoryFallback(previousSummary);
 		const turnPrefixResult = await generateTurnPrefixSummary(
 			turnPrefixMessages,
 			model,
@@ -870,6 +937,7 @@ export async function compact(
 			thinkingLevel,
 			streamFn,
 		);
+		assertTurnPrefixSummaryValid(turnPrefixResult);
 		// Merge into single summary
 		summary = `${historyResult}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult}`;
 	} else {
