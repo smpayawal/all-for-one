@@ -16,13 +16,87 @@ import type {
 	AgentEvent,
 	AgentLoopConfig,
 	AgentMessage,
+	AgentRunTermination,
 	AgentTool,
 	AgentToolCall,
 	AgentToolResult,
+	ExecutionLimits,
 	StreamFn,
 } from "./types.ts";
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
+
+const EMPTY_USAGE = {
+	input: 0,
+	output: 0,
+	cacheRead: 0,
+	cacheWrite: 0,
+	totalTokens: 0,
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+function validateExecutionLimit(value: number | undefined, name: keyof ExecutionLimits): number | undefined {
+	if (value === undefined) return undefined;
+	if (!Number.isInteger(value) || value <= 0) {
+		throw new Error(`Invalid executionLimits.${name}: expected a positive integer`);
+	}
+	return value;
+}
+
+function resolveExecutionLimits(limits: ExecutionLimits | undefined): ExecutionLimits {
+	return {
+		maxTurns: validateExecutionLimit(limits?.maxTurns, "maxTurns"),
+		maxToolCalls: validateExecutionLimit(limits?.maxToolCalls, "maxToolCalls"),
+	};
+}
+
+function errorText(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function abortMessage(signal?: AbortSignal): string | undefined {
+	if (!signal?.aborted || signal.reason === undefined) return undefined;
+	return errorText(signal.reason);
+}
+
+function terminationForFailure(error: unknown, signal?: AbortSignal): AgentRunTermination {
+	if (signal?.aborted) {
+		const message = abortMessage(signal) ?? errorText(error);
+		return message ? { reason: "aborted", message } : { reason: "aborted" };
+	}
+	return { reason: "error", message: errorText(error) };
+}
+
+function createRunFailureMessage(config: AgentLoopConfig, error: unknown, aborted: boolean): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text: "" }],
+		api: config.model.api,
+		provider: config.model.provider,
+		model: config.model.id,
+		usage: EMPTY_USAGE,
+		stopReason: aborted ? "aborted" : "error",
+		errorMessage: errorText(error),
+		timestamp: Date.now(),
+	};
+}
+
+function settleAgentStreamFailure(
+	stream: EventStream<AgentEvent, AgentMessage[]>,
+	config: AgentLoopConfig,
+	error: unknown,
+	signal?: AbortSignal,
+): void {
+	const message = createRunFailureMessage(config, error, signal?.aborted === true);
+	stream.push({ type: "message_start", message });
+	stream.push({ type: "message_end", message });
+	stream.push({ type: "turn_end", message, toolResults: [] });
+	stream.push({
+		type: "agent_end",
+		messages: [message],
+		termination: terminationForFailure(error, signal),
+	});
+}
 
 /**
  * Start an agent loop with a new prompt message.
@@ -46,9 +120,13 @@ export function agentLoop(
 		},
 		signal,
 		streamFn,
-	).then((messages) => {
-		stream.end(messages);
-	});
+	)
+		.then((messages) => {
+			stream.end(messages);
+		})
+		.catch((error) => {
+			settleAgentStreamFailure(stream, config, error, signal);
+		});
 
 	return stream;
 }
@@ -85,9 +163,13 @@ export function agentLoopContinue(
 		},
 		signal,
 		streamFn,
-	).then((messages) => {
-		stream.end(messages);
-	});
+	)
+		.then((messages) => {
+			stream.end(messages);
+		})
+		.catch((error) => {
+			settleAgentStreamFailure(stream, config, error, signal);
+		});
 
 	return stream;
 }
@@ -149,6 +231,24 @@ function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
 	);
 }
 
+async function emitAgentEnd(
+	emit: AgentEventSink,
+	messages: AgentMessage[],
+	termination: AgentRunTermination,
+): Promise<void> {
+	await emit({ type: "agent_end", messages, termination });
+}
+
+function terminationForAssistant(message: AssistantMessage): AgentRunTermination {
+	if (message.stopReason === "aborted") {
+		return message.errorMessage ? { reason: "aborted", message: message.errorMessage } : { reason: "aborted" };
+	}
+	if (message.stopReason === "error") {
+		return message.errorMessage ? { reason: "error", message: message.errorMessage } : { reason: "error" };
+	}
+	return { reason: "completed" };
+}
+
 /**
  * Main loop logic shared by agentLoop and agentLoopContinue.
  */
@@ -162,6 +262,9 @@ async function runLoop(
 ): Promise<void> {
 	let currentContext = initialContext;
 	let config = initialConfig;
+	const executionLimits = resolveExecutionLimits(initialConfig.executionLimits);
+	let turnsStarted = 1;
+	let toolCallsAccepted = 0;
 	let firstTurn = true;
 	// Check for steering messages at start (user may have typed while waiting)
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
@@ -172,7 +275,22 @@ async function runLoop(
 
 		// Inner loop: process tool calls and steering messages
 		while (hasMoreToolCalls || pendingMessages.length > 0) {
+			if (signal?.aborted) {
+				const message = abortMessage(signal);
+				await emitAgentEnd(emit, newMessages, message ? { reason: "aborted", message } : { reason: "aborted" });
+				return;
+			}
+
 			if (!firstTurn) {
+				if (executionLimits.maxTurns !== undefined && turnsStarted >= executionLimits.maxTurns) {
+					await emitAgentEnd(emit, newMessages, {
+						reason: "limit",
+						limit: "turns",
+						max: executionLimits.maxTurns,
+					});
+					return;
+				}
+				turnsStarted++;
 				await emit({ type: "turn_start" });
 			} else {
 				firstTurn = false;
@@ -195,7 +313,7 @@ async function runLoop(
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
 				await emit({ type: "turn_end", message, toolResults: [] });
-				await emit({ type: "agent_end", messages: newMessages });
+				await emitAgentEnd(emit, newMessages, terminationForAssistant(message));
 				return;
 			}
 
@@ -204,14 +322,25 @@ async function runLoop(
 
 			const toolResults: ToolResultMessage[] = [];
 			hasMoreToolCalls = false;
+			let toolCallLimitReached: number | undefined;
 			if (toolCalls.length > 0) {
-				// A "length" stop means the output was cut off by the token limit, so
-				// every tool call in the message may carry truncated arguments. Fail
-				// them all instead of executing potentially borked calls.
-				const executedToolBatch =
-					message.stopReason === "length"
-						? await failToolCallsFromTruncatedMessage(toolCalls, emit)
-						: await executeToolCalls(currentContext, message, config, signal, emit);
+				let executedToolBatch: ExecutedToolCallBatch;
+				if (
+					executionLimits.maxToolCalls !== undefined &&
+					toolCallsAccepted + toolCalls.length > executionLimits.maxToolCalls
+				) {
+					executedToolBatch = await failToolCallsFromLimit(toolCalls, executionLimits.maxToolCalls, emit);
+					toolCallLimitReached = executionLimits.maxToolCalls;
+				} else {
+					toolCallsAccepted += toolCalls.length;
+					// A "length" stop means the output was cut off by the token limit, so
+					// every tool call in the message may carry truncated arguments. Fail
+					// them all instead of executing potentially borked calls.
+					executedToolBatch =
+						message.stopReason === "length"
+							? await failToolCallsFromTruncatedMessage(toolCalls, emit)
+							: await executeToolCalls(currentContext, message, config, signal, emit);
+				}
 				toolResults.push(...executedToolBatch.messages);
 				hasMoreToolCalls = !executedToolBatch.terminate;
 
@@ -222,6 +351,21 @@ async function runLoop(
 			}
 
 			await emit({ type: "turn_end", message, toolResults });
+
+			if (toolCallLimitReached !== undefined) {
+				await emitAgentEnd(emit, newMessages, {
+					reason: "limit",
+					limit: "toolCalls",
+					max: toolCallLimitReached,
+				});
+				return;
+			}
+
+			if (signal?.aborted) {
+				const message = abortMessage(signal);
+				await emitAgentEnd(emit, newMessages, message ? { reason: "aborted", message } : { reason: "aborted" });
+				return;
+			}
 
 			const nextTurnContext = {
 				message,
@@ -252,7 +396,7 @@ async function runLoop(
 					newMessages,
 				})
 			) {
-				await emit({ type: "agent_end", messages: newMessages });
+				await emitAgentEnd(emit, newMessages, { reason: "completed" });
 				return;
 			}
 
@@ -271,7 +415,7 @@ async function runLoop(
 		break;
 	}
 
-	await emit({ type: "agent_end", messages: newMessages });
+	await emitAgentEnd(emit, newMessages, { reason: "completed" });
 }
 
 /**
@@ -380,9 +524,38 @@ async function streamAssistantResponse(
  * whose arguments parse and validate but are silently incomplete. None of them
  * are safe to execute; report each as an error so the model can re-issue them.
  */
+async function failToolCallsFromLimit(
+	toolCalls: AgentToolCall[],
+	maxToolCalls: number,
+	emit: AgentEventSink,
+): Promise<ExecutedToolCallBatch> {
+	return failToolCalls(
+		toolCalls,
+		(toolCall) =>
+			`Tool call "${toolCall.name}" was not executed: this batch would exceed the configured maximum of ${maxToolCalls} tool calls for the run.`,
+		emit,
+		true,
+	);
+}
+
 async function failToolCallsFromTruncatedMessage(
 	toolCalls: AgentToolCall[],
 	emit: AgentEventSink,
+): Promise<ExecutedToolCallBatch> {
+	return failToolCalls(
+		toolCalls,
+		(toolCall) =>
+			`Tool call "${toolCall.name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`,
+		emit,
+		false,
+	);
+}
+
+async function failToolCalls(
+	toolCalls: AgentToolCall[],
+	messageFor: (toolCall: AgentToolCall) => string,
+	emit: AgentEventSink,
+	terminate: boolean,
 ): Promise<ExecutedToolCallBatch> {
 	const messages: ToolResultMessage[] = [];
 	for (const toolCall of toolCalls) {
@@ -394,9 +567,7 @@ async function failToolCallsFromTruncatedMessage(
 		});
 		const finalized: FinalizedToolCallOutcome = {
 			toolCall,
-			result: createErrorToolResult(
-				`Tool call "${toolCall.name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`,
-			),
+			result: createErrorToolResult(messageFor(toolCall)),
 			isError: true,
 		};
 		await emitToolExecutionEnd(finalized, emit);
@@ -404,7 +575,7 @@ async function failToolCallsFromTruncatedMessage(
 		await emitToolResultMessage(toolResultMessage, emit);
 		messages.push(toolResultMessage);
 	}
-	return { messages, terminate: false };
+	return { messages, terminate };
 }
 
 /**
@@ -432,6 +603,15 @@ type ExecutedToolCallBatch = {
 	terminate: boolean;
 };
 
+function abortedToolOutcome(toolCall: AgentToolCall, signal: AbortSignal | undefined): FinalizedToolCallOutcome {
+	const reason = abortMessage(signal);
+	return {
+		toolCall,
+		result: createErrorToolResult(reason ? `Operation aborted: ${reason}` : "Operation aborted"),
+		isError: true,
+	};
+}
+
 async function executeToolCallsSequential(
 	currentContext: AgentContext,
 	assistantMessage: AssistantMessage,
@@ -451,24 +631,28 @@ async function executeToolCallsSequential(
 			args: toolCall.arguments,
 		});
 
-		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
 		let finalized: FinalizedToolCallOutcome;
-		if (preparation.kind === "immediate") {
-			finalized = {
-				toolCall,
-				result: preparation.result,
-				isError: preparation.isError,
-			};
+		if (signal?.aborted) {
+			finalized = abortedToolOutcome(toolCall, signal);
 		} else {
-			const executed = await executePreparedToolCall(preparation, signal, emit);
-			finalized = await finalizeExecutedToolCall(
-				currentContext,
-				assistantMessage,
-				preparation,
-				executed,
-				config,
-				signal,
-			);
+			const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
+			if (preparation.kind === "immediate") {
+				finalized = {
+					toolCall,
+					result: preparation.result,
+					isError: preparation.isError,
+				};
+			} else {
+				const executed = await executePreparedToolCall(preparation, signal, emit);
+				finalized = await finalizeExecutedToolCall(
+					currentContext,
+					assistantMessage,
+					preparation,
+					executed,
+					config,
+					signal,
+				);
+			}
 		}
 
 		await emitToolExecutionEnd(finalized, emit);
@@ -476,16 +660,9 @@ async function executeToolCallsSequential(
 		await emitToolResultMessage(toolResultMessage, emit);
 		finalizedCalls.push(finalized);
 		messages.push(toolResultMessage);
-
-		if (signal?.aborted) {
-			break;
-		}
 	}
 
-	return {
-		messages,
-		terminate: shouldTerminateToolBatch(finalizedCalls),
-	};
+	return { messages, terminate: shouldTerminateToolBatch(finalizedCalls) };
 }
 
 async function executeToolCallsParallel(
@@ -506,6 +683,13 @@ async function executeToolCallsParallel(
 			args: toolCall.arguments,
 		});
 
+		if (signal?.aborted) {
+			const finalized = abortedToolOutcome(toolCall, signal);
+			await emitToolExecutionEnd(finalized, emit);
+			finalizedCalls.push(finalized);
+			continue;
+		}
+
 		const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal);
 		if (preparation.kind === "immediate") {
 			const finalized = {
@@ -515,13 +699,15 @@ async function executeToolCallsParallel(
 			} satisfies FinalizedToolCallOutcome;
 			await emitToolExecutionEnd(finalized, emit);
 			finalizedCalls.push(finalized);
-			if (signal?.aborted) {
-				break;
-			}
 			continue;
 		}
 
 		finalizedCalls.push(async () => {
+			if (signal?.aborted) {
+				const finalized = abortedToolOutcome(toolCall, signal);
+				await emitToolExecutionEnd(finalized, emit);
+				return finalized;
+			}
 			const executed = await executePreparedToolCall(preparation, signal, emit);
 			const finalized = await finalizeExecutedToolCall(
 				currentContext,
@@ -534,9 +720,6 @@ async function executeToolCallsParallel(
 			await emitToolExecutionEnd(finalized, emit);
 			return finalized;
 		});
-		if (signal?.aborted) {
-			break;
-		}
 	}
 
 	const orderedFinalizedCalls = await Promise.all(
@@ -631,7 +814,7 @@ async function prepareToolCall(
 			if (signal?.aborted) {
 				return {
 					kind: "immediate",
-					result: createErrorToolResult("Operation aborted"),
+					result: abortedToolOutcome(toolCall, signal).result,
 					isError: true,
 				};
 			}
@@ -646,7 +829,7 @@ async function prepareToolCall(
 		if (signal?.aborted) {
 			return {
 				kind: "immediate",
-				result: createErrorToolResult("Operation aborted"),
+				result: abortedToolOutcome(toolCall, signal).result,
 				isError: true,
 			};
 		}
@@ -659,7 +842,7 @@ async function prepareToolCall(
 	} catch (error) {
 		return {
 			kind: "immediate",
-			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+			result: createErrorToolResult(errorText(error)),
 			isError: true,
 		};
 	}
@@ -700,7 +883,7 @@ async function executePreparedToolCall(
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
 		return {
-			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+			result: createErrorToolResult(errorText(error)),
 			isError: true,
 		};
 	} finally {
@@ -742,7 +925,7 @@ async function finalizeExecutedToolCall(
 				isError = afterResult.isError ?? isError;
 			}
 		} catch (error) {
-			result = createErrorToolResult(error instanceof Error ? error.message : String(error));
+			result = createErrorToolResult(errorText(error));
 			isError = true;
 		}
 	}

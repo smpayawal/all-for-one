@@ -40,6 +40,34 @@ export type StreamFn = (
  */
 export type ToolExecutionMode = "sequential" | "parallel";
 
+/** Optional per-run execution limits. Omitted limits preserve existing behavior. */
+export interface ExecutionLimits {
+	/** Maximum provider turns that may start in one run. */
+	maxTurns?: number;
+	/** Maximum tool calls that may execute in one run. Tool-call batches are atomic. */
+	maxToolCalls?: number;
+}
+
+/** Why an agent run reached its terminal event. */
+export type AgentRunTermination =
+	| { reason: "completed" }
+	| { reason: "aborted"; message?: string }
+	| { reason: "error"; message?: string }
+	| { reason: "limit"; limit: "turns" | "toolCalls"; max: number };
+
+/** Bounded in-memory diagnostics for the most recently settled run. */
+export interface AgentRunDiagnostics {
+	termination: AgentRunTermination;
+	turns: number;
+	toolCalls: number;
+	toolErrors: number;
+	terminalEvents: number;
+	listenerErrors: string[];
+	startedAt: number;
+	endedAt: number;
+	durationMs: number;
+}
+
 /**
  * Controls how many queued user messages are injected when the agent loop reaches a queue drain point.
  *
@@ -139,6 +167,8 @@ export interface PrepareNextTurnContext extends ShouldStopAfterTurnContext {}
 
 export interface AgentLoopConfig extends SimpleStreamOptions {
 	model: Model<any>;
+	/** Optional count-based limits for this run. */
+	executionLimits?: ExecutionLimits;
 
 	/**
 	 * Converts AgentMessage[] to LLM-compatible Message[] before each LLM call.
@@ -415,7 +445,7 @@ export interface AgentContext {
 export type AgentEvent =
 	// Agent lifecycle
 	| { type: "agent_start" }
-	| { type: "agent_end"; messages: AgentMessage[] }
+	| { type: "agent_end"; messages: AgentMessage[]; termination?: AgentRunTermination }
 	// Turn lifecycle - a turn is one assistant response + any tool calls/results
 	| { type: "turn_start" }
 	| { type: "turn_end"; message: AgentMessage; toolResults: ToolResultMessage[] }

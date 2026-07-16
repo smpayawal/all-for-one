@@ -17,10 +17,13 @@ import type {
 	AgentLoopConfig,
 	AgentLoopTurnUpdate,
 	AgentMessage,
+	AgentRunDiagnostics,
+	AgentRunTermination,
 	AgentState,
 	AgentTool,
 	BeforeToolCallContext,
 	BeforeToolCallResult,
+	ExecutionLimits,
 	PrepareNextTurnContext,
 	QueueMode,
 	StreamFn,
@@ -56,6 +59,9 @@ const DEFAULT_MODEL = {
 	contextWindow: 0,
 	maxTokens: 0,
 } satisfies Model<any>;
+
+const MAX_LISTENER_ERRORS = 20;
+const MAX_LISTENER_ERROR_CHARS = 500;
 
 type MutableAgentState = Omit<AgentState, "isStreaming" | "streamingMessage" | "pendingToolCalls" | "errorMessage"> & {
 	isStreaming: boolean;
@@ -93,6 +99,46 @@ function createMutableAgentState(
 	};
 }
 
+function validateExecutionLimit(value: number | undefined, name: keyof ExecutionLimits): number | undefined {
+	if (value === undefined) return undefined;
+	if (!Number.isInteger(value) || value <= 0) {
+		throw new Error(`Invalid executionLimits.${name}: expected a positive integer`);
+	}
+	return value;
+}
+
+function normalizeExecutionLimits(limits: ExecutionLimits | undefined): ExecutionLimits | undefined {
+	if (!limits) return undefined;
+	const normalized: ExecutionLimits = {
+		maxTurns: validateExecutionLimit(limits.maxTurns, "maxTurns"),
+		maxToolCalls: validateExecutionLimit(limits.maxToolCalls, "maxToolCalls"),
+	};
+	return normalized.maxTurns === undefined && normalized.maxToolCalls === undefined ? undefined : normalized;
+}
+
+function errorText(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function abortReason(signal: AbortSignal): string | undefined {
+	return signal.reason === undefined ? undefined : errorText(signal.reason);
+}
+
+function inferTermination(messages: AgentMessage[]): AgentRunTermination {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message.role !== "assistant") continue;
+		if (message.stopReason === "aborted") {
+			return message.errorMessage ? { reason: "aborted", message: message.errorMessage } : { reason: "aborted" };
+		}
+		if (message.stopReason === "error") {
+			return message.errorMessage ? { reason: "error", message: message.errorMessage } : { reason: "error" };
+		}
+		break;
+	}
+	return { reason: "completed" };
+}
+
 /** Options for constructing an {@link Agent}. */
 export interface AgentOptions {
 	initialState?: Partial<Omit<AgentState, "pendingToolCalls" | "isStreaming" | "streamingMessage" | "errorMessage">>;
@@ -118,6 +164,8 @@ export interface AgentOptions {
 	transport?: Transport;
 	maxRetryDelayMs?: number;
 	toolExecution?: ToolExecutionMode;
+	/** Optional count-based limits. Omitted limits preserve existing behavior. */
+	executionLimits?: ExecutionLimits;
 }
 
 class PendingMessageQueue {
@@ -156,10 +204,25 @@ class PendingMessageQueue {
 	}
 }
 
+type AgentEventListener = (event: AgentEvent, signal: AbortSignal) => Promise<void> | void;
+
+type MutableRunDiagnostics = {
+	termination?: AgentRunTermination;
+	turns: number;
+	toolCalls: number;
+	toolErrors: number;
+	terminalEvents: number;
+	listenerErrors: string[];
+	startedAt: number;
+};
+
 type ActiveRun = {
 	promise: Promise<void>;
 	resolve: () => void;
 	abortController: AbortController;
+	failedListeners: Set<AgentEventListener>;
+	terminalEventEmitted: boolean;
+	diagnostics: MutableRunDiagnostics;
 };
 
 /**
@@ -170,7 +233,7 @@ type ActiveRun = {
  */
 export class Agent {
 	private _state: MutableAgentState;
-	private readonly listeners = new Set<(event: AgentEvent, signal: AbortSignal) => Promise<void> | void>();
+	private readonly listeners = new Set<AgentEventListener>();
 	private readonly steeringQueue: PendingMessageQueue;
 	private readonly followUpQueue: PendingMessageQueue;
 
@@ -196,6 +259,8 @@ export class Agent {
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
 	private activeRun?: ActiveRun;
+	private _executionLimits?: ExecutionLimits;
+	private _lastRunDiagnostics?: AgentRunDiagnostics;
 	/** Session identifier forwarded to providers for cache-aware backends. */
 	public sessionId?: string;
 	/** Optional per-level thinking token budgets forwarded to the stream function. */
@@ -226,6 +291,7 @@ export class Agent {
 		this.transport = options.transport ?? "auto";
 		this.maxRetryDelayMs = options.maxRetryDelayMs;
 		this.toolExecution = options.toolExecution ?? "parallel";
+		this._executionLimits = normalizeExecutionLimits(options.executionLimits);
 	}
 
 	/**
@@ -238,7 +304,7 @@ export class Agent {
 	 * `agent_end` is the final emitted event for a run, but the agent does not
 	 * become idle until all awaited listeners for that event have settled.
 	 */
-	subscribe(listener: (event: AgentEvent, signal: AbortSignal) => Promise<void> | void): () => void {
+	subscribe(listener: AgentEventListener): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
 	}
@@ -250,6 +316,20 @@ export class Agent {
 	 */
 	get state(): AgentState {
 		return this._state;
+	}
+
+	/** Read-only diagnostics for the most recently settled run. */
+	get lastRunDiagnostics(): AgentRunDiagnostics | undefined {
+		const diagnostics = this._lastRunDiagnostics;
+		return diagnostics ? { ...diagnostics, listenerErrors: diagnostics.listenerErrors.slice() } : undefined;
+	}
+
+	get executionLimits(): ExecutionLimits | undefined {
+		return this._executionLimits ? { ...this._executionLimits } : undefined;
+	}
+
+	set executionLimits(limits: ExecutionLimits | undefined) {
+		this._executionLimits = normalizeExecutionLimits(limits);
 	}
 
 	/** Controls how queued steering messages are drained. */
@@ -307,8 +387,8 @@ export class Agent {
 	}
 
 	/** Abort the current run, if one is active. */
-	abort(): void {
-		this.activeRun?.abortController.abort();
+	abort(reason?: unknown): void {
+		this.activeRun?.abortController.abort(reason);
 	}
 
 	/**
@@ -327,6 +407,7 @@ export class Agent {
 		this._state.streamingMessage = undefined;
 		this._state.pendingToolCalls = new Set<string>();
 		this._state.errorMessage = undefined;
+		this._lastRunDiagnostics = undefined;
 		this.clearFollowUpQueue();
 		this.clearSteeringQueue();
 	}
@@ -358,7 +439,9 @@ export class Agent {
 		if (lastMessage.role === "assistant") {
 			const queuedSteering = this.steeringQueue.drain();
 			if (queuedSteering.length > 0) {
-				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
+				await this.runPromptMessages(queuedSteering, {
+					skipInitialSteeringPoll: true,
+				});
 				return;
 			}
 
@@ -441,6 +524,7 @@ export class Agent {
 			thinkingBudgets: this.thinkingBudgets,
 			maxRetryDelayMs: this.maxRetryDelayMs,
 			toolExecution: this.toolExecution,
+			executionLimits: this._executionLimits,
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,
 			prepareNextTurn:
@@ -476,7 +560,21 @@ export class Agent {
 		const promise = new Promise<void>((resolve) => {
 			resolvePromise = resolve;
 		});
-		this.activeRun = { promise, resolve: resolvePromise, abortController };
+		this.activeRun = {
+			promise,
+			resolve: resolvePromise,
+			abortController,
+			failedListeners: new Set(),
+			terminalEventEmitted: false,
+			diagnostics: {
+				turns: 0,
+				toolCalls: 0,
+				toolErrors: 0,
+				terminalEvents: 0,
+				listenerErrors: [],
+				startedAt: Date.now(),
+			},
+		};
 
 		this._state.isStreaming = true;
 		this._state.streamingMessage = undefined;
@@ -491,7 +589,37 @@ export class Agent {
 		}
 	}
 
+	private recordListenerError(listener: AgentEventListener, error: unknown): void {
+		const activeRun = this.activeRun;
+		const normalized = error instanceof Error ? error : new Error(String(error));
+		if (!activeRun) return;
+
+		activeRun.failedListeners.add(listener);
+		const message = normalized.message.slice(0, MAX_LISTENER_ERROR_CHARS);
+		if (activeRun.diagnostics.listenerErrors.length < MAX_LISTENER_ERRORS) {
+			activeRun.diagnostics.listenerErrors.push(message);
+		}
+		this._state.errorMessage = message;
+	}
+
+	private async processFailureEvent(event: AgentEvent): Promise<void> {
+		try {
+			await this.processEvents(event);
+		} catch {
+			// Listener errors are already recorded. Terminalization must continue.
+		}
+	}
+
 	private async handleRunFailure(error: unknown, aborted: boolean): Promise<void> {
+		const activeRun = this.activeRun;
+		if (!activeRun || activeRun.terminalEventEmitted) return;
+
+		const message = aborted ? (abortReason(activeRun.abortController.signal) ?? errorText(error)) : errorText(error);
+		const termination: AgentRunTermination = aborted
+			? message
+				? { reason: "aborted", message }
+				: { reason: "aborted" }
+			: { reason: "error", message };
 		const failureMessage = {
 			role: "assistant",
 			content: [{ type: "text", text: "" }],
@@ -500,76 +628,115 @@ export class Agent {
 			model: this._state.model.id,
 			usage: EMPTY_USAGE,
 			stopReason: aborted ? "aborted" : "error",
-			errorMessage: error instanceof Error ? error.message : String(error),
+			errorMessage: message,
 			timestamp: Date.now(),
 		} satisfies AgentMessage;
-		await this.processEvents({ type: "message_start", message: failureMessage });
-		await this.processEvents({ type: "message_end", message: failureMessage });
-		await this.processEvents({ type: "turn_end", message: failureMessage, toolResults: [] });
-		await this.processEvents({ type: "agent_end", messages: [failureMessage] });
+		await this.processFailureEvent({
+			type: "message_start",
+			message: failureMessage,
+		});
+		await this.processFailureEvent({
+			type: "message_end",
+			message: failureMessage,
+		});
+		await this.processFailureEvent({
+			type: "turn_end",
+			message: failureMessage,
+			toolResults: [],
+		});
+		await this.processFailureEvent({
+			type: "agent_end",
+			messages: [failureMessage],
+			termination,
+		});
 	}
 
 	private finishRun(): void {
+		const activeRun = this.activeRun;
+		if (!activeRun) return;
+
+		const endedAt = Date.now();
+		const reason = abortReason(activeRun.abortController.signal);
+		const termination =
+			activeRun.diagnostics.termination ??
+			(activeRun.abortController.signal.aborted
+				? reason
+					? { reason: "aborted" as const, message: reason }
+					: { reason: "aborted" as const }
+				: { reason: "completed" as const });
+		this._lastRunDiagnostics = {
+			termination,
+			turns: activeRun.diagnostics.turns,
+			toolCalls: activeRun.diagnostics.toolCalls,
+			toolErrors: activeRun.diagnostics.toolErrors,
+			terminalEvents: activeRun.diagnostics.terminalEvents,
+			listenerErrors: activeRun.diagnostics.listenerErrors.slice(),
+			startedAt: activeRun.diagnostics.startedAt,
+			endedAt,
+			durationMs: Math.max(0, endedAt - activeRun.diagnostics.startedAt),
+		};
+
 		this._state.isStreaming = false;
 		this._state.streamingMessage = undefined;
 		this._state.pendingToolCalls = new Set<string>();
-		this.activeRun?.resolve();
+		activeRun.resolve();
 		this.activeRun = undefined;
 	}
 
-	/**
-	 * Reduce internal state for a loop event, then await listeners.
-	 *
-	 * `agent_end` only means no further loop events will be emitted. The run is
-	 * considered idle later, after all awaited listeners for `agent_end` finish
-	 * and `finishRun()` clears runtime-owned state.
-	 */
 	private async processEvents(event: AgentEvent): Promise<void> {
+		const activeRun = this.activeRun;
+		if (!activeRun) {
+			throw new Error("Agent listener invoked outside active run");
+		}
+
 		switch (event.type) {
+			case "turn_start":
+				activeRun.diagnostics.turns++;
+				break;
 			case "message_start":
 				this._state.streamingMessage = event.message;
 				break;
-
 			case "message_update":
 				this._state.streamingMessage = event.message;
 				break;
-
 			case "message_end":
 				this._state.streamingMessage = undefined;
 				this._state.messages.push(event.message);
 				break;
-
 			case "tool_execution_start": {
+				activeRun.diagnostics.toolCalls++;
 				const pendingToolCalls = new Set(this._state.pendingToolCalls);
 				pendingToolCalls.add(event.toolCallId);
 				this._state.pendingToolCalls = pendingToolCalls;
 				break;
 			}
-
 			case "tool_execution_end": {
+				if (event.isError) activeRun.diagnostics.toolErrors++;
 				const pendingToolCalls = new Set(this._state.pendingToolCalls);
 				pendingToolCalls.delete(event.toolCallId);
 				this._state.pendingToolCalls = pendingToolCalls;
 				break;
 			}
-
 			case "turn_end":
 				if (event.message.role === "assistant" && event.message.errorMessage) {
 					this._state.errorMessage = event.message.errorMessage;
 				}
 				break;
-
 			case "agent_end":
+				activeRun.terminalEventEmitted = true;
+				activeRun.diagnostics.terminalEvents++;
+				activeRun.diagnostics.termination = event.termination ?? inferTermination(event.messages);
 				this._state.streamingMessage = undefined;
 				break;
 		}
 
-		const signal = this.activeRun?.abortController.signal;
-		if (!signal) {
-			throw new Error("Agent listener invoked outside active run");
-		}
 		for (const listener of this.listeners) {
-			await listener(event, signal);
+			if (activeRun.failedListeners.has(listener)) continue;
+			try {
+				await listener(event, activeRun.abortController.signal);
+			} catch (error) {
+				this.recordListenerError(listener, error);
+			}
 		}
 	}
 }
