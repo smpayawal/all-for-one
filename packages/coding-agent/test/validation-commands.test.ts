@@ -141,6 +141,28 @@ describe("validation command discovery", () => {
 		);
 	});
 
+	it("includes actual bash execution provenance in final result details", async () => {
+		const tool = createBashToolDefinition(cwd, {
+			commandPrefix: "cd /tmp",
+			operations: {
+				executionKind: "custom",
+				exec: async () => ({ exitCode: 0 }),
+			},
+		});
+
+		const result = await tool.execute("bash-1", { command: "npm test" }, undefined, undefined, {} as never);
+
+		expect(result.details).toMatchObject({
+			executionProvenance: {
+				requestedCommand: "npm test",
+				executedCommand: "cd /tmp\nnpm test",
+				cwd,
+				executionKind: "custom",
+				exitCode: 0,
+			},
+		});
+	});
+
 	describe("validation command matching", () => {
 		const discovery = {
 			ecosystems: ["node", "rust", "python"],

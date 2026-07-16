@@ -10,6 +10,7 @@ import {
 	type ValidationCommandDiscovery,
 	type ValidationCommandKind,
 	type ValidationCommandMatchScope,
+	type ValidationExecutionProvenance,
 } from "./validation-commands.ts";
 
 export type ExecutionIntegrityMode = "off" | "observe" | "enforce";
@@ -35,7 +36,7 @@ const MAX_EXECUTION_INTEGRITY_LIMITATIONS = 16;
 const ARBITRARY_BASH_LIMITATION =
 	"Arbitrary bash commands may mutate the workspace and are not fully classified by Phase 6.";
 
-export type ValidationEvidenceStatus = "passed" | "failed" | "concurrent-with-mutation";
+export type ValidationEvidenceStatus = "passed" | "failed" | "unverified" | "concurrent-with-mutation";
 
 export interface ExecutionToolObservation {
 	toolCallId: string;
@@ -68,6 +69,7 @@ export interface ValidationEvidence {
 	turnIndex: number;
 	mutationVersion: number;
 	fullOutputPath?: string;
+	executionProvenance?: ValidationExecutionProvenance;
 	agentStreamingAtStart?: boolean;
 	pendingMutationAtStart?: boolean;
 }
@@ -148,18 +150,75 @@ function normalizeRequiredDiagnostic(value: string): string {
 	return normalizeBoundedDiagnostic(value) ?? "";
 }
 
-function getExitCode(details: unknown): number | null | undefined {
-	if (!isRecord(details) || !("exitCode" in details)) return undefined;
-	const exitCode = details.exitCode;
-	return typeof exitCode === "number" || exitCode === null ? exitCode : undefined;
+function getExecutionProvenance(details: unknown): ValidationExecutionProvenance | undefined {
+	if (!isRecord(details) || !isRecord(details.executionProvenance)) return undefined;
+	return normalizeExecutionProvenance(details.executionProvenance);
 }
 
-function isSuccessfulValidation(observation: ExecutionToolObservation): boolean {
-	if (observation.isError) return false;
-	if (isRecord(observation.details) && observation.details.cancelled === true) return false;
-	const exitCode = getExitCode(observation.details);
-	if (exitCode !== undefined) return exitCode === 0;
-	return true;
+function normalizeExecutionProvenance(value: unknown): ValidationExecutionProvenance | undefined {
+	if (!isRecord(value)) return undefined;
+	const requestedCommand =
+		typeof value.requestedCommand === "string" ? normalizeBoundedDiagnostic(value.requestedCommand) : undefined;
+	const executedCommand =
+		typeof value.executedCommand === "string" ? normalizeBoundedDiagnostic(value.executedCommand) : undefined;
+	const cwd = typeof value.cwd === "string" ? normalizeBoundedDiagnostic(value.cwd) : undefined;
+	const executionKind = value.executionKind;
+	const exitCode = value.exitCode;
+	if (
+		!requestedCommand ||
+		!executedCommand ||
+		!cwd ||
+		(executionKind !== "local" && executionKind !== "custom" && executionKind !== "remote") ||
+		(exitCode !== null && (typeof exitCode !== "number" || !Number.isInteger(exitCode)))
+	) {
+		return undefined;
+	}
+	return {
+		requestedCommand,
+		executedCommand,
+		cwd,
+		executionKind,
+		exitCode,
+	};
+}
+
+function hasFreshLocalProvenance(
+	provenance: ValidationExecutionProvenance | undefined,
+	requestedCommand: string,
+	cwd: string,
+	cancelled: boolean,
+): provenance is ValidationExecutionProvenance {
+	return (
+		provenance !== undefined &&
+		provenance.requestedCommand === requestedCommand &&
+		provenance.requestedCommand === provenance.executedCommand &&
+		provenance.executionKind === "local" &&
+		provenance.cwd === cwd &&
+		provenance.exitCode === 0 &&
+		!cancelled
+	);
+}
+
+function getValidationStatus(
+	observation: ExecutionToolObservation,
+	requestedCommand: string,
+	scope: ValidationCommandMatchScope,
+	cwd: string,
+	mutationOverlapped: boolean,
+): { status: ValidationEvidenceStatus; executionProvenance?: ValidationExecutionProvenance } {
+	const provenance = getExecutionProvenance(observation.details);
+	if (mutationOverlapped) return { status: "concurrent-with-mutation", executionProvenance: provenance };
+	const cancelled = isRecord(observation.details) && observation.details.cancelled === true;
+	if (observation.isError || cancelled || (provenance !== undefined && provenance.exitCode !== 0)) {
+		return { status: "failed", executionProvenance: provenance };
+	}
+	return {
+		status:
+			scope !== "exact" || !provenance || !hasFreshLocalProvenance(provenance, requestedCommand, cwd, cancelled)
+				? "unverified"
+				: "passed",
+		executionProvenance: provenance,
+	};
 }
 
 function getFullOutputPath(details: unknown): string | undefined {
@@ -268,6 +327,13 @@ export class ExecutionIntegrityTracker {
 			if (!command) continue;
 			const discovered = matchValidationCommandWithScope(command, this.discovery);
 			if (!discovered) continue;
+			const validationStatus = getValidationStatus(
+				observation,
+				command,
+				discovered.scope,
+				this.cwd,
+				successfulMutations.length > 0,
+			);
 
 			this.recordValidation({
 				command: normalizeRequiredDiagnostic(discovered.command.command),
@@ -276,15 +342,11 @@ export class ExecutionIntegrityTracker {
 				source: normalizeRequiredDiagnostic(discovered.command.source),
 				scope: discovered.scope,
 				discoveryFingerprint: this.discoveryFingerprint,
-				status:
-					successfulMutations.length > 0
-						? "concurrent-with-mutation"
-						: isSuccessfulValidation(observation)
-							? "passed"
-							: "failed",
+				status: validationStatus.status,
 				turnIndex: turn.turnIndex,
 				mutationVersion: this.mutationVersion,
 				fullOutputPath: getFullOutputPath(observation.details),
+				executionProvenance: validationStatus.executionProvenance,
 			});
 		}
 		return validationManifestMutated;
@@ -292,7 +354,12 @@ export class ExecutionIntegrityTracker {
 
 	recordUserBashValidation(
 		command: string,
-		result: { exitCode: number | undefined; cancelled: boolean; fullOutputPath?: string },
+		result: {
+			exitCode: number | undefined;
+			cancelled: boolean;
+			fullOutputPath?: string;
+			executionProvenance?: ValidationExecutionProvenance;
+		},
 		turnIndex: number,
 		context?: ExecutionIntegrityUserValidationContext,
 	): void {
@@ -302,6 +369,14 @@ export class ExecutionIntegrityTracker {
 		const mutationOverlapped =
 			context?.pendingMutationAtStart === true ||
 			(context !== undefined && context.mutationVersionAtStart !== context.mutationVersionAtEnd);
+		const executionProvenance = normalizeExecutionProvenance(result.executionProvenance);
+		const status = mutationOverlapped
+			? "concurrent-with-mutation"
+			: result.cancelled || result.exitCode !== 0
+				? "failed"
+				: hasFreshLocalProvenance(executionProvenance, command, this.cwd, result.cancelled)
+					? "passed"
+					: "unverified";
 		this.recordValidation({
 			command: normalizeRequiredDiagnostic(discovered.command.command),
 			kind: discovered.command.kind,
@@ -309,14 +384,11 @@ export class ExecutionIntegrityTracker {
 			source: normalizeRequiredDiagnostic(discovered.command.source),
 			scope: discovered.scope,
 			discoveryFingerprint: this.discoveryFingerprint,
-			status: mutationOverlapped
-				? "concurrent-with-mutation"
-				: result.cancelled || result.exitCode !== 0
-					? "failed"
-					: "passed",
+			status,
 			turnIndex,
 			mutationVersion: this.mutationVersion,
 			fullOutputPath: normalizeBoundedDiagnostic(result.fullOutputPath),
+			executionProvenance,
 			agentStreamingAtStart: context?.agentStreamingAtStart,
 			pendingMutationAtStart: context?.pendingMutationAtStart,
 		});
@@ -466,16 +538,25 @@ export class ExecutionIntegrityTracker {
 		staleValidationCount: number;
 		concurrentValidationCount: number;
 	} {
-		const latest = new Map<string, ValidationEvidence>();
-		for (const validation of this.validations) latest.set(validation.command, validation);
+		const latestExactByCommand = new Map<string, ValidationEvidence>();
+		const latestTargetedByExecutedCommand = new Map<string, ValidationEvidence>();
+		for (const validation of this.validations) {
+			if (validation.scope === "exact") {
+				latestExactByCommand.set(validation.command, validation);
+				continue;
+			}
+			const executedCommand = validation.executionProvenance?.executedCommand ?? validation.command;
+			latestTargetedByExecutedCommand.set(executedCommand, validation);
+		}
 
 		let freshPassingValidationCount = 0;
 		let freshFailingValidationCount = 0;
 		let unverifiedValidationCount = 0;
 		let staleValidationCount = 0;
 		let concurrentValidationCount = 0;
-		for (const validation of latest.values()) {
-			if (validation.scope !== "exact") {
+		unverifiedValidationCount += latestTargetedByExecutedCommand.size;
+		for (const validation of latestExactByCommand.values()) {
+			if (validation.status === "unverified") {
 				unverifiedValidationCount += 1;
 				continue;
 			}

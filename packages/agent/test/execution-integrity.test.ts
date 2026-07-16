@@ -1,9 +1,15 @@
-import { type AssistantMessage, type AssistantMessageEvent, EventStream, type Model } from "@earendil-works/pi-ai";
+import {
+	type AssistantMessage,
+	type AssistantMessageEvent,
+	EventStream,
+	type Message,
+	type Model,
+} from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { Agent } from "../src/agent.ts";
 import { agentLoop } from "../src/agent-loop.ts";
-import type { AgentContext, AgentEvent, AgentTool } from "../src/types.ts";
+import type { AgentContext, AgentEvent, AgentMessage, AgentTool } from "../src/types.ts";
 
 class MockStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
 	constructor() {
@@ -185,6 +191,101 @@ describe("execution integrity", () => {
 		},
 	);
 
+	it.each([
+		{ failureEvent: "tool_execution_start" as const, expectedPhase: "not-started", executions: 0 },
+		{ failureEvent: "tool_execution_update" as const, expectedPhase: "execution-status-unknown", executions: 1 },
+		{
+			failureEvent: "tool_execution_end" as const,
+			expectedPhase: "executed-but-post-processing-failed",
+			executions: 1,
+		},
+	])(
+		"pairs a requested tool call when a fatal listener throws at $failureEvent",
+		async ({ failureEvent, expectedPhase, executions: expectedExecutions }) => {
+			let providerCalls = 0;
+			let executions = 0;
+			let validatePairing = false;
+			const inspect: AgentTool = {
+				name: "inspect",
+				label: "inspect",
+				description: "inspect",
+				parameters: Type.Object({}),
+				async execute(_toolCallId, _args, _signal, onUpdate) {
+					executions++;
+					if (failureEvent === "tool_execution_update") {
+						onUpdate?.({ content: [{ type: "text", text: "partial" }], details: {} });
+					}
+					return { content: [{ type: "text", text: "inspected" }], details: {} };
+				},
+			};
+			const agent = new Agent({
+				initialState: { model: model(), tools: [inspect] },
+				convertToLlm: (messages: AgentMessage[]) => {
+					const pendingToolCalls = new Set<string>();
+					if (validatePairing) {
+						for (const message of messages) {
+							if (message.role === "assistant" && Array.isArray(message.content)) {
+								for (const block of message.content) {
+									if (block.type === "toolCall") pendingToolCalls.add(block.id);
+								}
+							} else if (message.role === "toolResult") {
+								if (!pendingToolCalls.delete(message.toolCallId)) {
+									throw new Error(`unexpected tool result ${message.toolCallId}`);
+								}
+							}
+						}
+						expect(pendingToolCalls).toHaveLength(0);
+					}
+					return messages.filter(
+						(message): message is Message =>
+							message.role === "user" || message.role === "assistant" || message.role === "toolResult",
+					);
+				},
+				streamFn: () => {
+					providerCalls++;
+					return stream(
+						providerCalls === 1
+							? assistant([{ type: "toolCall", id: "call-1", name: "inspect", arguments: {} }], "toolUse")
+							: assistant([{ type: "text", text: "follow-up complete" }]),
+					);
+				},
+			});
+			const firstRunEvents: AgentEvent[] = [];
+			agent.subscribe(
+				(event) => {
+					if (event.type === failureEvent) throw new Error(`fatal ${failureEvent}`);
+				},
+				{ failureMode: "fatal" },
+			);
+			agent.subscribe((event) => {
+				firstRunEvents.push(event);
+			});
+
+			await agent.prompt("inspect");
+
+			expect(providerCalls).toBe(1);
+			expect(executions).toBe(expectedExecutions);
+			expect(firstRunEvents.filter((event) => event.type === "agent_end")).toHaveLength(1);
+			expect(firstRunEvents.find((event) => event.type === "agent_end")).toMatchObject({
+				termination: { reason: "error" },
+			});
+			const pairedResults = toolResults(agent).filter((message) => message.toolCallId === "call-1");
+			expect(pairedResults).toHaveLength(1);
+			expect(pairedResults[0]).toMatchObject({
+				isError: true,
+				details: { failurePhase: expectedPhase },
+			});
+
+			validatePairing = true;
+			await agent.prompt("continue after failure");
+			expect(providerCalls).toBe(2);
+			expect(agent.state.messages.at(-1)).toMatchObject({
+				role: "assistant",
+				content: [{ type: "text", text: "follow-up complete" }],
+			});
+		},
+	);
+
 	it("retains completed messages when a post-turn callback fails", async () => {
 		let providerCalls = 0;
 		const inspect = emptyTool("inspect", () => {});
@@ -248,16 +349,23 @@ describe("execution integrity", () => {
 			initialState: { model: model() },
 			streamFn: () => stream(assistant([{ type: "text", text: "ok" }])),
 		});
-		agent.subscribe((event) => {
-			if (event.type === "agent_end") throw new Error("terminal listener exploded");
-		});
 		const events: AgentEvent[] = [];
 		agent.subscribe((event) => {
-			events.push(event);
+			if (event.type === "agent_end") events.push(event);
 		});
+		agent.subscribe(
+			(event) => {
+				if (event.type === "agent_end") throw new Error("terminal listener exploded");
+			},
+			{ failureMode: "fatal" },
+		);
 		await agent.prompt("hello");
-		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
+		expect(events).toHaveLength(1);
 		expect(agent.lastRunDiagnostics?.terminalEvents).toBe(1);
+		expect(agent.lastRunDiagnostics?.termination).toEqual({
+			reason: "error",
+			message: "terminal listener exploded",
+		});
 		expect(agent.state.messages.at(-1)?.role).toBe("assistant");
 	});
 

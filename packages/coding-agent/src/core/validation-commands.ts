@@ -4,6 +4,15 @@ import { join } from "node:path";
 export type ValidationCommandKind = "check" | "typecheck" | "lint" | "test" | "build";
 export type ValidationCommandConfidence = "verified" | "inferred";
 export type NodePackageManager = "npm" | "pnpm" | "bun" | "yarn";
+export type ValidationExecutionKind = "local" | "custom" | "remote";
+
+export interface ValidationExecutionProvenance {
+	requestedCommand: string;
+	executedCommand: string;
+	cwd: string;
+	executionKind: ValidationExecutionKind;
+	exitCode: number | null;
+}
 
 export interface ValidationCommand {
 	kind: ValidationCommandKind;

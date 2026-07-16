@@ -16,7 +16,12 @@ import {
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
-import { getProjectValidationPromptGuideline, type ValidationCommandDiscovery } from "../validation-commands.ts";
+import {
+	getProjectValidationPromptGuideline,
+	type ValidationCommandDiscovery,
+	type ValidationExecutionKind,
+	type ValidationExecutionProvenance,
+} from "../validation-commands.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -48,6 +53,7 @@ export type BashToolInput = Static<typeof bashSchema>;
 export interface BashToolDetails {
 	truncation?: TruncationResult;
 	fullOutputPath?: string;
+	executionProvenance?: ValidationExecutionProvenance;
 }
 
 /**
@@ -55,6 +61,8 @@ export interface BashToolDetails {
  * Override these to delegate command execution to remote systems (for example SSH).
  */
 export interface BashOperations {
+	/** Identifies custom operations that execute outside the local shell path. */
+	executionKind?: Exclude<ValidationExecutionKind, "local">;
 	/**
 	 * Execute a command and stream output.
 	 * @param command The command to execute
@@ -298,6 +306,8 @@ export function createBashToolDefinition(
 	const ops = options?.operations ?? createLocalBashOperations({ shellPath: options?.shellPath });
 	const commandPrefix = options?.commandPrefix;
 	const spawnHook = options?.spawnHook;
+	const executionKind: ValidationExecutionKind =
+		options?.operations?.executionKind ?? (options?.operations || spawnHook ? "custom" : "local");
 	const validationGuideline = getProjectValidationPromptGuideline(cwd, ["bash"], options?.validationDiscovery);
 	return {
 		name: "bash",
@@ -427,7 +437,19 @@ export function createBashToolDefinition(
 				if (exitCode !== 0 && exitCode !== null) {
 					throw new Error(appendStatus(outputText, `Command exited with code ${exitCode}`));
 				}
-				return { content: [{ type: "text", text: outputText }], details };
+				return {
+					content: [{ type: "text", text: outputText }],
+					details: {
+						...(details ?? {}),
+						executionProvenance: {
+							requestedCommand: command,
+							executedCommand: spawnContext.command,
+							cwd: spawnContext.cwd,
+							executionKind,
+							exitCode,
+						},
+					},
+				};
 			} finally {
 				clearUpdateTimer();
 			}

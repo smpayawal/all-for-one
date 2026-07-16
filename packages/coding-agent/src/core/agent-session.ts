@@ -134,7 +134,11 @@ import { type ToolOutputTelemetry, ToolOutputTelemetryStore } from "./tool-outpu
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
-import { discoverValidationCommands, type ValidationCommandDiscovery } from "./validation-commands.ts";
+import {
+	discoverValidationCommands,
+	type ValidationCommandDiscovery,
+	type ValidationExecutionKind,
+} from "./validation-commands.ts";
 
 export type { ToolOutputTelemetry } from "./tool-output-telemetry.ts";
 
@@ -3193,24 +3197,37 @@ export class AgentSession {
 		const prefix = this.settingsManager.getShellCommandPrefix();
 		const shellPath = this.settingsManager.getShellPath();
 		const resolvedCommand = prefix ? `${prefix}\n${command}` : command;
+		const executionCwd = this.sessionManager.getCwd();
+		const executionKind: ValidationExecutionKind =
+			options?.operations?.executionKind ?? (options?.operations ? "custom" : "local");
 
 		try {
 			const result = await executeBashWithOperations(
 				resolvedCommand,
-				this.sessionManager.getCwd(),
+				executionCwd,
 				options?.operations ?? createLocalBashOperations({ shellPath }),
 				{
 					onChunk,
 					signal: this._bashAbortController.signal,
 				},
 			);
+			const resultWithProvenance: BashResult = {
+				...result,
+				executionProvenance: {
+					requestedCommand: command,
+					executedCommand: resolvedCommand,
+					cwd: executionCwd,
+					executionKind,
+					exitCode: result.exitCode ?? null,
+				},
+			};
 
-			this.recordBashResult(command, result, options);
-			this._executionIntegrityTracker.recordUserBashValidation(command, result, this._turnIndex, {
+			this.recordBashResult(command, resultWithProvenance, options);
+			this._executionIntegrityTracker.recordUserBashValidation(command, resultWithProvenance, this._turnIndex, {
 				...validationStart,
 				mutationVersionAtEnd: this._executionIntegrityTracker.getSnapshot().mutationVersion,
 			});
-			return result;
+			return resultWithProvenance;
 		} finally {
 			this._bashAbortController = undefined;
 		}

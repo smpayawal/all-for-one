@@ -400,6 +400,10 @@ export {
 	type ProjectTrustStoreEntry,
 	type ProjectTrustUpdate,
 } from "./core/trust-manager.ts";
+export type {
+	ValidationExecutionKind,
+	ValidationExecutionProvenance,
+} from "./core/validation-commands.ts";
 // Main entry point
 export { type MainOptions, main } from "./main.ts";
 // Run modes for programmatic SDK usage

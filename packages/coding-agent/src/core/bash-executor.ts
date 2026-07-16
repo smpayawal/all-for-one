@@ -14,6 +14,7 @@ import { stripAnsi } from "../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../utils/shell.ts";
 import type { BashOperations } from "./tools/bash.ts";
 import { DEFAULT_MAX_BYTES, truncateTail } from "./tools/truncate.ts";
+import type { ValidationExecutionProvenance } from "./validation-commands.ts";
 
 // ============================================================================
 // Types
@@ -37,6 +38,8 @@ export interface BashResult {
 	truncated: boolean;
 	/** Path to temp file containing full output (if output exceeded truncation threshold) */
 	fullOutputPath?: string;
+	/** Command and environment provenance used by execution-integrity validation. */
+	executionProvenance?: ValidationExecutionProvenance;
 }
 
 // ============================================================================

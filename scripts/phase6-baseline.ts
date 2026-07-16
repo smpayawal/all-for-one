@@ -9,6 +9,7 @@ import {
 import type {
 	ValidationCommand,
 	ValidationCommandDiscovery,
+	ValidationExecutionProvenance,
 } from "../packages/coding-agent/src/core/validation-commands.ts";
 
 export const PHASE6_SCENARIO_IDS = [
@@ -105,16 +106,25 @@ function editObservation(index: number, path = `src/file-${index}.ts`): Executio
 
 function validationObservation(
 	index: number,
+	cwd: string,
 	command = VALIDATION_COMMAND.command,
 	options: { isError?: boolean; exitCode?: number } = {},
 ): ExecutionToolObservation {
+	const exitCode = options.exitCode ?? (options.isError ? 1 : 0);
+	const executionProvenance: ValidationExecutionProvenance = {
+		requestedCommand: command,
+		executedCommand: command,
+		cwd,
+		executionKind: "local",
+		exitCode,
+	};
 	return observation(
 		`bash-${index}`,
 		"bash",
 		{ command },
 		{
 			isError: options.isError ?? false,
-			details: { exitCode: options.exitCode ?? (options.isError ? 1 : 0) },
+			details: { exitCode, executionProvenance },
 		},
 	);
 }
@@ -183,7 +193,7 @@ function mutationWithoutValidation(cwd: string): Phase6ScenarioReport {
 function mutationThenPass(cwd: string): Phase6ScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [editObservation(0)] });
-	tracker.recordTurn({ turnIndex: 1, toolObservations: [validationObservation(1)] });
+	tracker.recordTurn({ turnIndex: 1, toolObservations: [validationObservation(1, cwd)] });
 	return createScenarioReport(
 		"mutation-then-pass",
 		"A matching validation runs in a later turn and is fresh for the known mutation version.",
@@ -194,7 +204,7 @@ function mutationThenPass(cwd: string): Phase6ScenarioReport {
 
 function passThenMutation(cwd: string): Phase6ScenarioReport {
 	const tracker = createTracker(cwd);
-	tracker.recordTurn({ turnIndex: 0, toolObservations: [validationObservation(0)] });
+	tracker.recordTurn({ turnIndex: 0, toolObservations: [validationObservation(0, cwd)] });
 	tracker.recordTurn({ turnIndex: 1, toolObservations: [editObservation(1)] });
 	return createScenarioReport(
 		"pass-then-mutation",
@@ -207,7 +217,10 @@ function passThenMutation(cwd: string): Phase6ScenarioReport {
 function mutationThenFailure(cwd: string): Phase6ScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [editObservation(0)] });
-	tracker.recordTurn({ turnIndex: 1, toolObservations: [validationObservation(1, VALIDATION_COMMAND.command, { isError: true })] });
+	tracker.recordTurn({
+		turnIndex: 1,
+		toolObservations: [validationObservation(1, cwd, VALIDATION_COMMAND.command, { isError: true })],
+	});
 	return createScenarioReport(
 		"mutation-then-failure",
 		"A matching validation exits with an error after the mutation.",
@@ -220,7 +233,7 @@ function parallelMutationValidation(cwd: string): Phase6ScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({
 		turnIndex: 0,
-		toolObservations: [editObservation(0), validationObservation(0)],
+		toolObservations: [editObservation(0), validationObservation(0, cwd)],
 	});
 	return createScenarioReport(
 		"parallel-mutation-validation",
@@ -246,7 +259,7 @@ function compoundCommand(cwd: string): Phase6ScenarioReport {
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [editObservation(0)] });
 	tracker.recordTurn({
 		turnIndex: 1,
-		toolObservations: [validationObservation(1, "npm test && echo done")],
+		toolObservations: [validationObservation(1, cwd, "npm test && echo done")],
 	});
 	return createScenarioReport(
 		"compound-command",
@@ -277,7 +290,7 @@ function boundedRecords(cwd: string): Phase6ScenarioReport {
 	});
 	tracker.recordTurn({
 		turnIndex: 1,
-		toolObservations: Array.from({ length: 20 }, (_, index) => validationObservation(index)),
+		toolObservations: Array.from({ length: 20 }, (_, index) => validationObservation(index, cwd)),
 	});
 	return createScenarioReport(
 		"bounded-records",

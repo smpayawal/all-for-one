@@ -719,6 +719,16 @@ export class Agent {
 				break;
 			case "message_end":
 				this._state.streamingMessage = undefined;
+				if (event.message.role === "toolResult") {
+					const toolCallId = event.message.toolCallId;
+					const existingToolResultIndex = this._state.messages.findIndex(
+						(message) => message.role === "toolResult" && message.toolCallId === toolCallId,
+					);
+					if (existingToolResultIndex >= 0) {
+						this._state.messages[existingToolResultIndex] = event.message;
+						break;
+					}
+				}
 				this._state.messages.push(event.message);
 				break;
 			case "tool_execution_start": {
@@ -742,14 +752,19 @@ export class Agent {
 				}
 				break;
 			case "agent_end":
-				activeRun.terminalEventEmitted = true;
-				activeRun.diagnostics.terminalEvents++;
-				activeRun.diagnostics.termination = event.termination ?? inferTermination(event.messages);
 				this._state.streamingMessage = undefined;
 				break;
 		}
 
-		for (const [listener, failureMode] of this.listeners) {
+		const listenerEntries = [...this.listeners.entries()];
+		const orderedListeners =
+			event.type === "agent_end"
+				? [
+						...listenerEntries.filter(([, failureMode]) => failureMode === "fatal"),
+						...listenerEntries.filter(([, failureMode]) => failureMode === "isolate"),
+					]
+				: listenerEntries;
+		for (const [listener, failureMode] of orderedListeners) {
 			if (activeRun.failedListeners.has(listener)) continue;
 			try {
 				await listener(event, activeRun.abortController.signal);
@@ -763,6 +778,12 @@ export class Agent {
 					throw fatalError;
 				}
 			}
+		}
+
+		if (event.type === "agent_end") {
+			activeRun.terminalEventEmitted = true;
+			activeRun.diagnostics.terminalEvents++;
+			activeRun.diagnostics.termination = event.termination ?? inferTermination(event.messages);
 		}
 	}
 }

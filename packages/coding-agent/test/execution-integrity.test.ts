@@ -5,7 +5,7 @@ import {
 	MAX_EXECUTION_INTEGRITY_MODIFIED_PATHS,
 	MAX_EXECUTION_INTEGRITY_VALIDATIONS,
 } from "../src/core/execution-integrity.ts";
-import type { ValidationCommandDiscovery } from "../src/core/validation-commands.ts";
+import type { ValidationCommandDiscovery, ValidationExecutionProvenance } from "../src/core/validation-commands.ts";
 
 const discovery: ValidationCommandDiscovery = {
 	ecosystems: ["node", "rust", "python"],
@@ -25,6 +25,20 @@ const discovery: ValidationCommandDiscovery = {
 		},
 	],
 };
+
+function validationProvenance(
+	command = "npm test",
+	overrides: Record<string, unknown> = {},
+): ValidationExecutionProvenance {
+	return {
+		requestedCommand: command,
+		executedCommand: command,
+		cwd: "/tmp/phase6-project",
+		executionKind: "local",
+		exitCode: 0,
+		...overrides,
+	};
+}
 
 function createTracker(
 	mode: "off" | "observe" | "enforce" = "enforce",
@@ -46,7 +60,11 @@ function mutation(toolName = "edit", path = "src/example.ts", isError = false) {
 	};
 }
 
-function validation(command = "npm test", isError = false, details: unknown = undefined) {
+function validation(
+	command = "npm test",
+	isError = false,
+	details: unknown = { executionProvenance: validationProvenance(command) },
+) {
 	return {
 		toolCallId: "bash-1",
 		toolName: "bash",
@@ -125,7 +143,12 @@ describe("ExecutionIntegrityTracker", () => {
 		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
 		tracker.recordUserBashValidation(
 			"npm test",
-			{ exitCode: 0, cancelled: false, fullOutputPath: "/tmp/phase6-test-output.txt" },
+			{
+				exitCode: 0,
+				cancelled: false,
+				fullOutputPath: "/tmp/phase6-test-output.txt",
+				executionProvenance: validationProvenance(),
+			},
 			1,
 		);
 
@@ -133,7 +156,15 @@ describe("ExecutionIntegrityTracker", () => {
 		expect(tracker.getSnapshot().validations[0]?.fullOutputPath).toBe("/tmp/phase6-test-output.txt");
 
 		tracker.recordTurn({ turnIndex: 2, toolObservations: [mutation("write", "src/changed.ts")] });
-		tracker.recordUserBashValidation("npm test", { exitCode: undefined, cancelled: true }, 3);
+		tracker.recordUserBashValidation(
+			"npm test",
+			{
+				exitCode: undefined,
+				cancelled: true,
+				executionProvenance: validationProvenance("npm test", { exitCode: null }),
+			},
+			3,
+		);
 
 		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-failed" });
 	});
@@ -145,7 +176,61 @@ describe("ExecutionIntegrityTracker", () => {
 		tracker.recordTurn({ turnIndex: 2, toolObservations: [validation("npm test -- test/example.test.ts")] });
 
 		expect(tracker.decideCompletion()).toEqual({ action: "continue", reason: "validation-missing" });
-		expect(tracker.getSnapshot().validations[0]).toMatchObject({ scope: "targeted-unverified" });
+		expect(tracker.getSnapshot().validations[0]).toMatchObject({
+			scope: "targeted-unverified",
+			status: "unverified",
+		});
+	});
+
+	it("does not treat an exact command without execution provenance as fresh evidence", () => {
+		const tracker = createTracker();
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordTurn({ turnIndex: 1, toolObservations: [validation("npm test", false, { exitCode: 0 })] });
+
+		expect(tracker.decideCompletion()).toEqual({ action: "continue", reason: "validation-missing" });
+		expect(tracker.getSnapshot()).toMatchObject({
+			unverifiedValidationCount: 1,
+			freshPassingValidationCount: 0,
+		});
+	});
+
+	it.each([
+		["a custom execution kind", { executionKind: "custom" }],
+		["a remote execution kind", { executionKind: "remote" }],
+		["a different working directory", { cwd: "/tmp/other-project" }],
+		["a transformed command", { executedCommand: "npm test -- --run" }],
+		["a different requested command", { requestedCommand: "npm run check" }],
+	] as const)("does not treat exact validation with %s as fresh evidence", (_label, overrides) => {
+		const tracker = createTracker();
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordTurn({
+			turnIndex: 1,
+			toolObservations: [
+				validation("npm test", false, {
+					executionProvenance: validationProvenance("npm test", overrides),
+				}),
+			],
+		});
+
+		expect(tracker.decideCompletion()).toEqual({ action: "continue", reason: "validation-missing" });
+		expect(tracker.getSnapshot()).toMatchObject({
+			unverifiedValidationCount: 1,
+			freshPassingValidationCount: 0,
+		});
+	});
+
+	it("keeps an exact pass when a later targeted diagnostic uses the same discovered command", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordTurn({ turnIndex: 1, toolObservations: [validation("npm test")] });
+		tracker.recordTurn({ turnIndex: 2, toolObservations: [validation("npm test -- test/example.test.ts")] });
+
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "fresh-validation-passed" });
+		expect(tracker.getSnapshot().validations).toHaveLength(2);
+		expect(tracker.getSnapshot()).toMatchObject({
+			freshPassingValidationCount: 1,
+			unverifiedValidationCount: 1,
+		});
 	});
 
 	it("marks user validation concurrent when mutation overlaps its execution", () => {
@@ -160,6 +245,25 @@ describe("ExecutionIntegrityTracker", () => {
 
 		expect(tracker.getSnapshot().validations.at(-1)).toMatchObject({ status: "concurrent-with-mutation" });
 		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-concurrent-with-mutation" });
+	});
+
+	it("does not classify streaming alone as mutation overlap", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordUserBashValidation(
+			"npm test",
+			{ exitCode: 0, cancelled: false, executionProvenance: validationProvenance() },
+			1,
+			{
+				mutationVersionAtStart: 1,
+				mutationVersionAtEnd: 1,
+				agentStreamingAtStart: true,
+				pendingMutationAtStart: false,
+			},
+		);
+
+		expect(tracker.getSnapshot().validations.at(-1)).toMatchObject({ status: "passed" });
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "fresh-validation-passed" });
 	});
 
 	it("invalidates prior evidence when discovery changes and records refresh limitations", () => {

@@ -89,8 +89,35 @@ function createRunFailureMessage(
 	};
 }
 
+type ToolFailurePhase = "not-started" | "execution-status-unknown" | "executed-but-post-processing-failed";
+
+type TrackedToolCall = {
+	toolCall: AgentToolCall;
+	phase: ToolFailurePhase;
+};
+
+function createLifecycleFailureToolResult(tracked: TrackedToolCall): ToolResultMessage {
+	const phaseText =
+		tracked.phase === "not-started"
+			? "was not started"
+			: tracked.phase === "execution-status-unknown"
+				? "has an unknown execution status"
+				: "executed but its result could not be finalized";
+	return {
+		role: "toolResult",
+		toolCallId: tracked.toolCall.id,
+		toolName: tracked.toolCall.name,
+		content: [{ type: "text", text: `Tool execution failed: ${phaseText}.` }],
+		details: { failurePhase: tracked.phase },
+		isError: true,
+		timestamp: Date.now(),
+	};
+}
+
 class AgentRunLifecycle {
 	private readonly messages: AgentMessage[] = [];
+	private readonly requestedToolCalls = new Map<string, TrackedToolCall>();
+	private readonly emittedToolResultIds = new Set<string>();
 	private openMessageIndex: number | undefined;
 	private turnOpen = false;
 	private terminalEventEmitted = false;
@@ -108,7 +135,9 @@ class AgentRunLifecycle {
 		this.observe(event);
 		try {
 			await this.sink(event);
+			this.commit(event);
 		} catch (error) {
+			this.rollbackFailedMessage(event);
 			if (event.type === "agent_end") this.terminalEventEmitted = false;
 			throw error;
 		}
@@ -140,7 +169,15 @@ class AgentRunLifecycle {
 				} else {
 					this.messages[this.openMessageIndex] = event.message;
 				}
-				this.openMessageIndex = undefined;
+				break;
+			case "tool_execution_start":
+				this.setToolFailurePhase(event.toolCallId, "not-started");
+				break;
+			case "tool_execution_update":
+				this.setToolFailurePhase(event.toolCallId, "execution-status-unknown");
+				break;
+			case "tool_execution_end":
+				this.setToolFailurePhase(event.toolCallId, "executed-but-post-processing-failed");
 				break;
 			case "turn_end":
 				this.turnOpen = false;
@@ -149,6 +186,48 @@ class AgentRunLifecycle {
 				this.terminalEventEmitted = true;
 				break;
 		}
+	}
+
+	private commit(event: AgentEvent): void {
+		if (event.type === "message_end") {
+			this.openMessageIndex = undefined;
+			if (event.message.role === "assistant" && Array.isArray(event.message.content)) {
+				for (const block of event.message.content) {
+					if (block.type === "toolCall" && !this.requestedToolCalls.has(block.id)) {
+						this.requestedToolCalls.set(block.id, { toolCall: block, phase: "not-started" });
+					}
+				}
+			}
+			if (event.message.role === "toolResult") {
+				this.emittedToolResultIds.add(event.message.toolCallId);
+			}
+		}
+		if (event.type === "tool_execution_start") {
+			this.setToolFailurePhase(event.toolCallId, "execution-status-unknown");
+		}
+	}
+
+	private setToolFailurePhase(toolCallId: string, phase: ToolFailurePhase): void {
+		const tracked = this.requestedToolCalls.get(toolCallId);
+		if (tracked) tracked.phase = phase;
+	}
+
+	private rollbackFailedMessage(event: AgentEvent): void {
+		if (
+			(event.type === "message_start" || event.type === "message_end") &&
+			event.message.role === "toolResult" &&
+			this.openMessageIndex !== undefined &&
+			this.messages[this.openMessageIndex] === event.message
+		) {
+			this.messages.splice(this.openMessageIndex, 1);
+		}
+		if (event.type === "message_start" || event.type === "message_end") this.openMessageIndex = undefined;
+	}
+
+	private unmatchedToolResults(): ToolResultMessage[] {
+		return [...this.requestedToolCalls.values()]
+			.filter(({ toolCall }) => !this.emittedToolResultIds.has(toolCall.id))
+			.map(createLifecycleFailureToolResult);
 	}
 
 	private async safeEmit(event: AgentEvent): Promise<void> {
@@ -166,9 +245,16 @@ class AgentRunLifecycle {
 		const termination = terminationForFailure(error, signal);
 		const failureMessage = createRunFailureMessage(config, error, termination);
 		if (!this.turnOpen) await this.safeEmit({ type: "turn_start" });
+		const unmatchedToolResults = this.unmatchedToolResults();
+		for (const toolResult of unmatchedToolResults) {
+			await this.safeEmit({ type: "message_start", message: toolResult });
+			await this.safeEmit({ type: "message_end", message: toolResult });
+		}
 		await this.safeEmit({ type: "message_start", message: failureMessage });
 		await this.safeEmit({ type: "message_end", message: failureMessage });
-		if (this.turnOpen) await this.safeEmit({ type: "turn_end", message: failureMessage, toolResults: [] });
+		if (this.turnOpen) {
+			await this.safeEmit({ type: "turn_end", message: failureMessage, toolResults: unmatchedToolResults });
+		}
 		await this.safeEmit({ type: "agent_end", messages: this.completedMessages, termination });
 	}
 }

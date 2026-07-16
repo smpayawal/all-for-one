@@ -10,7 +10,7 @@ A passing command is evidence that the recorded command completed successfully f
 
 ## Current remediation status
 
-The Phase 6 audit remediation is implemented on the dedicated Phase 6 branch. Enforcement remains opt-in and default-off. Focused lifecycle, validation, runtime-event, retry, baseline, and evaluator tests pass, as does the repository `npm run check` gate. The required workspace `npm test` command was also run; its remaining coding-agent failures reproduce on the clean audit-base commit and are outside this Phase 6 diff (environment-scoped skill discovery, CLI/model-runtime fixtures, stale interactive-mode mocks, and the existing lax-message-content case). No live model evaluation or default-enablement claim is made.
+The Phase 6 audit remediation is implemented on the dedicated Phase 6 branch. Enforcement remains opt-in and default-off. The focused agent lifecycle suite passes (59 tests), as do the focused validation/discovery suite (56), runtime-event/settings suite (52), baseline/evaluator suite (10), runtime smoke suite (12), retry suite (1), and bash-persistence suite (8). The Bash-focused tool checks pass (19 tests; 55 unrelated tests skipped). `npm run check` passes, and all required Phase 5/6 offline baseline, evaluator-help, and doctor commands exited `0` outside the sandbox. The required workspace `npm test` command was also run outside the sandbox: agent passed 200 tests, AI passed 527 tests with 736 skipped, and coding-agent passed 1,771 tests with 47 skipped across 7 failing files and 13 failures in existing concurrent-session timeouts, CLI read-only exit fixtures, stale interactive-mode mocks, and the lax-message-content case. These failures are not claimed as Phase 6 regressions; the focused Phase 6 suites pass. No live model evaluation or default-enablement claim is made.
 
 ## 2. Non-goals
 
@@ -77,11 +77,27 @@ It does not parse a shell and rejects compound commands, pipelines, redirection,
 
 No-op or inspection-only invocations such as `npm test -- --help`, `cargo test -- --list`, and `python -m pytest --collect-only` are rejected. Backticks and `$()` substitutions are rejected as well. Detected commands are repository-provided suggestions, not safety approval; the existing command policy still applies.
 
+Successful bash results include bounded execution provenance:
+
+```ts
+interface ValidationExecutionProvenance {
+  requestedCommand: string;
+  executedCommand: string;
+  cwd: string;
+  executionKind: "local" | "custom" | "remote";
+  exitCode: number | null;
+}
+```
+
+The executed command and cwd come from the final spawn context. A shell prefix, spawn transformation, custom operation, or remote operation is therefore visible in the result and cannot be mistaken for an exact local validation pass.
+
 ## 7. Fresh, stale, failed, and concurrent evidence
 
-Evidence is fresh only when it matches a discovered command, is associated with the current mutation version, is not in the same completed tool batch as a known mutation, and is the newest result for that normalized command.
+Evidence is fresh only when it matches a discovered command, is associated with the current mutation version, is not in the same completed tool batch as a known mutation, and is the newest exact result for that normalized command. Exact evidence also carries bash execution provenance: the requested and executed commands must be identical, execution must be local, the execution cwd must match discovery cwd, the exit code must be `0`, and the command must not be cancelled. Missing, transformed, prefixed, custom, remote, or cwd-mismatched provenance remains diagnostic and cannot unblock enforcement.
 
-Current-status precedence uses the newest result per command:
+Targeted diagnostics are tracked separately from exact evidence. A later command such as `npm test -- test/example.test.ts` cannot replace or hide an earlier exact `npm test` result used for completion decisions. Targeted records remain visible in diagnostics and are always unverified for enforcement.
+
+Current-status precedence uses the newest exact result per discovered command; targeted diagnostics remain separate:
 
 1. a fresh failed result means current validation is failed;
 2. otherwise, a fresh pass means fresh evidence exists;
@@ -90,7 +106,7 @@ Current-status precedence uses the newest result per command:
 
 When mutation and validation observations arrive in one completed tool batch, Phase 6 records `concurrent-with-mutation` because Native Pi may execute tool calls in parallel and the order is not reliable evidence that validation covered the final files. A later-turn validation may be fresh.
 
-User-run interactive `!` bash commands use the existing command, exit, cancellation, and full-output fields when they pass through `AgentSession.executeBash()`. A cancelled command or a non-zero/unknown exit does not count as a pass. If the command starts while the agent is streaming, while a mutation tool is pending, or while the mutation version changes before it completes, the result is recorded as `concurrent-with-mutation` and cannot be fresh evidence. Extensions that execute bash outside this path remain a known limitation.
+User-run interactive `!` bash commands use the existing command, exit, cancellation, and full-output fields when they pass through `AgentSession.executeBash()`, plus explicit execution provenance. A cancelled command or a non-zero/unknown exit does not count as a pass. A command that starts while the agent is streaming is not concurrent by itself; concurrency is based on a pending mutation at start or a mutation-version change during execution. Extensions that execute bash outside this path remain a known limitation unless they provide equivalent provenance.
 
 ## 8. Observe versus enforce behavior
 
@@ -112,6 +128,7 @@ The tracker increments its continuation counter before queuing feedback. Once th
 
 - Arbitrary bash mutations are not completely classified.
 - Same-batch mutation and validation is conservatively ambiguous; Phase 6 does not add a shell parser or execution-order claim.
+- Model and user bash results without valid local execution provenance are retained as diagnostics and cannot become fresh enforcement evidence.
 - Discovery is grounded in existing repository files and does not invent a command for an unknown project.
 - Repository-discovered commands are suggestions only; discovery is not a safety policy or permission grant.
 - Validation output is not interpreted as proof of task correctness.
@@ -155,7 +172,13 @@ The Phase 6 evaluator retains `efficiencyClaim: "not-established"` unless suitab
 Focused tests:
 
 ```bash
-cd packages/coding-agent
+cd packages/agent
+node node_modules/vitest/dist/cli.js --run \
+  test/agent.test.ts \
+  test/agent-loop.test.ts \
+  test/execution-integrity.test.ts
+
+cd ../coding-agent
 node node_modules/vitest/dist/cli.js --run \
   test/validation-commands.test.ts \
   test/execution-integrity.test.ts
@@ -237,9 +260,11 @@ If an observational listener rejects:
 
 A listener rejection does not change an otherwise successful run into an execution error. The bounded `Agent.lastRunDiagnostics.listenerErrors` list records observer failures; `Agent.state.errorMessage` remains reserved for assistant/provider execution failures and is not populated by an isolated observer error.
 
-If a listener rejects while handling `agent_end`, the failure is recorded but terminalization is not entered again. This prevents duplicate terminal events. Listener isolation is per run, so a listener is eligible again on the next run.
+If a listener rejects while handling `agent_end`, fatal listeners settle before isolated observers and terminal state is committed only after all fatal listeners succeed. A fatal rejection therefore reaches the fallback terminal event without incrementing core terminal diagnostics twice; healthy observers receive one terminal event. Listener isolation is per run, so a listener is eligible again on the next run.
 
 If a fatal listener rejects, the active run is aborted with a marked critical error. The lifecycle terminalizes once with `reason: "error"`, preserves completed messages and tool results, and starts no new provider request or tool batch. A fallback session `agent_end` carries that termination when the internal handler itself failed. Provider/context failures still terminate the run, tool preflight failures still block execution, and tool-result transformation failures remain structured tool errors.
+
+If a fatal tool lifecycle listener rejects before the model-visible `toolResult` is emitted, the lifecycle ledger creates one ordered error result for each unmatched assistant tool call before the terminal assistant failure. The result detail distinguishes `not-started`, `execution-status-unknown`, and `executed-but-post-processing-failed`, so a later provider request sees a valid assistant/tool-result transcript.
 
 ## Optional execution limits
 
