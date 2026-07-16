@@ -1,9 +1,4 @@
-import {
-	type AssistantMessage,
-	type AssistantMessageEvent,
-	EventStream,
-	type Model,
-} from "@earendil-works/pi-ai";
+import { type AssistantMessage, type AssistantMessageEvent, EventStream, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { Agent } from "../src/agent.ts";
@@ -67,7 +62,11 @@ function stream(message: AssistantMessage): MockStream {
 	const result = new MockStream();
 	queueMicrotask(() => {
 		if (message.stopReason === "error" || message.stopReason === "aborted") {
-			result.push({ type: "error", reason: message.stopReason, error: message });
+			result.push({
+				type: "error",
+				reason: message.stopReason,
+				error: message,
+			});
 		} else {
 			result.push({ type: "done", reason: message.stopReason, message });
 		}
@@ -92,21 +91,15 @@ function emptyTool(name: string, execute: () => void): AgentTool {
 	};
 }
 
-const toolResults = (agent: Agent) =>
-	agent.state.messages.filter((message) => message.role === "toolResult");
+const toolResults = (agent: Agent) => agent.state.messages.filter((message) => message.role === "toolResult");
 
 describe("execution integrity", () => {
 	it("settles a low-level stream when context conversion rejects", async () => {
 		const events: AgentEvent[] = [];
-		const result = agentLoop(
-			[{ role: "user", content: "hello", timestamp: Date.now() }],
-			context(),
-			{
-				model: model(),
-				convertToLlm: async () =>
-					Promise.reject(new Error("conversion exploded")),
-			},
-		);
+		const result = agentLoop([{ role: "user", content: "hello", timestamp: Date.now() }], context(), {
+			model: model(),
+			convertToLlm: async () => Promise.reject(new Error("conversion exploded")),
+		});
 		const collecting = (async () => {
 			for await (const event of result) events.push(event);
 		})();
@@ -116,9 +109,7 @@ describe("execution integrity", () => {
 		]);
 		expect(settled).toBe(true);
 		if (settled) await collecting;
-		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(
-			1,
-		);
+		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
 	});
 
 	it("isolates a non-terminal listener failure and emits one terminal event", async () => {
@@ -128,10 +119,7 @@ describe("execution integrity", () => {
 		});
 		let failingCalls = 0;
 		agent.subscribe((event) => {
-			if (
-				event.type === "message_start" &&
-				event.message.role === "assistant"
-			) {
+			if (event.type === "message_start" && event.message.role === "assistant") {
 				failingCalls++;
 				throw new Error("listener exploded");
 			}
@@ -142,14 +130,10 @@ describe("execution integrity", () => {
 		});
 		await agent.prompt("hello");
 		expect(failingCalls).toBe(1);
-		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(
-			1,
-		);
+		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
 		expect(agent.state.isStreaming).toBe(false);
 		expect(agent.state.errorMessage).toBe("listener exploded");
-		expect(agent.lastRunDiagnostics?.listenerErrors).toEqual([
-			"listener exploded",
-		]);
+		expect(agent.lastRunDiagnostics?.listenerErrors).toEqual(["listener exploded"]);
 	});
 
 	it("does not re-enter terminalization when an agent_end listener rejects", async () => {
@@ -158,17 +142,14 @@ describe("execution integrity", () => {
 			streamFn: () => stream(assistant([{ type: "text", text: "ok" }])),
 		});
 		agent.subscribe((event) => {
-			if (event.type === "agent_end")
-				throw new Error("terminal listener exploded");
+			if (event.type === "agent_end") throw new Error("terminal listener exploded");
 		});
 		const events: AgentEvent[] = [];
 		agent.subscribe((event) => {
 			events.push(event);
 		});
 		await agent.prompt("hello");
-		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(
-			1,
-		);
+		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
 		expect(agent.lastRunDiagnostics?.terminalEvents).toBe(1);
 		expect(agent.state.messages.at(-1)?.role).toBe("assistant");
 	});
