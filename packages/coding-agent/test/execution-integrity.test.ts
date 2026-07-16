@@ -1,0 +1,240 @@
+import { describe, expect, it } from "vitest";
+import {
+	ExecutionIntegrityTracker,
+	MAX_EXECUTION_INTEGRITY_CONTINUATION_ATTEMPTS,
+	MAX_EXECUTION_INTEGRITY_MODIFIED_PATHS,
+	MAX_EXECUTION_INTEGRITY_VALIDATIONS,
+} from "../src/core/execution-integrity.ts";
+import type { ValidationCommandDiscovery } from "../src/core/validation-commands.ts";
+
+const discovery: ValidationCommandDiscovery = {
+	ecosystems: ["node", "rust", "python"],
+	packageManager: "npm",
+	commands: [
+		{
+			kind: "test",
+			command: "npm test",
+			confidence: "verified",
+			source: "package.json#scripts.test",
+		},
+		{
+			kind: "check",
+			command: "npm run check",
+			confidence: "verified",
+			source: "package.json#scripts.check",
+		},
+	],
+};
+
+function createTracker(
+	mode: "off" | "observe" | "enforce" = "enforce",
+	maxContinuationAttempts = 1,
+): ExecutionIntegrityTracker {
+	return new ExecutionIntegrityTracker({
+		cwd: "/tmp/phase6-project",
+		settings: { mode, maxContinuationAttempts },
+		discovery,
+	});
+}
+
+function mutation(toolName = "edit", path = "src/example.ts", isError = false) {
+	return {
+		toolCallId: `${toolName}-1`,
+		toolName,
+		args: toolName === "apply_patch" ? { patch: `*** Update File: ${path}\n` } : { path },
+		isError,
+	};
+}
+
+function validation(command = "npm test", isError = false, details: unknown = undefined) {
+	return {
+		toolCallId: "bash-1",
+		toolName: "bash",
+		args: { command },
+		isError,
+		details,
+	};
+}
+
+describe("ExecutionIntegrityTracker", () => {
+	it("allows completion without known mutations", () => {
+		const tracker = createTracker("observe");
+
+		expect(tracker.decideCompletion()).toEqual({ action: "allow", reason: "no-known-mutation" });
+	});
+
+	it("does not track or diagnose in off mode", () => {
+		const tracker = createTracker("off");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+
+		expect(tracker.getSnapshot()).toMatchObject({
+			mode: "off",
+			mutationCount: 0,
+			validations: [],
+			limitations: [],
+			continuationAttempts: 0,
+		});
+		expect(tracker.decideCompletion()).toEqual({ action: "allow", reason: "mode-off" });
+	});
+
+	it("requests enforcement feedback when a successful mutation has no validation", () => {
+		const tracker = createTracker();
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+
+		expect(tracker.decideCompletion()).toMatchObject({ action: "continue", reason: "validation-missing" });
+		expect(tracker.getSnapshot()).toMatchObject({ mutationVersion: 1, mutationCount: 1, continuationAttempts: 1 });
+
+		const feedback = tracker.createFeedbackMessage();
+		expect(feedback).toMatchObject({
+			role: "custom",
+			customType: "execution-integrity-feedback",
+			display: false,
+		});
+		expect(feedback.content).toContain("no fresh matching validation result");
+		expect(feedback.content.length).toBeLessThanOrEqual(2_000);
+		expect(feedback.details).toMatchObject({
+			reason: "validation-missing",
+			mutationVersion: 1,
+			continuationAttempt: 1,
+		});
+	});
+
+	it("observes missing validation without queuing in observe mode", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-missing" });
+		expect(tracker.getSnapshot().continuationAttempts).toBe(0);
+	});
+
+	it("records a fresh pass only after a later turn", () => {
+		const tracker = createTracker();
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordTurn({ turnIndex: 1, toolObservations: [validation()] });
+
+		expect(tracker.decideCompletion()).toEqual({ action: "allow", reason: "fresh-validation-passed" });
+		expect(tracker.getSnapshot()).toMatchObject({
+			freshPassingValidationCount: 1,
+			freshFailingValidationCount: 0,
+			staleValidationCount: 0,
+		});
+	});
+
+	it("accepts successful user-run validation and rejects cancellation", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordUserBashValidation(
+			"npm test",
+			{ exitCode: 0, cancelled: false, fullOutputPath: "/tmp/phase6-test-output.txt" },
+			1,
+		);
+
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "fresh-validation-passed" });
+		expect(tracker.getSnapshot().validations[0]?.fullOutputPath).toBe("/tmp/phase6-test-output.txt");
+
+		tracker.recordTurn({ turnIndex: 2, toolObservations: [mutation("write", "src/changed.ts")] });
+		tracker.recordUserBashValidation("npm test", { exitCode: undefined, cancelled: true }, 3);
+
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-failed" });
+	});
+
+	it("marks a pass stale after a later successful mutation", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordTurn({ turnIndex: 1, toolObservations: [validation()] });
+		tracker.recordTurn({ turnIndex: 2, toolObservations: [mutation("write", "src/other.ts")] });
+
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-stale" });
+		expect(tracker.getSnapshot()).toMatchObject({ staleValidationCount: 1, mutationVersion: 2 });
+	});
+
+	it("prioritizes the latest fresh failed validation", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordTurn({ turnIndex: 1, toolObservations: [validation()] });
+		tracker.recordTurn({ turnIndex: 2, toolObservations: [validation("npm test", true)] });
+
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-failed" });
+		expect(tracker.getSnapshot().freshFailingValidationCount).toBe(1);
+	});
+
+	it("marks same-turn mutation and validation as concurrent", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation(), validation()] });
+
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-concurrent-with-mutation" });
+		expect(tracker.getSnapshot()).toMatchObject({ concurrentValidationCount: 1, freshPassingValidationCount: 0 });
+	});
+
+	it("does not count failed mutations", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation("edit", "src/blocked.ts", true)] });
+
+		expect(tracker.getSnapshot()).toMatchObject({ mutationVersion: 0, mutationCount: 0, modifiedPaths: [] });
+		expect(tracker.decideCompletion()).toEqual({ action: "allow", reason: "no-known-mutation" });
+	});
+
+	it("tracks apply_patch paths through the existing scoped path helper", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation("apply_patch", "src/patched.ts")] });
+
+		expect(tracker.getSnapshot().modifiedPaths).toEqual(["src/patched.ts"]);
+	});
+
+	it("exposes the arbitrary bash mutation limitation", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({
+			turnIndex: 0,
+			toolObservations: [{ ...validation("npm test"), toolCallId: "bash-read", isError: false }],
+		});
+
+		expect(tracker.getSnapshot().limitations).toContain(
+			"Arbitrary bash commands may mutate the workspace and are not fully classified by Phase 6.",
+		);
+	});
+
+	it("allows completion without blocking when no command was discovered", () => {
+		const tracker = new ExecutionIntegrityTracker({
+			cwd: "/tmp/phase6-project",
+			settings: { mode: "enforce", maxContinuationAttempts: 1 },
+			discovery: { ecosystems: [], commands: [] },
+		});
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "no-validation-command" });
+	});
+
+	it("rejects compound commands by grounding matching in discovery", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordTurn({ turnIndex: 1, toolObservations: [validation("npm test && npm run check")] });
+
+		expect(tracker.getSnapshot().validations).toEqual([]);
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-missing" });
+	});
+
+	it("keeps path and validation records bounded", () => {
+		const tracker = createTracker("observe");
+		for (let index = 0; index < MAX_EXECUTION_INTEGRITY_MODIFIED_PATHS + 8; index += 1) {
+			tracker.recordTurn({ turnIndex: index, toolObservations: [mutation("edit", `src/file-${index}.ts`)] });
+		}
+		for (let index = 0; index < MAX_EXECUTION_INTEGRITY_VALIDATIONS + 8; index += 1) {
+			tracker.recordTurn({ turnIndex: index + 200, toolObservations: [validation()] });
+		}
+
+		const snapshot = tracker.getSnapshot();
+		expect(snapshot.modifiedPaths).toHaveLength(MAX_EXECUTION_INTEGRITY_MODIFIED_PATHS);
+		expect(snapshot.validations).toHaveLength(MAX_EXECUTION_INTEGRITY_VALIDATIONS);
+		expect(snapshot.limitations.length).toBeGreaterThan(0);
+	});
+
+	it("stops after the configured continuation limit", () => {
+		const tracker = createTracker("enforce", MAX_EXECUTION_INTEGRITY_CONTINUATION_ATTEMPTS);
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+
+		expect(tracker.decideCompletion().action).toBe("continue");
+		expect(tracker.decideCompletion().action).toBe("continue");
+		expect(tracker.decideCompletion()).toEqual({ action: "allow", reason: "continuation-limit-reached" });
+		expect(tracker.getSnapshot().continuationAttempts).toBe(MAX_EXECUTION_INTEGRITY_CONTINUATION_ATTEMPTS);
+	});
+});

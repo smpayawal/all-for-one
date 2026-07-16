@@ -67,6 +67,11 @@ import {
 	validateCompactionResult,
 } from "./compaction/index.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
+import {
+	type ExecutionIntegritySnapshot,
+	ExecutionIntegrityTracker,
+	type ExecutionToolObservation,
+} from "./execution-integrity.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
@@ -127,6 +132,7 @@ import { type ToolOutputTelemetry, ToolOutputTelemetryStore } from "./tool-outpu
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
+import { discoverValidationCommands } from "./validation-commands.ts";
 
 export type { ToolOutputTelemetry } from "./tool-output-telemetry.ts";
 
@@ -294,6 +300,7 @@ export interface AgentContextInfo {
 	inactiveTools: string[];
 	toolInventory: Array<{ name: string; active: boolean; source: string }>;
 	toolOutputTelemetry: ToolOutputTelemetry[];
+	executionIntegrity: ExecutionIntegritySnapshot;
 	compactionHealth: CompactionHealth;
 	skillMetadataDiagnostics?: SkillMetadataDiagnostics;
 	approximateUsage: {
@@ -482,6 +489,8 @@ export class AgentSession {
 	private _scopedContextTracker: ScopedContextTracker;
 	private _dynamicContextPromptSuffix = "";
 	private _toolOutputTelemetryStore: ToolOutputTelemetryStore;
+	private _executionIntegrityTracker: ExecutionIntegrityTracker;
+	private _executionIntegrityRunStarted = false;
 	private _systemPromptOverride?: string;
 
 	constructor(config: AgentSessionConfig) {
@@ -494,6 +503,11 @@ export class AgentSession {
 		this._cwd = config.cwd;
 		this._scopedContextTracker = new ScopedContextTracker(this._cwd, this._resourceLoader);
 		this._toolOutputTelemetryStore = new ToolOutputTelemetryStore(this._cwd);
+		this._executionIntegrityTracker = new ExecutionIntegrityTracker({
+			settings: this.settingsManager.getExecutionIntegritySettings(),
+			cwd: this._cwd,
+			discovery: discoverValidationCommands(this._cwd),
+		});
 		this._memoryStore = new ProjectMemoryStore(this._cwd, config.agentDir ?? getAgentDir());
 		this._modelRuntime = config.modelRuntime;
 		this._extensionRunnerRef = config.extensionRunnerRef;
@@ -691,6 +705,7 @@ export class AgentSession {
 		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
 			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
 			const previousContext = previousSnapshot?.context ?? turn.context;
+			this._maybeQueueExecutionIntegrityFeedback(turn);
 
 			return {
 				...previousSnapshot,
@@ -703,6 +718,20 @@ export class AgentSession {
 				thinkingLevel: this.agent.state.thinkingLevel,
 			};
 		};
+	}
+
+	private _maybeQueueExecutionIntegrityFeedback(turn: PrepareNextTurnContext): void {
+		if (!turn.message || turn.message.role !== "assistant") return;
+		if (turn.message.stopReason === "error" || turn.message.stopReason === "aborted") return;
+		const toolResults = Array.isArray(turn.toolResults) ? turn.toolResults : [];
+		const content = Array.isArray(turn.message.content) ? turn.message.content : [];
+		if (toolResults.length > 0 || content.some((block) => block.type === "toolCall")) return;
+		if (this.agent.hasQueuedMessages()) return;
+
+		const decision = this._executionIntegrityTracker.decideCompletion();
+		if (decision.action === "continue") {
+			this.agent.followUp(this._executionIntegrityTracker.createFeedbackMessage());
+		}
 	}
 
 	// =========================================================================
@@ -749,6 +778,7 @@ export class AgentSession {
 			await this._extensionRunner.emit({ type: "agent_settled" });
 			this._emit({ type: "agent_settled" });
 		} finally {
+			this._executionIntegrityRunStarted = false;
 			this._resolveIdleWaitIfIdle();
 		}
 	}
@@ -758,6 +788,11 @@ export class AgentSession {
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
+		if (event.type === "agent_start" && !this._executionIntegrityRunStarted) {
+			this._executionIntegrityTracker.resetRun();
+			this._executionIntegrityRunStarted = true;
+		}
+
 		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
 		// This ensures the UI sees the updated queue state
 		if (event.type === "message_start" && event.message.role === "user") {
@@ -781,7 +816,14 @@ export class AgentSession {
 		}
 
 		// Emit to extensions first
+		const turnIndex = event.type === "turn_end" ? this._turnIndex : undefined;
 		await this._emitExtensionEvent(event);
+		if (event.type === "turn_end" && turnIndex !== undefined) {
+			this._executionIntegrityTracker.recordTurn({
+				turnIndex,
+				toolObservations: this._getExecutionToolObservations(event),
+			});
+		}
 
 		// Notify all listeners
 		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
@@ -852,6 +894,23 @@ export class AgentSession {
 		if (typeof content === "string") return content;
 		const textBlocks = content.filter((c) => c.type === "text");
 		return textBlocks.map((c) => (c as TextContent).text).join("");
+	}
+
+	private _getExecutionToolObservations(event: Extract<AgentEvent, { type: "turn_end" }>): ExecutionToolObservation[] {
+		const toolCalls =
+			event.message.role === "assistant" && Array.isArray(event.message.content)
+				? event.message.content.filter((block) => block.type === "toolCall")
+				: [];
+		const toolCallsById = new Map(toolCalls.map((toolCall) => [toolCall.id, toolCall]));
+
+		const toolResults = Array.isArray(event.toolResults) ? event.toolResults : [];
+		return toolResults.map((result) => ({
+			toolCallId: result.toolCallId,
+			toolName: result.toolName,
+			args: toolCallsById.get(result.toolCallId)?.arguments ?? {},
+			isError: result.isError,
+			details: result.details,
+		}));
 	}
 
 	/** Find the last assistant message in agent state (including aborted ones) */
@@ -1071,6 +1130,11 @@ export class AgentSession {
 		return this._toolOutputTelemetryStore.list();
 	}
 
+	/** Read-only execution-integrity evidence for programmatic diagnostics. */
+	getExecutionIntegritySnapshot(): ExecutionIntegritySnapshot {
+		return this._executionIntegrityTracker.getSnapshot();
+	}
+
 	/** Read-only summary of persistent context and capability exposure for diagnostics. */
 	getContextInfo(): AgentContextInfo {
 		const contextFiles = this._getActiveContextFiles();
@@ -1146,6 +1210,7 @@ export class AgentSession {
 			inactiveTools,
 			toolInventory,
 			toolOutputTelemetry: this.getToolOutputTelemetry(),
+			executionIntegrity: this.getExecutionIntegritySnapshot(),
 			compactionHealth,
 			skillMetadataDiagnostics: skillDiagnostics,
 			approximateUsage: {
@@ -1372,6 +1437,7 @@ export class AgentSession {
 	// =========================================================================
 
 	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+		this._executionIntegrityRunStarted = false;
 		this._isAgentRunActive = true;
 		try {
 			await this.agent.prompt(messages);
@@ -2867,6 +2933,8 @@ export class AgentSession {
 		flagValues?: Map<string, boolean | string>;
 		includeAllExtensionTools?: boolean;
 	}): void {
+		this._executionIntegrityTracker.updateSettings(this.settingsManager.getExecutionIntegritySettings());
+		this._executionIntegrityTracker.updateDiscovery(discoverValidationCommands(this._cwd));
 		const autoResizeImages = this.settingsManager.getImageAutoResize();
 		const shellCommandPrefix = this.settingsManager.getShellCommandPrefix();
 		const shellPath = this.settingsManager.getShellPath();
@@ -3073,6 +3141,7 @@ export class AgentSession {
 			);
 
 			this.recordBashResult(command, result, options);
+			this._executionIntegrityTracker.recordUserBashValidation(command, result, this._turnIndex);
 			return result;
 		} finally {
 			this._bashAbortController = undefined;

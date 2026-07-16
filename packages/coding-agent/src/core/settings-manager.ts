@@ -6,7 +6,14 @@ import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
+import {
+	type ExecutionIntegrityMode,
+	type ExecutionIntegritySettings,
+	normalizeExecutionIntegritySettings,
+} from "./execution-integrity.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
+
+export type { ExecutionIntegrityMode, ExecutionIntegritySettings } from "./execution-integrity.ts";
 
 export interface CompactionSettings {
 	enabled?: boolean; // default: true
@@ -99,6 +106,7 @@ export interface Settings {
 	compaction?: CompactionSettings;
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
+	executionIntegrity?: ExecutionIntegritySettings;
 	hideThinkingBlock?: boolean;
 	showCacheMissNotices?: boolean; // default: false - show transcript notices for significant prompt-cache misses
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
@@ -720,6 +728,10 @@ export class SettingsManager {
 
 	getFollowUpMode(): "all" | "one-at-a-time" {
 		return this.settings.followUpMode || "one-at-a-time";
+	}
+
+	getExecutionIntegritySettings(): { mode: ExecutionIntegrityMode; maxContinuationAttempts: number } {
+		return normalizeExecutionIntegritySettings(this.settings.executionIntegrity);
 	}
 
 	setFollowUpMode(mode: "all" | "one-at-a-time"): void {

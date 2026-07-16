@@ -306,6 +306,8 @@ export {
 export {
 	type CompactionSettings,
 	type DefaultProjectTrust,
+	type ExecutionIntegrityMode,
+	type ExecutionIntegritySettings,
 	type ImageSettings,
 	type PackageSource,
 	type RetrySettings,

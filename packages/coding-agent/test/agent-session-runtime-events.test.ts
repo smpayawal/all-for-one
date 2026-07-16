@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { fauxToolCall } from "@earendil-works/pi-ai";
+import { type FauxResponseStep, fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	type CreateAgentSessionRuntimeFactory,
@@ -10,8 +11,10 @@ import {
 	createAgentSessionServices,
 } from "../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
+import type { ExecutionIntegritySettings } from "../src/core/execution-integrity.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
 import type {
 	ExtensionFactory,
 	SessionBeforeForkEvent,
@@ -19,6 +22,7 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "../src/index.ts";
+import { getMessageText } from "./suite/harness.ts";
 
 type RecordedSessionEvent =
 	| SessionBeforeSwitchEvent
@@ -35,12 +39,25 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		}
 	});
 
-	async function createRuntimeHost(extensionFactory: ExtensionFactory) {
+	async function createRuntimeHost(
+		extensionFactory: ExtensionFactory,
+		options: {
+			executionIntegrity?: ExecutionIntegritySettings;
+			validationScript?: string;
+			responses?: FauxResponseStep[];
+		} = {},
+	) {
 		const tempDir = join(tmpdir(), `pi-runtime-events-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		mkdirSync(tempDir, { recursive: true });
+		if (options.validationScript !== undefined) {
+			writeFileSync(join(tempDir, "package.json"), JSON.stringify({ scripts: { test: options.validationScript } }));
+			writeFileSync(join(tempDir, "package-lock.json"), "{}");
+		}
 
 		const faux = registerFauxProvider();
-		faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two"), fauxAssistantMessage("three")]);
+		faux.setResponses(
+			options.responses ?? [fauxAssistantMessage("one"), fauxAssistantMessage("two"), fauxAssistantMessage("three")],
+		);
 
 		const authStorage = AuthStorage.inMemory();
 		await authStorage.modify(faux.getModel().provider, async () => ({ type: "api_key", key: "faux-key" }));
@@ -71,6 +88,10 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 			agentDir: tempDir,
 			modelRuntime,
 			model: faux.getModel(),
+			settingsManager:
+				options.executionIntegrity === undefined
+					? undefined
+					: SettingsManager.inMemory({ executionIntegrity: options.executionIntegrity }),
 			resourceLoaderOptions: {
 				extensionFactories: [extensionFactory],
 				noSkills: true,
@@ -109,7 +130,7 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 			}
 		});
 
-		return { runtimeHost, faux };
+		return { runtimeHost, faux, tempDir };
 	}
 
 	it("emits session_before_switch and session_start for new and resume flows", async () => {
@@ -253,5 +274,155 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		const cancelAtResult = await runtimeHost.fork("missing-entry", { position: "at" });
 		expect(cancelAtResult).toEqual({ cancelled: true });
 		expect(events).toEqual([{ type: "session_before_fork", entryId: "missing-entry", position: "at" }]);
+	});
+
+	it("keeps execution integrity off by default and does not queue feedback", async () => {
+		const { runtimeHost, faux, tempDir } = await createRuntimeHost(() => {}, {
+			responses: [
+				fauxAssistantMessage(
+					fauxToolCall("edit", { path: "example.ts", edits: [{ oldText: "old", newText: "new" }] }),
+					{
+						stopReason: "toolUse",
+					},
+				),
+				fauxAssistantMessage("done"),
+			],
+		});
+		writeFileSync(join(tempDir, "example.ts"), "old\n");
+
+		await runtimeHost.session.prompt("edit the file");
+
+		expect(runtimeHost.session.getContextInfo().executionIntegrity).toMatchObject({
+			mode: "off",
+			mutationCount: 0,
+			continuationAttempts: 0,
+		});
+		expect(runtimeHost.session.messages.filter((message) => message.role === "custom")).toHaveLength(0);
+		expect(faux.getPendingResponseCount()).toBe(0);
+	});
+
+	it("queues one bounded hidden continuation in enforce mode", async () => {
+		const { runtimeHost, faux, tempDir } = await createRuntimeHost(() => {}, {
+			executionIntegrity: { mode: "enforce", maxContinuationAttempts: 1 },
+			validationScript: 'node -e "process.exit(0)"',
+			responses: [
+				fauxAssistantMessage(
+					fauxToolCall("edit", { path: "example.ts", edits: [{ oldText: "old", newText: "new" }] }),
+					{
+						stopReason: "toolUse",
+					},
+				),
+				fauxAssistantMessage("done"),
+				fauxAssistantMessage("reported limitation"),
+			],
+		});
+		writeFileSync(join(tempDir, "example.ts"), "old\n");
+
+		await runtimeHost.session.prompt("edit the file");
+
+		const snapshot = runtimeHost.session.getContextInfo().executionIntegrity;
+		const feedbackMessages = runtimeHost.session.messages.filter(
+			(message): message is Extract<typeof message, { role: "custom" }> =>
+				message.role === "custom" && message.customType === "execution-integrity-feedback",
+		);
+		expect(snapshot).toMatchObject({ mode: "enforce", mutationCount: 1, continuationAttempts: 1 });
+		expect(feedbackMessages).toHaveLength(1);
+		expect(feedbackMessages[0]).toMatchObject({ display: false });
+		expect(feedbackMessages[0]?.content).not.toEqual(expect.stringContaining("fake visible user"));
+		expect(runtimeHost.session.messages.filter((message) => message.role === "user")).toHaveLength(1);
+		expect(faux.getPendingResponseCount()).toBe(0);
+	});
+
+	it("does not queue in observe mode", async () => {
+		const { runtimeHost, faux, tempDir } = await createRuntimeHost(() => {}, {
+			executionIntegrity: { mode: "observe", maxContinuationAttempts: 2 },
+			validationScript: 'node -e "process.exit(0)"',
+			responses: [
+				fauxAssistantMessage(
+					fauxToolCall("edit", { path: "example.ts", edits: [{ oldText: "old", newText: "new" }] }),
+					{
+						stopReason: "toolUse",
+					},
+				),
+				fauxAssistantMessage("done"),
+			],
+		});
+		writeFileSync(join(tempDir, "example.ts"), "old\n");
+
+		await runtimeHost.session.prompt("edit the file");
+
+		expect(runtimeHost.session.getContextInfo().executionIntegrity).toMatchObject({
+			mode: "observe",
+			mutationCount: 1,
+			continuationAttempts: 0,
+		});
+		expect(runtimeHost.session.messages.filter((message) => message.role === "custom")).toHaveLength(0);
+		expect(faux.getPendingResponseCount()).toBe(0);
+	});
+
+	it("lets a fresh model-requested validation prevent continuation", async () => {
+		const { runtimeHost, faux, tempDir } = await createRuntimeHost(() => {}, {
+			executionIntegrity: { mode: "enforce", maxContinuationAttempts: 1 },
+			validationScript: 'node -e "process.exit(0)"',
+			responses: [
+				fauxAssistantMessage(
+					fauxToolCall("edit", { path: "example.ts", edits: [{ oldText: "old", newText: "new" }] }),
+					{
+						stopReason: "toolUse",
+					},
+				),
+				fauxAssistantMessage(fauxToolCall("bash", { command: "npm test" }), { stopReason: "toolUse" }),
+				fauxAssistantMessage("done"),
+			],
+		});
+		writeFileSync(join(tempDir, "example.ts"), "old\n");
+
+		await runtimeHost.session.prompt("edit and validate");
+
+		expect(runtimeHost.session.getContextInfo().executionIntegrity).toMatchObject({
+			mode: "enforce",
+			mutationCount: 1,
+			freshPassingValidationCount: 1,
+			continuationAttempts: 0,
+		});
+		expect(runtimeHost.session.messages.filter((message) => message.role === "custom")).toHaveLength(0);
+		expect(faux.getPendingResponseCount()).toBe(0);
+	});
+
+	it("preserves a real queued follow-up over internal feedback", async () => {
+		const { runtimeHost, faux, tempDir } = await createRuntimeHost(() => {}, {
+			executionIntegrity: { mode: "enforce", maxContinuationAttempts: 1 },
+			validationScript: 'node -e "process.exit(0)"',
+			responses: [
+				fauxAssistantMessage(
+					fauxToolCall("edit", { path: "example.ts", edits: [{ oldText: "old", newText: "new" }] }),
+					{
+						stopReason: "toolUse",
+					},
+				),
+				fauxAssistantMessage("done"),
+				fauxAssistantMessage(fauxToolCall("bash", { command: "npm test" }), { stopReason: "toolUse" }),
+				fauxAssistantMessage("real follow-up handled"),
+			],
+		});
+		writeFileSync(join(tempDir, "example.ts"), "old\n");
+		let queued = false;
+		const unsubscribe = runtimeHost.session.subscribe((event) => {
+			if (queued || event.type !== "turn_end" || event.toolResults.length > 0) return;
+			queued = true;
+			void runtimeHost.session.followUp("real follow-up");
+		});
+
+		await runtimeHost.session.prompt("edit the file");
+		unsubscribe();
+
+		expect(runtimeHost.session.getContextInfo().executionIntegrity.continuationAttempts).toBe(0);
+		expect(runtimeHost.session.messages.filter((message) => message.role === "custom")).toHaveLength(0);
+		expect(
+			runtimeHost.session.messages.some(
+				(message) => message.role === "user" && getMessageText(message) === "real follow-up",
+			),
+		).toBe(true);
+		expect(faux.getPendingResponseCount()).toBe(0);
 	});
 });

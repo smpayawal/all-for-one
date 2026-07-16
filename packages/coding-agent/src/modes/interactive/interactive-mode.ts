@@ -5754,6 +5754,40 @@ export class InteractiveMode {
 				output += "\n";
 			}
 		}
+		const executionIntegrity = info.executionIntegrity;
+		const validationState =
+			executionIntegrity.freshFailingValidationCount > 0
+				? "failed"
+				: executionIntegrity.freshPassingValidationCount > 0
+					? "fresh"
+					: executionIntegrity.concurrentValidationCount > 0
+						? "concurrent"
+						: executionIntegrity.staleValidationCount > 0
+							? "stale"
+							: executionIntegrity.mutationCount > 0
+								? "missing"
+								: "none";
+		output += `\n${theme.bold("Execution integrity")}\n`;
+		output += `  Mode: ${executionIntegrity.mode}\n`;
+		output += `  Known mutations: ${executionIntegrity.mutationCount}\n`;
+		output += `  Mutation version: ${executionIntegrity.mutationVersion}\n`;
+		output += `  Modified paths: ${executionIntegrity.modifiedPaths.length}\n`;
+		output += `  Validation state: ${validationState}\n`;
+		output += `  Recorded validations: ${executionIntegrity.validations.length}\n`;
+		output += `  Continuation attempts: ${executionIntegrity.continuationAttempts}/${executionIntegrity.maxContinuationAttempts}\n`;
+		const fullOutputReferences = [
+			...new Set(
+				executionIntegrity.validations
+					.map((validation) => validation.fullOutputPath)
+					.filter((reference): reference is string => reference !== undefined),
+			),
+		];
+		if (fullOutputReferences.length > 0) {
+			output += `  Full-output references: ${fullOutputReferences.join(", ")}\n`;
+		}
+		if (executionIntegrity.limitations.length > 0) {
+			output += `  Limitations: ${executionIntegrity.limitations.join("; ")}\n`;
+		}
 		const compactionHealth = info.compactionHealth;
 		output += `\n${theme.bold("Compaction health")}\n`;
 		output += `  Compactions: ${compactionHealth.count}\n`;

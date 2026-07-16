@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createBashToolDefinition } from "../src/core/tools/bash.ts";
-import { discoverValidationCommands, getProjectValidationPromptGuideline } from "../src/core/validation-commands.ts";
+import type { ValidationCommandDiscovery } from "../src/core/validation-commands.ts";
+import {
+	discoverValidationCommands,
+	getProjectValidationPromptGuideline,
+	matchValidationCommand,
+} from "../src/core/validation-commands.ts";
 
 describe("validation command discovery", () => {
 	let cwd: string;
@@ -133,5 +138,75 @@ describe("validation command discovery", () => {
 		expect(createBashToolDefinition(cwd).promptGuidelines).toContain(
 			"Project validation commands detected from repository files: npm run check.",
 		);
+	});
+
+	describe("validation command matching", () => {
+		const discovery = {
+			ecosystems: ["node", "rust", "python"],
+			packageManager: "npm" as const,
+			commands: [
+				{
+					kind: "test" as const,
+					command: "npm test",
+					confidence: "verified" as const,
+					source: "package.json#scripts.test",
+				},
+				{
+					kind: "test" as const,
+					command: "cargo test",
+					confidence: "inferred" as const,
+					source: "Cargo.toml",
+				},
+				{
+					kind: "test" as const,
+					command: "python -m pytest",
+					confidence: "inferred" as const,
+					source: "pyproject.toml",
+				},
+			],
+		};
+
+		it("matches an exact discovered command", () => {
+			expect(matchValidationCommand("npm test", discovery)).toEqual(discovery.commands[0]);
+		});
+
+		it.each([
+			["npm test -- test/example.test.ts", "npm test"],
+			["cargo test specific_test", "cargo test"],
+			["python -m pytest tests/example.py", "python -m pytest"],
+		] as const)("matches a targeted test suffix: %s", (command, expected) => {
+			expect(matchValidationCommand(command, discovery)?.command).toBe(expected);
+		});
+
+		it("normalizes surrounding and repeated whitespace", () => {
+			expect(matchValidationCommand("  npm\t  test  ", discovery)).toEqual(discovery.commands[0]);
+		});
+
+		it("rejects unknown commands and empty input", () => {
+			expect(matchValidationCommand("pnpm test", discovery)).toBeUndefined();
+			expect(matchValidationCommand("   ", discovery)).toBeUndefined();
+		});
+
+		it.each(["npm test && npm run build", "npm test || npm run build", "npm test; npm run build"])(
+			"rejects compound command: %s",
+			(command) => {
+				expect(matchValidationCommand(command, discovery)).toBeUndefined();
+			},
+		);
+
+		it("rejects pipelines and redirection", () => {
+			expect(matchValidationCommand("npm test | tee result.log", discovery)).toBeUndefined();
+			expect(matchValidationCommand("npm test > result.log", discovery)).toBeUndefined();
+			expect(matchValidationCommand("npm test\nnpm run build", discovery)).toBeUndefined();
+		});
+
+		it("does not match an ambiguous package-manager discovery", () => {
+			const ambiguous: ValidationCommandDiscovery = {
+				ecosystems: ["node"],
+				packageManagers: ["npm", "pnpm"],
+				commands: [],
+			};
+			expect(matchValidationCommand("npm test", ambiguous)).toBeUndefined();
+		});
 	});
 });

@@ -262,6 +262,37 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("execution-integrity settings", () => {
+		it("normalizes execution-integrity defaults", () => {
+			const manager = SettingsManager.inMemory();
+
+			expect(manager.getExecutionIntegritySettings()).toEqual({ mode: "off", maxContinuationAttempts: 1 });
+		});
+
+		it("clamps continuation attempts and falls back for invalid values", () => {
+			const enforceManager = SettingsManager.inMemory({
+				executionIntegrity: { mode: "enforce", maxContinuationAttempts: 99 },
+			});
+			expect(enforceManager.getExecutionIntegritySettings()).toEqual({
+				mode: "enforce",
+				maxContinuationAttempts: 2,
+			});
+
+			const invalidManager = SettingsManager.inMemory({
+				executionIntegrity: { mode: "invalid" as never, maxContinuationAttempts: -3 },
+			});
+			expect(invalidManager.getExecutionIntegritySettings()).toEqual({ mode: "off", maxContinuationAttempts: 0 });
+		});
+
+		it("uses the project setting after normal nested settings merge", () => {
+			const manager = SettingsManager.inMemory({
+				executionIntegrity: { mode: "observe", maxContinuationAttempts: 0 },
+			});
+
+			expect(manager.getExecutionIntegritySettings()).toEqual({ mode: "observe", maxContinuationAttempts: 0 });
+		});
+	});
+
 	describe("error tracking", () => {
 		it("should collect and clear load errors via drainErrors", () => {
 			const globalSettingsPath = join(agentDir, "settings.json");

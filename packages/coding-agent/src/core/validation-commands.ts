@@ -202,6 +202,39 @@ export function discoverValidationCommands(cwd: string): ValidationCommandDiscov
 	return { ecosystems, ...node, commands };
 }
 
+function normalizeCommandWhitespace(command: string): string {
+	return command.trim().replace(/\s+/g, " ");
+}
+
+function containsShellControlSyntax(command: string): boolean {
+	return /[;&|<>\r\n]/.test(command);
+}
+
+/**
+ * Match an executed command only against commands already grounded in repository discovery.
+ * This intentionally accepts no shell grammar and only permits targeted suffixes for tests.
+ */
+export function matchValidationCommand(
+	command: string,
+	discovery: ValidationCommandDiscovery,
+): ValidationCommand | undefined {
+	if (!command.trim() || containsShellControlSyntax(command)) return undefined;
+
+	const normalizedCommand = normalizeCommandWhitespace(command);
+	const exactMatches = discovery.commands.filter(
+		(candidate) => normalizeCommandWhitespace(candidate.command) === normalizedCommand,
+	);
+	if (exactMatches.length === 1) return exactMatches[0];
+	if (exactMatches.length > 1) return undefined;
+
+	const targetedMatches = discovery.commands.filter((candidate) => {
+		if (candidate.kind !== "test") return false;
+		const normalizedCandidate = normalizeCommandWhitespace(candidate.command);
+		return normalizedCommand.startsWith(`${normalizedCandidate} `);
+	});
+	return targetedMatches.length === 1 ? targetedMatches[0] : undefined;
+}
+
 export function getProjectValidationPromptGuideline(cwd: string, toolNames: string[]): string | undefined {
 	if (!toolNames.includes("bash")) return undefined;
 	const commands = discoverValidationCommands(cwd).commands;
