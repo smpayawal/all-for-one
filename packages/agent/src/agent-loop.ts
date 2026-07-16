@@ -55,10 +55,8 @@ function errorText(error: unknown): string {
 }
 
 function abortMessage(signal?: AbortSignal): string | undefined {
-	if (!signal?.aborted) return undefined;
-	const reason = signal.reason;
-	if (reason === undefined) return undefined;
-	return errorText(reason);
+	if (!signal?.aborted || signal.reason === undefined) return undefined;
+	return errorText(signal.reason);
 }
 
 function terminationForFailure(error: unknown, signal?: AbortSignal): AgentRunTermination {
@@ -93,7 +91,11 @@ function settleAgentStreamFailure(
 	stream.push({ type: "message_start", message });
 	stream.push({ type: "message_end", message });
 	stream.push({ type: "turn_end", message, toolResults: [] });
-	stream.push({ type: "agent_end", messages: [message], termination: terminationForFailure(error, signal) });
+	stream.push({
+		type: "agent_end",
+		messages: [message],
+		termination: terminationForFailure(error, signal),
+	});
 }
 
 /**
@@ -274,17 +276,14 @@ async function runLoop(
 		// Inner loop: process tool calls and steering messages
 		while (hasMoreToolCalls || pendingMessages.length > 0) {
 			if (signal?.aborted) {
-				await emitAgentEnd(
-					emit,
-					newMessages,
-					abortMessage(signal) ? { reason: "aborted", message: abortMessage(signal) } : { reason: "aborted" },
-				);
+				const message = abortMessage(signal);
+				await emitAgentEnd(emit, newMessages, message ? { reason: "aborted", message } : { reason: "aborted" });
 				return;
 			}
 
 			if (!firstTurn) {
 				if (executionLimits.maxTurns !== undefined && turnsStarted >= executionLimits.maxTurns) {
-					await emitAgentEnd(emitter(emitterIdentity(emit)), newMessages, {
+					await emitAgentEnd(emit, newMessages, {
 						reason: "limit",
 						limit: "turns",
 						max: executionLimits.maxTurns,
@@ -323,7 +322,7 @@ async function runLoop(
 
 			const toolResults: ToolResultMessage[] = [];
 			hasMoreToolCalls = false;
-			let toolCallLimitReached = false;
+			let toolCallLimitReached: number | undefined;
 			if (toolCalls.length > 0) {
 				let executedToolBatch: ExecutedToolCallBatch;
 				if (
@@ -331,7 +330,7 @@ async function runLoop(
 					toolCallsAccepted + toolCalls.length > executionLimits.maxToolCalls
 				) {
 					executedToolBatch = await failToolCallsFromLimit(toolCalls, executionLimits.maxToolCalls, emit);
-					toolCallLimitReached = true;
+					toolCallLimitReached = executionLimits.maxToolCalls;
 				} else {
 					toolCallsAccepted += toolCalls.length;
 					// A "length" stop means the output was cut off by the token limit, so
@@ -353,22 +352,18 @@ async function runLoop(
 
 			await emit({ type: "turn_end", message, toolResults });
 
-			if (toolCallLimitReached) {
+			if (toolCallLimitReached !== undefined) {
 				await emitAgentEnd(emit, newMessages, {
 					reason: "limit",
 					limit: "toolCalls",
-					max: executionLimits.maxToolCalls!,
+					max: toolCallLimitReached,
 				});
 				return;
 			}
 
 			if (signal?.aborted) {
-				const messageText = abortMessage(signal);
-				await emitAgentEnd(
-					emit,
-					newMessages,
-					messageText ? { reason: "aborted", message: messageText } : { reason: "aborted" },
-				);
+				const message = abortMessage(signal);
+				await emitAgentEnd(emit, newMessages, message ? { reason: "aborted", message } : { reason: "aborted" });
 				return;
 			}
 
@@ -421,15 +416,6 @@ async function runLoop(
 	}
 
 	await emitAgentEnd(emit, newMessages, { reason: "completed" });
-}
-
-// Keeps the limit branch visually aligned without changing the callback identity.
-function emitterIdentity(emit: AgentEventSink): AgentEventSink {
-	return emit;
-}
-
-function emitter(emit: AgentEventSink): AgentEventSink {
-	return emit;
 }
 
 /**
@@ -531,6 +517,13 @@ async function streamAssistantResponse(
 	return finalMessage;
 }
 
+/**
+ * Fail all tool calls from an assistant message that was truncated by the
+ * output token limit. Streamed tool-call arguments are finalized with a
+ * best-effort JSON salvage parser, so a truncated message can yield tool calls
+ * whose arguments parse and validate but are silently incomplete. None of them
+ * are safe to execute; report each as an error so the model can re-issue them.
+ */
 async function failToolCallsFromLimit(
 	toolCalls: AgentToolCall[],
 	maxToolCalls: number,
@@ -545,13 +538,6 @@ async function failToolCallsFromLimit(
 	);
 }
 
-/**
- * Fail all tool calls from an assistant message that was truncated by the
- * output token limit. Streamed tool-call arguments are finalized with a
- * best-effort JSON salvage parser, so a truncated message can yield tool calls
- * whose arguments parse and validate but are silently incomplete. None of them
- * are safe to execute; report each as an error so the model can re-issue them.
- */
 async function failToolCallsFromTruncatedMessage(
 	toolCalls: AgentToolCall[],
 	emit: AgentEventSink,
@@ -676,10 +662,7 @@ async function executeToolCallsSequential(
 		messages.push(toolResultMessage);
 	}
 
-	return {
-		messages,
-		terminate: shouldTerminateToolBatch(finalizedCalls),
-	};
+	return { messages, terminate: shouldTerminateToolBatch(finalizedCalls) };
 }
 
 async function executeToolCallsParallel(
