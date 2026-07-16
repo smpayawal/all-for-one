@@ -17,7 +17,7 @@ A started agent run should:
 - preserve one tool result for every requested tool call;
 - stop starting new work after cancellation;
 - enforce configured count limits at deterministic boundaries;
-- isolate lifecycle-listener failures so one observer cannot strand the run;
+- isolate lifecycle-listener failures so one observer cannot strand or corrupt the run;
 - preserve completed tool results across provider retries;
 - return to an idle state with no pending tool-call identifiers.
 
@@ -39,18 +39,21 @@ Low-level `agentLoop()` and `agentLoopContinue()` streams now convert unexpected
 
 ## Listener failure isolation
 
-`Agent.subscribe()` listeners are still awaited in registration order.
+`Agent.subscribe()` listeners are awaited in registration order, but they are observers rather than execution-control hooks.
 
-If a listener rejects during a non-terminal event:
+If a listener rejects:
 
-1. the failure is recorded;
-2. remaining healthy listeners still receive the event;
+1. the failure is recorded in bounded latest-run diagnostics;
+2. remaining healthy listeners still receive the current event;
 3. the failed listener is skipped for the remainder of that run;
-4. the run terminates through one structured error lifecycle.
+4. model and tool execution continue through the normal lifecycle;
+5. tool-result pairing and transcript ordering are preserved.
 
-If a listener rejects while handling `agent_end`, the failure is recorded but terminalization is not entered again. This prevents duplicate terminal events.
+A listener rejection does not change an otherwise successful run into an execution error. `Agent.state.errorMessage` surfaces the latest observer failure for compatibility and diagnostics, while `Agent.lastRunDiagnostics.termination` continues to describe the actual runtime outcome.
 
-Listener isolation is per run. A listener is eligible again on the next run.
+If a listener rejects while handling `agent_end`, the failure is recorded but terminalization is not entered again. This prevents duplicate terminal events. Listener isolation is per run, so a listener is eligible again on the next run.
+
+Callbacks that participate in execution are not treated as passive listeners. Provider/context failures still terminate the run, tool preflight failures still block execution, and tool-result transformation failures remain structured tool errors.
 
 ## Optional execution limits
 
@@ -166,6 +169,6 @@ npm run check
 npm test
 ```
 
-The focused tests cover low-level stream settlement, one-terminal-event behavior, listener isolation, opt-in turn limits, atomic tool-call limits, cancellation pairing, and provider retry without tool replay.
+The focused tests cover low-level stream settlement, one-terminal-event behavior, observer isolation at assistant and tool-result boundaries, opt-in turn limits, atomic tool-call limits, cancellation pairing, and provider retry without tool replay.
 
 No correctness, latency, or cost improvement should be claimed until these commands pass and representative live coding workloads are evaluated.
