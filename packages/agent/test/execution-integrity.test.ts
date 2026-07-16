@@ -1,37 +1,6 @@
-import {
-	type AssistantMessage,
-	type AssistantMessageEvent,
-	EventStream,
-	type Message,
-	type Model,
-	type UserMessage,
-} from "@earendil-works/pi-ai";
+import { type Model, type UserMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
-import { agentLoop, type AgentContext, type AgentEvent, type AgentMessage } from "../src/index.ts";
-
-class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
-	constructor() {
-		super(
-			(event) => event.type === "done" || event.type === "error",
-			(event) => {
-				if (event.type === "done") return event.message;
-				if (event.type === "error") return event.error;
-				throw new Error("Unexpected event type");
-			},
-		);
-	}
-}
-
-function createUsage() {
-	return {
-		input: 0,
-		output: 0,
-		cacheRead: 0,
-		cacheWrite: 0,
-		totalTokens: 0,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-	};
-}
+import { agentLoop, type AgentContext, type AgentEvent } from "../src/index.ts";
 
 function createModel(): Model<"openai-responses"> {
 	return {
@@ -56,12 +25,6 @@ function createUserMessage(text: string): UserMessage {
 	};
 }
 
-function identityConverter(messages: AgentMessage[]): Message[] {
-	return messages.filter(
-		(message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult",
-	) as Message[];
-}
-
 function createContext(): AgentContext {
 	return {
 		systemPrompt: "You are helpful.",
@@ -79,10 +42,6 @@ async function collectEvents(stream: AsyncIterable<AgentEvent>, events: AgentEve
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-void MockAssistantStream;
-void createUsage;
-void identityConverter;
 
 describe("execution integrity", () => {
 	it("settles the low-level event stream when context conversion rejects", async () => {
