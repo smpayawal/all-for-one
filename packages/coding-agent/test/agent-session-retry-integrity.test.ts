@@ -2,7 +2,8 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent, type AgentTool } from "@earendil-works/pi-agent-core";
-import { createAssistantMessageEventStream, getModel, type AssistantMessage } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
+import { getModel } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
@@ -52,9 +53,7 @@ describe("AgentSession provider retry integrity", () => {
 				};
 			},
 		};
-		const agent = new Agent({
-			initialState: { model, systemPrompt: "Test", tools: [echoTool] },
-		});
+		const agent = new Agent({ initialState: { model, systemPrompt: "Test", tools: [echoTool] } });
 		agent.streamFn = (requestModel) => {
 			providerCalls++;
 			const stream = createAssistantMessageEventStream();
@@ -124,14 +123,11 @@ describe("AgentSession provider retry integrity", () => {
 
 	afterEach(() => {
 		session.dispose();
-		if (tempDir && existsSync(tempDir)) {
-			rmSync(tempDir, { recursive: true, force: true });
-		}
+		if (tempDir && existsSync(tempDir)) rmSync(tempDir, { recursive: true, force: true });
 	});
 
 	it("continues from the completed tool result without replaying the tool", async () => {
 		await session.prompt("echo once");
-
 		expect(providerCalls).toBe(3);
 		expect(toolExecutions).toBe(1);
 		expect(session.agent.state.messages.filter((message) => message.role === "toolResult")).toHaveLength(1);
