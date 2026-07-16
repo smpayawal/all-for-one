@@ -8,6 +8,7 @@ import {
 	discoverValidationCommands,
 	getProjectValidationPromptGuideline,
 	matchValidationCommand,
+	matchValidationCommandWithScope,
 } from "../src/core/validation-commands.ts";
 
 describe("validation command discovery", () => {
@@ -133,10 +134,10 @@ describe("validation command discovery", () => {
 
 		expect(getProjectValidationPromptGuideline(cwd, ["read"])).toBeUndefined();
 		expect(getProjectValidationPromptGuideline(cwd, ["read", "bash"])).toBe(
-			"Project validation commands detected from repository files: npm run check.",
+			"Project validation commands detected from repository files: npm run check. These are repository-provided suggestions, not safety-approved commands; existing command policy still applies.",
 		);
 		expect(createBashToolDefinition(cwd).promptGuidelines).toContain(
-			"Project validation commands detected from repository files: npm run check.",
+			"Project validation commands detected from repository files: npm run check. These are repository-provided suggestions, not safety-approved commands; existing command policy still applies.",
 		);
 	});
 
@@ -176,6 +177,23 @@ describe("validation command discovery", () => {
 			["python -m pytest tests/example.py", "python -m pytest"],
 		] as const)("matches a targeted test suffix: %s", (command, expected) => {
 			expect(matchValidationCommand(command, discovery)?.command).toBe(expected);
+		});
+
+		it("labels targeted test suffixes as diagnostic-only", () => {
+			expect(matchValidationCommandWithScope("npm test -- test/example.test.ts", discovery)).toMatchObject({
+				command: discovery.commands[0],
+				scope: "targeted-unverified",
+			});
+		});
+
+		it.each([
+			"npm test -- --help",
+			"cargo test -- --list",
+			"python -m pytest --collect-only",
+			"npm test $(printf ignored)",
+			"npm test `printf ignored`",
+		])("rejects no-op or shell-substitution suffixes: %s", (command) => {
+			expect(matchValidationCommand(command, discovery)).toBeUndefined();
 		});
 
 		it("normalizes surrounding and repeated whitespace", () => {

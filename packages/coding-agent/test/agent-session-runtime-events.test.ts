@@ -16,12 +16,14 @@ import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import type {
+	AgentSessionEvent,
 	ExtensionFactory,
 	SessionBeforeForkEvent,
 	SessionBeforeSwitchEvent,
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "../src/index.ts";
+import type { RpcEventListener } from "../src/modes/rpc/rpc-client.ts";
 import { getMessageText } from "./suite/harness.ts";
 
 type RecordedSessionEvent =
@@ -424,5 +426,116 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 			),
 		).toBe(true);
 		expect(faux.getPendingResponseCount()).toBe(0);
+	});
+
+	it("terminalizes a critical persistence failure after a completed tool call", async () => {
+		const { runtimeHost, faux, tempDir } = await createRuntimeHost(() => {}, {
+			responses: [
+				fauxAssistantMessage(
+					fauxToolCall("edit", { path: "example.ts", edits: [{ oldText: "old", newText: "new" }] }),
+					{ stopReason: "toolUse" },
+				),
+				fauxAssistantMessage("unexpected follow-up"),
+			],
+		});
+		writeFileSync(join(tempDir, "example.ts"), "old\n");
+		const originalAppendMessage = runtimeHost.session.sessionManager.appendMessage.bind(
+			runtimeHost.session.sessionManager,
+		);
+		runtimeHost.session.sessionManager.appendMessage = (message) => {
+			if (message.role === "toolResult") throw new Error("persistence failed");
+			return originalAppendMessage(message);
+		};
+		const sessionEvents: AgentSessionEvent[] = [];
+		const sdkEvents: AgentSessionEvent[] = [];
+		const rpcListener: RpcEventListener = (event) => sdkEvents.push(event);
+		runtimeHost.session.subscribe((event) => {
+			if (event.type === "agent_end") {
+				sessionEvents.push(event);
+				rpcListener(event);
+			}
+		});
+
+		await runtimeHost.session.prompt("edit the file");
+
+		expect(faux.getPendingResponseCount()).toBe(1);
+		expect(runtimeHost.session.messages.filter((message) => message.role === "toolResult")).toHaveLength(1);
+		expect(sessionEvents).toHaveLength(1);
+		expect(sdkEvents).toHaveLength(1);
+		const sessionEnd = sessionEvents.find(
+			(event): event is Extract<AgentSessionEvent, { type: "agent_end" }> => event.type === "agent_end",
+		);
+		const sdkEnd = sdkEvents.find(
+			(event): event is Extract<AgentSessionEvent, { type: "agent_end" }> => event.type === "agent_end",
+		);
+		if (!sessionEnd || !sdkEnd) throw new Error("Expected an agent_end event in session and SDK event streams");
+		expect(sessionEnd).toMatchObject({ termination: { reason: "error" } });
+		expect(sdkEnd.termination).toEqual(sessionEnd.termination);
+		expect(sessionEnd.termination).toEqual(runtimeHost.session.agent.lastRunDiagnostics?.termination);
+	});
+
+	it("terminalizes extension failures at message_end and turn_end", async () => {
+		for (const failureEvent of ["message_end", "turn_end"] as const) {
+			const { runtimeHost, faux, tempDir } = await createRuntimeHost(() => {}, {
+				responses: [
+					fauxAssistantMessage(
+						fauxToolCall("edit", { path: "example.ts", edits: [{ oldText: "old", newText: "new" }] }),
+						{ stopReason: "toolUse" },
+					),
+					fauxAssistantMessage("unexpected follow-up"),
+				],
+			});
+			writeFileSync(join(tempDir, "example.ts"), "old\n");
+			const runner = runtimeHost.session as unknown as {
+				_extensionRunner: {
+					emit: (event: { type: string; [key: string]: unknown }) => Promise<void>;
+					emitMessageEnd: (event: { type: string; message?: { role?: string } }) => Promise<unknown>;
+				};
+			};
+			const originalEmit = runner._extensionRunner.emit.bind(runner._extensionRunner);
+			const originalEmitMessageEnd = runner._extensionRunner.emitMessageEnd.bind(runner._extensionRunner);
+			runner._extensionRunner.emit = async (event) => {
+				if (failureEvent === "turn_end" && event.type === "turn_end") throw new Error("extension turn_end failed");
+				return originalEmit(event);
+			};
+			runner._extensionRunner.emitMessageEnd = async (event) => {
+				if (failureEvent === "message_end" && event.message?.role === "toolResult") {
+					throw new Error("extension message_end failed");
+				}
+				return originalEmitMessageEnd(event);
+			};
+			const events: Array<{ type: string; termination?: unknown }> = [];
+			runtimeHost.session.subscribe((event) => {
+				if (event.type === "agent_end") events.push(event);
+			});
+
+			await runtimeHost.session.prompt("edit the file");
+
+			expect(faux.getPendingResponseCount()).toBe(1);
+			expect(events).toHaveLength(1);
+			expect(events[0]).toMatchObject({ termination: { reason: "error" } });
+		}
+	});
+
+	it("isolates a throwing session subscriber from internal persistence", async () => {
+		const { runtimeHost, faux } = await createRuntimeHost(() => {}, {
+			responses: [fauxAssistantMessage("done")],
+		});
+		const healthyEvents: string[] = [];
+		runtimeHost.session.subscribe((event) => {
+			if (event.type === "message_end") throw new Error("session observer failed");
+		});
+		runtimeHost.session.subscribe((event) => {
+			healthyEvents.push(event.type);
+		});
+
+		await runtimeHost.session.prompt("hello");
+
+		expect(faux.getPendingResponseCount()).toBe(0);
+		expect(healthyEvents).toContain("agent_end");
+		expect(runtimeHost.session.sessionManager.getEntries().filter((entry) => entry.type === "message")).toHaveLength(
+			2,
+		);
+		expect(runtimeHost.session.agent.lastRunDiagnostics?.termination).toEqual({ reason: "completed" });
 	});
 });

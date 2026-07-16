@@ -8,6 +8,10 @@ The goal is to make completion decisions more observable and proportionate after
 
 A passing command is evidence that the recorded command completed successfully for the current known mutation version; it is evidence, not proof of complete correctness or acceptance of every task criterion.
 
+## Current remediation status
+
+The Phase 6 audit remediation is implemented on the dedicated Phase 6 branch. Enforcement remains opt-in and default-off. Focused lifecycle, validation, runtime-event, retry, baseline, and evaluator tests pass, as does the repository `npm run check` gate. The required workspace `npm test` command was also run; its remaining coding-agent failures reproduce on the clean audit-base commit and are outside this Phase 6 diff (environment-scoped skill discovery, CLI/model-runtime fixtures, stale interactive-mode mocks, and the existing lax-message-content case). No live model evaluation or default-enablement claim is made.
+
 ## 2. Non-goals
 
 Phase 6 does not add a permanent planner, orchestrator, reviewer, auditor, validator agent, task graph, workflow engine, second execution runtime, LLM completion judge, LLM task-risk classifier, validation database, automatic memory extraction, or automatic full-test execution. It does not infer correctness from test output, run every available validation command, or change the Native Pi loop and queue semantics.
@@ -28,7 +32,7 @@ The implementation reuses:
 - existing full-output references when a bash result already provides one; and
 - `AgentSession.getContextInfo()` for programmatic diagnostics and `/context` rendering.
 
-Discovery is refreshed when the runtime is built or reloaded, not on every turn.
+The runtime creates one bounded discovery snapshot and shares it with the tracker and bash prompt. Discovery is refreshed on runtime reload and after a completed turn when a successful built-in `edit`, `write`, or `apply_patch` mutation targets a validation-defining repository file. A deterministic fingerprint identifies the snapshot: changed discovery marks earlier evidence stale, while an unchanged refresh records a configuration-sensitive limitation. Discovery is not re-run on every turn.
 
 ## 4. Execution-integrity settings
 
@@ -61,7 +65,7 @@ Modified paths are bounded to 128 entries, validation records to 16 entries, and
 
 ## 6. Validation-command matching
 
-`matchValidationCommand()` accepts only commands grounded in `discoverValidationCommands()` output. It normalizes surrounding and repeated whitespace, accepts an exact discovered command, and accepts a simple targeted suffix for discovered test commands, such as:
+`matchValidationCommand()` accepts only commands grounded in `discoverValidationCommands()` output. It normalizes surrounding and repeated whitespace. An exact discovered command is the only scope that can become fresh completion evidence. A simple targeted suffix for a discovered test command is retained as `targeted-unverified` diagnostic evidence, never as fresh blocking evidence, such as:
 
 ```text
 npm test -- test/example.test.ts
@@ -70,6 +74,8 @@ python -m pytest tests/example.py
 ```
 
 It does not parse a shell and rejects compound commands, pipelines, redirection, and newline-separated commands containing `&&`, `||`, `;`, `|`, `>`, or `<`. It does not classify arbitrary commands by words such as `test`, `lint`, or `build`, and it never executes a command.
+
+No-op or inspection-only invocations such as `npm test -- --help`, `cargo test -- --list`, and `python -m pytest --collect-only` are rejected. Backticks and `$()` substitutions are rejected as well. Detected commands are repository-provided suggestions, not safety approval; the existing command policy still applies.
 
 ## 7. Fresh, stale, failed, and concurrent evidence
 
@@ -84,7 +90,7 @@ Current-status precedence uses the newest result per command:
 
 When mutation and validation observations arrive in one completed tool batch, Phase 6 records `concurrent-with-mutation` because Native Pi may execute tool calls in parallel and the order is not reliable evidence that validation covered the final files. A later-turn validation may be fresh.
 
-User-run interactive `!` bash commands use the existing command, exit, cancellation, and full-output fields when they pass through `AgentSession.executeBash()`. A cancelled command or a non-zero/unknown exit does not count as a pass. Extensions that execute bash outside this path remain a known limitation.
+User-run interactive `!` bash commands use the existing command, exit, cancellation, and full-output fields when they pass through `AgentSession.executeBash()`. A cancelled command or a non-zero/unknown exit does not count as a pass. If the command starts while the agent is streaming, while a mutation tool is pending, or while the mutation version changes before it completes, the result is recorded as `concurrent-with-mutation` and cannot be fresh evidence. Extensions that execute bash outside this path remain a known limitation.
 
 ## 8. Observe versus enforce behavior
 
@@ -100,13 +106,14 @@ The tracker increments its continuation counter before queuing feedback. Once th
 
 ## 10. `/context` diagnostics
 
-`AgentSession.getContextInfo()` exposes the bounded snapshot to RPC and SDK consumers. `/context` renders a compact execution-integrity section with mode, known mutations, mutation version, modified-path count, validation state, recorded validation count, continuation attempts, bounded limitations, and references to existing full-output files. It does not render complete validation logs or send telemetry externally.
+`AgentSession.getContextInfo()` exposes the bounded snapshot to RPC and SDK consumers. `/context` renders a compact execution-integrity section with mode, known mutations, mutation version, modified-path count, validation state, recorded validation count, unverified targeted-validation count, continuation attempts, bounded limitations, discovery fingerprints, and references to existing full-output files. It does not render complete validation logs or send telemetry externally.
 
 ## 11. Known limitations
 
 - Arbitrary bash mutations are not completely classified.
 - Same-batch mutation and validation is conservatively ambiguous; Phase 6 does not add a shell parser or execution-order claim.
 - Discovery is grounded in existing repository files and does not invent a command for an unknown project.
+- Repository-discovered commands are suggestions only; discovery is not a safety policy or permission grant.
 - Validation output is not interpreted as proof of task correctness.
 - Interactive user-run validation is integrated only through the existing `executeBash()` path; broader extension-owned bash flows are deferred.
 - No live model evaluation has been run for Phase 6 in this implementation.
@@ -118,7 +125,7 @@ Phase 6 reuses Phase 5’s bounded evidence-reference and evaluation discipline.
 
 ## 13. Phase 6 live evaluation plan
 
-Compare baseline `executionIntegrity.mode = "off"` with treatment `executionIntegrity.mode = "enforce"` while keeping provider/model, reasoning setting, tools, task input, initial repository state, context window, project instructions, retries, and compaction settings constant except for the explicit treatment setting. Repeat runs where practical because model behavior is nondeterministic.
+Compare baseline `executionIntegrity.mode = "off"` with treatment `executionIntegrity.mode = "enforce"` while keeping provider/model, reasoning setting, tools, task input, initial repository state, context window, project instructions, retries, and compaction settings constant except for the explicit treatment setting. Every recorded run must include a `variant`, a `trialId`, and the approved `treatmentConfig.executionIntegrity` fields; baseline runs use `mode: "off"`, Phase 6 runs use `mode: "enforce"`, and `maxContinuationAttempts` may be the only additional treatment field. Pair runs by `workloadId + trialId` so repeated trials do not collapse. Repeat runs where practical because model behavior is nondeterministic.
 
 Use these workloads:
 
@@ -209,7 +216,7 @@ export type AgentRunTermination =
   | { reason: "completed" }
   | { reason: "aborted"; message?: string }
   | { reason: "error"; message?: string }
-  | { reason: "limit"; limit: "turns" | "toolCalls"; max: number };
+  | { reason: "limit"; limit: "turns" | "acceptedToolCalls"; max: number };
 ```
 
 The field is optional for backward compatibility. `Agent` infers a result for older or custom emitters that do not provide it.
@@ -218,9 +225,9 @@ Low-level `agentLoop()` and `agentLoopContinue()` streams now convert unexpected
 
 ## Listener failure isolation
 
-`Agent.subscribe()` listeners are awaited in registration order, but they are observers rather than execution-control hooks.
+`Agent.subscribe()` listeners are awaited in registration order. By default they are observational and isolated; the internal `AgentSession` lifecycle handler is registered explicitly as a fatal execution participant because persistence and extension post-hooks are part of the run’s integrity boundary.
 
-If a listener rejects:
+If an observational listener rejects:
 
 1. the failure is recorded in bounded latest-run diagnostics;
 2. remaining healthy listeners still receive the current event;
@@ -228,11 +235,11 @@ If a listener rejects:
 4. model and tool execution continue through the normal lifecycle;
 5. tool-result pairing and transcript ordering are preserved.
 
-A listener rejection does not change an otherwise successful run into an execution error. `Agent.state.errorMessage` surfaces the latest observer failure for compatibility and diagnostics, while `Agent.lastRunDiagnostics.termination` continues to describe the actual runtime outcome.
+A listener rejection does not change an otherwise successful run into an execution error. The bounded `Agent.lastRunDiagnostics.listenerErrors` list records observer failures; `Agent.state.errorMessage` remains reserved for assistant/provider execution failures and is not populated by an isolated observer error.
 
 If a listener rejects while handling `agent_end`, the failure is recorded but terminalization is not entered again. This prevents duplicate terminal events. Listener isolation is per run, so a listener is eligible again on the next run.
 
-Callbacks that participate in execution are not treated as passive listeners. Provider/context failures still terminate the run, tool preflight failures still block execution, and tool-result transformation failures remain structured tool errors.
+If a fatal listener rejects, the active run is aborted with a marked critical error. The lifecycle terminalizes once with `reason: "error"`, preserves completed messages and tool results, and starts no new provider request or tool batch. A fallback session `agent_end` carries that termination when the internal handler itself failed. Provider/context failures still terminate the run, tool preflight failures still block execution, and tool-result transformation failures remain structured tool errors.
 
 ## Optional execution limits
 
@@ -242,7 +249,7 @@ Limits are opt-in and preserve existing behavior when omitted:
 const agent = new Agent({
   executionLimits: {
     maxTurns: 20,
-    maxToolCalls: 50,
+    maxAcceptedToolCalls: 50,
   },
 });
 ```
@@ -255,7 +262,7 @@ Both values must be positive integers.
 
 ### Tool-call limit
 
-Tool-call batches are atomic with respect to the configured limit. If accepting the entire assistant-requested batch would exceed `maxToolCalls`, none of the calls in that batch execute. Each call still receives a paired error tool result, and the run terminates with a `toolCalls` limit reason.
+Tool-call batches are atomic with respect to the configured limit. If accepting the entire assistant-requested batch would exceed `maxAcceptedToolCalls`, none of the calls in that batch execute. Each call still receives a paired error tool result, and the run terminates with an `acceptedToolCalls` limit reason.
 
 The limit controls accepted tool calls, not external side effects. It cannot undo a tool that already completed.
 
@@ -334,10 +341,20 @@ Focused validation:
 
 ```bash
 cd packages/agent
-npx vitest --run test/execution-integrity.test.ts test/agent-loop.test.ts test/agent.test.ts
+node node_modules/vitest/dist/cli.js --run \
+  test/execution-integrity.test.ts \
+  test/agent-loop.test.ts \
+  test/agent.test.ts
 
 cd ../coding-agent
-npx vitest --run test/agent-session-retry-integrity.test.ts
+node node_modules/vitest/dist/cli.js --run \
+  test/validation-commands.test.ts \
+  test/execution-integrity.test.ts \
+  test/settings-manager.test.ts \
+  test/agent-session-runtime-events.test.ts \
+  test/agent-session-retry-integrity.test.ts \
+  test/phase6-baseline.test.ts \
+  test/phase6-evaluation.test.ts
 ```
 
 Repository validation:
@@ -348,6 +365,6 @@ npm run check
 npm test
 ```
 
-The focused tests cover low-level stream settlement, one-terminal-event behavior, observer isolation at assistant and tool-result boundaries, opt-in turn limits, atomic tool-call limits, cancellation pairing, and provider retry without tool replay.
+The focused tests cover low-level stream settlement, post-turn failure lifecycle retention, one-terminal-event behavior, fatal internal versus isolated observer failures, opt-in turn limits, atomic accepted-tool-call limits, cancellation pairing, provider retry without tool replay, exact-only validation evidence, discovery refresh/staleness, user-bash overlap, runtime diagnostics, and evaluator pair identity.
 
 No correctness, latency, or cost improvement should be claimed until these commands pass and representative live coding workloads are evaluated.

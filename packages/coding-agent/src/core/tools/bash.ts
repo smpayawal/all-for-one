@@ -16,7 +16,7 @@ import {
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
-import { getProjectValidationPromptGuideline } from "../validation-commands.ts";
+import { getProjectValidationPromptGuideline, type ValidationCommandDiscovery } from "../validation-commands.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -170,6 +170,8 @@ export interface BashToolOptions {
 	shellPath?: string;
 	/** Hook to adjust command, cwd, or env before execution */
 	spawnHook?: BashSpawnHook;
+	/** Shared validation discovery snapshot for the current runtime build. */
+	validationDiscovery?: ValidationCommandDiscovery;
 }
 
 const BASH_PREVIEW_LINES = 5;
@@ -296,7 +298,7 @@ export function createBashToolDefinition(
 	const ops = options?.operations ?? createLocalBashOperations({ shellPath: options?.shellPath });
 	const commandPrefix = options?.commandPrefix;
 	const spawnHook = options?.spawnHook;
-	const validationGuideline = getProjectValidationPromptGuideline(cwd, ["bash"]);
+	const validationGuideline = getProjectValidationPromptGuideline(cwd, ["bash"], options?.validationDiscovery);
 	return {
 		name: "bash",
 		label: "bash",

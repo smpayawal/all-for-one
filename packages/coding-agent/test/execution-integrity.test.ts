@@ -138,6 +138,63 @@ describe("ExecutionIntegrityTracker", () => {
 		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-failed" });
 	});
 
+	it("does not treat targeted or no-op validation flags as fresh enforcement evidence", () => {
+		const tracker = createTracker();
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordTurn({ turnIndex: 1, toolObservations: [validation("npm test -- --help")] });
+		tracker.recordTurn({ turnIndex: 2, toolObservations: [validation("npm test -- test/example.test.ts")] });
+
+		expect(tracker.decideCompletion()).toEqual({ action: "continue", reason: "validation-missing" });
+		expect(tracker.getSnapshot().validations[0]).toMatchObject({ scope: "targeted-unverified" });
+	});
+
+	it("marks user validation concurrent when mutation overlaps its execution", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordUserBashValidation("npm test", { exitCode: 0, cancelled: false }, 1, {
+			mutationVersionAtStart: 1,
+			mutationVersionAtEnd: 2,
+			agentStreamingAtStart: true,
+			pendingMutationAtStart: true,
+		});
+
+		expect(tracker.getSnapshot().validations.at(-1)).toMatchObject({ status: "concurrent-with-mutation" });
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-concurrent-with-mutation" });
+	});
+
+	it("invalidates prior evidence when discovery changes and records refresh limitations", () => {
+		const tracker = createTracker("observe");
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordTurn({ turnIndex: 1, toolObservations: [validation()] });
+		tracker.updateDiscovery({
+			...discovery,
+			commands: [{ ...discovery.commands[1], command: "npm run check:changed" }],
+		});
+
+		expect(tracker.getSnapshot().limitations).toContain(
+			"Validation command discovery changed; prior validation evidence is stale.",
+		);
+		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "validation-stale" });
+	});
+
+	it("bounds and sanitizes paths and full-output references", () => {
+		const tracker = createTracker("observe");
+		const longPath = `src/${"x".repeat(700)}\u0000.ts`;
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation("edit", longPath)] });
+		tracker.recordTurn({
+			turnIndex: 1,
+			toolObservations: [
+				validation("npm test", false, { exitCode: 0, fullOutputPath: `${"/tmp/"}${"y".repeat(700)}\u0007.log` }),
+			],
+		});
+
+		const snapshot = tracker.getSnapshot();
+		expect(snapshot.modifiedPaths[0]?.length).toBeLessThanOrEqual(512);
+		expect(snapshot.modifiedPaths[0]).not.toMatch(/[\u0000-\u001f\u007f]/);
+		expect(snapshot.validations[0]?.fullOutputPath?.length).toBeLessThanOrEqual(512);
+		expect(snapshot.validations[0]?.fullOutputPath).not.toMatch(/[\u0000-\u001f\u007f]/);
+	});
+
 	it("marks a pass stale after a later successful mutation", () => {
 		const tracker = createTracker("observe");
 		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });

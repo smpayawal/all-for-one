@@ -14,6 +14,7 @@ import type {
 	AfterToolCallResult,
 	AgentContext,
 	AgentEvent,
+	AgentEventListenerFailureMode,
 	AgentLoopConfig,
 	AgentLoopTurnUpdate,
 	AgentMessage,
@@ -29,6 +30,7 @@ import type {
 	StreamFn,
 	ToolExecutionMode,
 } from "./types.ts";
+import { AgentEventHandlerError } from "./types.ts";
 
 export type { QueueMode } from "./types.ts";
 
@@ -111,9 +113,9 @@ function normalizeExecutionLimits(limits: ExecutionLimits | undefined): Executio
 	if (!limits) return undefined;
 	const normalized: ExecutionLimits = {
 		maxTurns: validateExecutionLimit(limits.maxTurns, "maxTurns"),
-		maxToolCalls: validateExecutionLimit(limits.maxToolCalls, "maxToolCalls"),
+		maxAcceptedToolCalls: validateExecutionLimit(limits.maxAcceptedToolCalls, "maxAcceptedToolCalls"),
 	};
-	return normalized.maxTurns === undefined && normalized.maxToolCalls === undefined ? undefined : normalized;
+	return normalized.maxTurns === undefined && normalized.maxAcceptedToolCalls === undefined ? undefined : normalized;
 }
 
 function errorText(error: unknown): string {
@@ -204,7 +206,7 @@ class PendingMessageQueue {
 	}
 }
 
-type AgentEventListener = (event: AgentEvent, signal: AbortSignal) => Promise<void> | void;
+export type AgentEventListener = (event: AgentEvent, signal: AbortSignal) => Promise<void> | void;
 
 type MutableRunDiagnostics = {
 	termination?: AgentRunTermination;
@@ -221,6 +223,8 @@ type ActiveRun = {
 	resolve: () => void;
 	abortController: AbortController;
 	failedListeners: Set<AgentEventListener>;
+	criticalFailure?: AgentEventHandlerError;
+	turnOpen: boolean;
 	terminalEventEmitted: boolean;
 	diagnostics: MutableRunDiagnostics;
 };
@@ -233,7 +237,7 @@ type ActiveRun = {
  */
 export class Agent {
 	private _state: MutableAgentState;
-	private readonly listeners = new Set<AgentEventListener>();
+	private readonly listeners = new Map<AgentEventListener, AgentEventListenerFailureMode>();
 	private readonly steeringQueue: PendingMessageQueue;
 	private readonly followUpQueue: PendingMessageQueue;
 
@@ -304,8 +308,8 @@ export class Agent {
 	 * `agent_end` is the final emitted event for a run, but the agent does not
 	 * become idle until all awaited listeners for that event have settled.
 	 */
-	subscribe(listener: AgentEventListener): () => void {
-		this.listeners.add(listener);
+	subscribe(listener: AgentEventListener, options: { failureMode?: AgentEventListenerFailureMode } = {}): () => void {
+		this.listeners.set(listener, options.failureMode ?? "isolate");
 		return () => this.listeners.delete(listener);
 	}
 
@@ -565,6 +569,8 @@ export class Agent {
 			resolve: resolvePromise,
 			abortController,
 			failedListeners: new Set(),
+			criticalFailure: undefined,
+			turnOpen: false,
 			terminalEventEmitted: false,
 			diagnostics: {
 				turns: 0,
@@ -599,7 +605,6 @@ export class Agent {
 		if (activeRun.diagnostics.listenerErrors.length < MAX_LISTENER_ERRORS) {
 			activeRun.diagnostics.listenerErrors.push(message);
 		}
-		this._state.errorMessage = message;
 	}
 
 	private async processFailureEvent(event: AgentEvent): Promise<void> {
@@ -614,12 +619,19 @@ export class Agent {
 		const activeRun = this.activeRun;
 		if (!activeRun || activeRun.terminalEventEmitted) return;
 
-		const message = aborted ? (abortReason(activeRun.abortController.signal) ?? errorText(error)) : errorText(error);
-		const termination: AgentRunTermination = aborted
-			? message
-				? { reason: "aborted", message }
-				: { reason: "aborted" }
-			: { reason: "error", message };
+		const criticalFailure = error instanceof AgentEventHandlerError || activeRun.criticalFailure;
+		const message = criticalFailure
+			? errorText(error)
+			: aborted
+				? (abortReason(activeRun.abortController.signal) ?? errorText(error))
+				: errorText(error);
+		const termination: AgentRunTermination = criticalFailure
+			? { reason: "error", message }
+			: aborted
+				? message
+					? { reason: "aborted", message }
+					: { reason: "aborted" }
+				: { reason: "error", message };
 		const failureMessage = {
 			role: "assistant",
 			content: [{ type: "text", text: "" }],
@@ -627,10 +639,13 @@ export class Agent {
 			provider: this._state.model.provider,
 			model: this._state.model.id,
 			usage: EMPTY_USAGE,
-			stopReason: aborted ? "aborted" : "error",
+			stopReason: termination.reason === "aborted" ? "aborted" : "error",
 			errorMessage: message,
 			timestamp: Date.now(),
 		} satisfies AgentMessage;
+		if (!activeRun.turnOpen) {
+			await this.processFailureEvent({ type: "turn_start" });
+		}
 		await this.processFailureEvent({
 			type: "message_start",
 			message: failureMessage,
@@ -646,7 +661,7 @@ export class Agent {
 		});
 		await this.processFailureEvent({
 			type: "agent_end",
-			messages: [failureMessage],
+			messages: this._state.messages.slice(),
 			termination,
 		});
 	}
@@ -659,11 +674,13 @@ export class Agent {
 		const reason = abortReason(activeRun.abortController.signal);
 		const termination =
 			activeRun.diagnostics.termination ??
-			(activeRun.abortController.signal.aborted
-				? reason
-					? { reason: "aborted" as const, message: reason }
-					: { reason: "aborted" as const }
-				: { reason: "completed" as const });
+			(activeRun.criticalFailure
+				? { reason: "error" as const, message: activeRun.criticalFailure.message }
+				: activeRun.abortController.signal.aborted
+					? reason
+						? { reason: "aborted" as const, message: reason }
+						: { reason: "aborted" as const }
+					: { reason: "completed" as const });
 		this._lastRunDiagnostics = {
 			termination,
 			turns: activeRun.diagnostics.turns,
@@ -692,6 +709,7 @@ export class Agent {
 		switch (event.type) {
 			case "turn_start":
 				activeRun.diagnostics.turns++;
+				activeRun.turnOpen = true;
 				break;
 			case "message_start":
 				this._state.streamingMessage = event.message;
@@ -718,7 +736,8 @@ export class Agent {
 				break;
 			}
 			case "turn_end":
-				if (event.message.role === "assistant" && event.message.errorMessage) {
+				activeRun.turnOpen = false;
+				if (!activeRun.criticalFailure && event.message.role === "assistant" && event.message.errorMessage) {
 					this._state.errorMessage = event.message.errorMessage;
 				}
 				break;
@@ -730,12 +749,19 @@ export class Agent {
 				break;
 		}
 
-		for (const listener of this.listeners) {
+		for (const [listener, failureMode] of this.listeners) {
 			if (activeRun.failedListeners.has(listener)) continue;
 			try {
 				await listener(event, activeRun.abortController.signal);
 			} catch (error) {
 				this.recordListenerError(listener, error);
+				if (failureMode === "fatal") {
+					const fatalError = error instanceof AgentEventHandlerError ? error : new AgentEventHandlerError(error);
+					activeRun.criticalFailure = fatalError;
+					activeRun.failedListeners.add(listener);
+					if (!activeRun.abortController.signal.aborted) activeRun.abortController.abort(fatalError);
+					throw fatalError;
+				}
 			}
 		}
 	}

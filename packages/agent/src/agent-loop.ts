@@ -23,6 +23,7 @@ import type {
 	ExecutionLimits,
 	StreamFn,
 } from "./types.ts";
+import { AgentEventHandlerError } from "./types.ts";
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
@@ -46,7 +47,7 @@ function validateExecutionLimit(value: number | undefined, name: keyof Execution
 function resolveExecutionLimits(limits: ExecutionLimits | undefined): ExecutionLimits {
 	return {
 		maxTurns: validateExecutionLimit(limits?.maxTurns, "maxTurns"),
-		maxToolCalls: validateExecutionLimit(limits?.maxToolCalls, "maxToolCalls"),
+		maxAcceptedToolCalls: validateExecutionLimit(limits?.maxAcceptedToolCalls, "maxAcceptedToolCalls"),
 	};
 }
 
@@ -60,6 +61,9 @@ function abortMessage(signal?: AbortSignal): string | undefined {
 }
 
 function terminationForFailure(error: unknown, signal?: AbortSignal): AgentRunTermination {
+	if (error instanceof AgentEventHandlerError || signal?.reason instanceof AgentEventHandlerError) {
+		return { reason: "error", message: errorText(error) };
+	}
 	if (signal?.aborted) {
 		const message = abortMessage(signal) ?? errorText(error);
 		return message ? { reason: "aborted", message } : { reason: "aborted" };
@@ -67,7 +71,11 @@ function terminationForFailure(error: unknown, signal?: AbortSignal): AgentRunTe
 	return { reason: "error", message: errorText(error) };
 }
 
-function createRunFailureMessage(config: AgentLoopConfig, error: unknown, aborted: boolean): AssistantMessage {
+function createRunFailureMessage(
+	config: AgentLoopConfig,
+	error: unknown,
+	termination: AgentRunTermination,
+): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [{ type: "text", text: "" }],
@@ -75,10 +83,94 @@ function createRunFailureMessage(config: AgentLoopConfig, error: unknown, aborte
 		provider: config.model.provider,
 		model: config.model.id,
 		usage: EMPTY_USAGE,
-		stopReason: aborted ? "aborted" : "error",
+		stopReason: termination.reason === "aborted" ? "aborted" : "error",
 		errorMessage: errorText(error),
 		timestamp: Date.now(),
 	};
+}
+
+class AgentRunLifecycle {
+	private readonly messages: AgentMessage[] = [];
+	private openMessageIndex: number | undefined;
+	private turnOpen = false;
+	private terminalEventEmitted = false;
+	private readonly sink: AgentEventSink;
+
+	constructor(sink: AgentEventSink) {
+		this.sink = sink;
+	}
+
+	get completedMessages(): AgentMessage[] {
+		return this.messages.slice();
+	}
+
+	async emit(event: AgentEvent): Promise<void> {
+		this.observe(event);
+		try {
+			await this.sink(event);
+		} catch (error) {
+			if (event.type === "agent_end") this.terminalEventEmitted = false;
+			throw error;
+		}
+	}
+
+	private observe(event: AgentEvent): void {
+		switch (event.type) {
+			case "turn_start":
+				this.turnOpen = true;
+				break;
+			case "message_start": {
+				const lastIndex = this.messages.length - 1;
+				if (lastIndex >= 0 && this.messages[lastIndex] === event.message) {
+					this.openMessageIndex = lastIndex;
+				} else {
+					this.messages.push(event.message);
+					this.openMessageIndex = this.messages.length - 1;
+				}
+				break;
+			}
+			case "message_update":
+				if (this.openMessageIndex !== undefined) {
+					this.messages[this.openMessageIndex] = event.message;
+				}
+				break;
+			case "message_end":
+				if (this.openMessageIndex === undefined) {
+					this.messages.push(event.message);
+				} else {
+					this.messages[this.openMessageIndex] = event.message;
+				}
+				this.openMessageIndex = undefined;
+				break;
+			case "turn_end":
+				this.turnOpen = false;
+				break;
+			case "agent_end":
+				this.terminalEventEmitted = true;
+				break;
+		}
+	}
+
+	private async safeEmit(event: AgentEvent): Promise<void> {
+		try {
+			await this.emit(event);
+		} catch {
+			// The original failure is authoritative. Continue best-effort terminalization
+			// so one critical listener cannot strand the stream.
+		}
+	}
+
+	async terminalizeFailure(config: AgentLoopConfig, error: unknown, signal?: AbortSignal): Promise<void> {
+		if (this.terminalEventEmitted) return;
+
+		const termination = terminationForFailure(error, signal);
+		const failureMessage = createRunFailureMessage(config, error, termination);
+		if (!this.turnOpen) await this.safeEmit({ type: "turn_start" });
+		await this.safeEmit({ type: "message_start", message: failureMessage });
+		await this.safeEmit({ type: "message_end", message: failureMessage });
+		if (this.turnOpen) await this.safeEmit({ type: "turn_end", message: failureMessage, toolResults: [] });
+		await this.safeEmit({ type: "agent_end", messages: this.completedMessages, termination });
+	}
 }
 
 function settleAgentStreamFailure(
@@ -87,14 +179,15 @@ function settleAgentStreamFailure(
 	error: unknown,
 	signal?: AbortSignal,
 ): void {
-	const message = createRunFailureMessage(config, error, signal?.aborted === true);
+	const termination = terminationForFailure(error, signal);
+	const message = createRunFailureMessage(config, error, termination);
 	stream.push({ type: "message_start", message });
 	stream.push({ type: "message_end", message });
 	stream.push({ type: "turn_end", message, toolResults: [] });
 	stream.push({
 		type: "agent_end",
 		messages: [message],
-		termination: terminationForFailure(error, signal),
+		termination,
 	});
 }
 
@@ -187,15 +280,21 @@ export async function runAgentLoop(
 		...context,
 		messages: [...context.messages, ...prompts],
 	};
+	const lifecycle = new AgentRunLifecycle(emit);
 
-	await emit({ type: "agent_start" });
-	await emit({ type: "turn_start" });
-	for (const prompt of prompts) {
-		await emit({ type: "message_start", message: prompt });
-		await emit({ type: "message_end", message: prompt });
+	try {
+		await lifecycle.emit({ type: "agent_start" });
+		await lifecycle.emit({ type: "turn_start" });
+		for (const prompt of prompts) {
+			await lifecycle.emit({ type: "message_start", message: prompt });
+			await lifecycle.emit({ type: "message_end", message: prompt });
+		}
+
+		await runLoop(currentContext, newMessages, config, signal, lifecycle.emit.bind(lifecycle), streamFn);
+	} catch (error) {
+		await lifecycle.terminalizeFailure(config, error, signal);
+		newMessages.splice(0, newMessages.length, ...lifecycle.completedMessages);
 	}
-
-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
 	return newMessages;
 }
 
@@ -216,11 +315,17 @@ export async function runAgentLoopContinue(
 
 	const newMessages: AgentMessage[] = [];
 	const currentContext: AgentContext = { ...context };
+	const lifecycle = new AgentRunLifecycle(emit);
 
-	await emit({ type: "agent_start" });
-	await emit({ type: "turn_start" });
+	try {
+		await lifecycle.emit({ type: "agent_start" });
+		await lifecycle.emit({ type: "turn_start" });
 
-	await runLoop(currentContext, newMessages, config, signal, emit, streamFn);
+		await runLoop(currentContext, newMessages, config, signal, lifecycle.emit.bind(lifecycle), streamFn);
+	} catch (error) {
+		await lifecycle.terminalizeFailure(config, error, signal);
+		newMessages.splice(0, newMessages.length, ...lifecycle.completedMessages);
+	}
 	return newMessages;
 }
 
@@ -326,11 +431,11 @@ async function runLoop(
 			if (toolCalls.length > 0) {
 				let executedToolBatch: ExecutedToolCallBatch;
 				if (
-					executionLimits.maxToolCalls !== undefined &&
-					toolCallsAccepted + toolCalls.length > executionLimits.maxToolCalls
+					executionLimits.maxAcceptedToolCalls !== undefined &&
+					toolCallsAccepted + toolCalls.length > executionLimits.maxAcceptedToolCalls
 				) {
-					executedToolBatch = await failToolCallsFromLimit(toolCalls, executionLimits.maxToolCalls, emit);
-					toolCallLimitReached = executionLimits.maxToolCalls;
+					executedToolBatch = await failToolCallsFromLimit(toolCalls, executionLimits.maxAcceptedToolCalls, emit);
+					toolCallLimitReached = executionLimits.maxAcceptedToolCalls;
 				} else {
 					toolCallsAccepted += toolCalls.length;
 					// A "length" stop means the output was cut off by the token limit, so
@@ -355,7 +460,7 @@ async function runLoop(
 			if (toolCallLimitReached !== undefined) {
 				await emitAgentEnd(emit, newMessages, {
 					reason: "limit",
-					limit: "toolCalls",
+					limit: "acceptedToolCalls",
 					max: toolCallLimitReached,
 				});
 				return;
@@ -526,13 +631,13 @@ async function streamAssistantResponse(
  */
 async function failToolCallsFromLimit(
 	toolCalls: AgentToolCall[],
-	maxToolCalls: number,
+	maxAcceptedToolCalls: number,
 	emit: AgentEventSink,
 ): Promise<ExecutedToolCallBatch> {
 	return failToolCalls(
 		toolCalls,
 		(toolCall) =>
-			`Tool call "${toolCall.name}" was not executed: this batch would exceed the configured maximum of ${maxToolCalls} tool calls for the run.`,
+			`Tool call "${toolCall.name}" was not executed: this batch would exceed the configured maximum of ${maxAcceptedToolCalls} accepted tool calls for the run.`,
 		emit,
 		true,
 	);

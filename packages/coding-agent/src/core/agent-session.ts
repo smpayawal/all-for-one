@@ -19,6 +19,7 @@ import type {
 	Agent,
 	AgentEvent,
 	AgentMessage,
+	AgentRunTermination,
 	AgentState,
 	AgentTool,
 	PrepareNextTurnContext,
@@ -70,6 +71,7 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import {
 	type ExecutionIntegritySnapshot,
 	ExecutionIntegrityTracker,
+	type ExecutionIntegrityUserValidationContext,
 	type ExecutionToolObservation,
 } from "./execution-integrity.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
@@ -132,7 +134,7 @@ import { type ToolOutputTelemetry, ToolOutputTelemetryStore } from "./tool-outpu
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
-import { discoverValidationCommands } from "./validation-commands.ts";
+import { discoverValidationCommands, type ValidationCommandDiscovery } from "./validation-commands.ts";
 
 export type { ToolOutputTelemetry } from "./tool-output-telemetry.ts";
 
@@ -169,6 +171,7 @@ export type AgentSessionEvent =
 	| {
 			type: "agent_end";
 			messages: AgentMessage[];
+			termination?: AgentRunTermination;
 			willRetry: boolean;
 	  }
 	| { type: "agent_settled" }
@@ -193,7 +196,7 @@ export type AgentSessionEvent =
 	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string };
 
 /** Listener function for agent session events */
-export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
+export type AgentSessionEventListener = (event: AgentSessionEvent) => void | Promise<void>;
 
 // ============================================================================
 // Types
@@ -409,6 +412,8 @@ async function compactWithValidationAndRepair(
 
 /** Standard thinking levels */
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
+const MAX_SESSION_LISTENER_ERRORS = 20;
+const MAX_SESSION_LISTENER_ERROR_CHARS = 500;
 
 // ============================================================================
 // AgentSession Class
@@ -424,7 +429,9 @@ export class AgentSession {
 	// Event subscription state
 	private _unsubscribeAgent?: () => void;
 	private _eventListeners: AgentSessionEventListener[] = [];
+	private _sessionListenerErrors: string[] = [];
 	private _isAgentRunActive = false;
+	private _agentEndSeenForRun = false;
 	private _idleWaitPromise: Promise<void> | undefined;
 	private _resolveIdleWait: (() => void) | undefined;
 
@@ -450,6 +457,7 @@ export class AgentSession {
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
 	private _pendingBashMessages: BashExecutionMessage[] = [];
+	private _pendingMutationToolCalls = new Set<string>();
 
 	// Extension system
 	private _extensionRunner!: ExtensionRunner;
@@ -490,6 +498,7 @@ export class AgentSession {
 	private _dynamicContextPromptSuffix = "";
 	private _toolOutputTelemetryStore: ToolOutputTelemetryStore;
 	private _executionIntegrityTracker: ExecutionIntegrityTracker;
+	private _validationCommandDiscovery: ValidationCommandDiscovery;
 	private _executionIntegrityRunStarted = false;
 	private _systemPromptOverride?: string;
 
@@ -503,10 +512,11 @@ export class AgentSession {
 		this._cwd = config.cwd;
 		this._scopedContextTracker = new ScopedContextTracker(this._cwd, this._resourceLoader);
 		this._toolOutputTelemetryStore = new ToolOutputTelemetryStore(this._cwd);
+		this._validationCommandDiscovery = discoverValidationCommands(this._cwd);
 		this._executionIntegrityTracker = new ExecutionIntegrityTracker({
 			settings: this.settingsManager.getExecutionIntegritySettings(),
 			cwd: this._cwd,
-			discovery: discoverValidationCommands(this._cwd),
+			discovery: this._validationCommandDiscovery,
 		});
 		this._memoryStore = new ProjectMemoryStore(this._cwd, config.agentDir ?? getAgentDir());
 		this._modelRuntime = config.modelRuntime;
@@ -519,7 +529,7 @@ export class AgentSession {
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
-		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
+		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent, { failureMode: "fatal" });
 		this._installAgentToolHooks();
 		this._installAgentNextTurnRefresh();
 
@@ -741,7 +751,24 @@ export class AgentSession {
 	/** Emit an event to all listeners */
 	private _emit(event: AgentSessionEvent): void {
 		for (const l of this._eventListeners) {
-			l(event);
+			try {
+				const result = l(event);
+				if (result && typeof result.then === "function") {
+					void result.catch((error: unknown) => this._recordSessionListenerError(error));
+				}
+			} catch (error) {
+				this._recordSessionListenerError(error);
+			}
+		}
+	}
+
+	private _recordSessionListenerError(error: unknown): void {
+		const message = (error instanceof Error ? error.message : String(error)).slice(
+			0,
+			MAX_SESSION_LISTENER_ERROR_CHARS,
+		);
+		if (this._sessionListenerErrors.length < MAX_SESSION_LISTENER_ERRORS) {
+			this._sessionListenerErrors.push(message);
 		}
 	}
 
@@ -788,9 +815,18 @@ export class AgentSession {
 
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
-		if (event.type === "agent_start" && !this._executionIntegrityRunStarted) {
-			this._executionIntegrityTracker.resetRun();
-			this._executionIntegrityRunStarted = true;
+		if (event.type === "agent_start") {
+			if (!this._executionIntegrityRunStarted) {
+				this._executionIntegrityTracker.resetRun();
+				this._executionIntegrityRunStarted = true;
+			}
+			this._agentEndSeenForRun = false;
+			this._pendingMutationToolCalls.clear();
+		}
+		if (event.type === "tool_execution_start" && isMutatingPathTool(event.toolName)) {
+			this._pendingMutationToolCalls.add(event.toolCallId);
+		} else if (event.type === "tool_execution_end" && isMutatingPathTool(event.toolName)) {
+			this._pendingMutationToolCalls.delete(event.toolCallId);
 		}
 
 		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
@@ -819,14 +855,16 @@ export class AgentSession {
 		const turnIndex = event.type === "turn_end" ? this._turnIndex : undefined;
 		await this._emitExtensionEvent(event);
 		if (event.type === "turn_end" && turnIndex !== undefined) {
-			this._executionIntegrityTracker.recordTurn({
+			const validationManifestMutated = this._executionIntegrityTracker.recordTurn({
 				turnIndex,
 				toolObservations: this._getExecutionToolObservations(event),
 			});
+			if (validationManifestMutated) this._refreshValidationCommandDiscovery();
 		}
 
 		// Notify all listeners
 		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
+		if (event.type === "agent_end") this._agentEndSeenForRun = true;
 
 		// Handle session persistence
 		if (event.type === "message_end") {
@@ -1060,7 +1098,7 @@ export class AgentSession {
 	 */
 	private _reconnectToAgent(): void {
 		if (this._unsubscribeAgent) return; // Already connected
-		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
+		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent, { failureMode: "fatal" });
 	}
 
 	/**
@@ -1441,13 +1479,26 @@ export class AgentSession {
 		this._isAgentRunActive = true;
 		try {
 			await this.agent.prompt(messages);
-			while (await this._handlePostAgentRun()) {
+			const diagnostics = this.agent.lastRunDiagnostics;
+			let criticalRuntimeFailure = false;
+			if (!this._agentEndSeenForRun && diagnostics?.termination.reason === "error") {
+				criticalRuntimeFailure = true;
+				this._emit({
+					type: "agent_end",
+					messages: this.agent.state.messages.slice(),
+					termination: diagnostics.termination,
+					willRetry: false,
+				});
+				this._agentEndSeenForRun = true;
+			}
+			while (!criticalRuntimeFailure && this._agentEndSeenForRun && (await this._handlePostAgentRun())) {
 				await this.agent.continue();
 			}
 		} finally {
 			this._systemPromptOverride = undefined;
 			this._dynamicContextPromptSuffix = "";
 			this._flushPendingBashMessages();
+			this._pendingMutationToolCalls.clear();
 			await this._emitAgentSettled();
 		}
 	}
@@ -2934,7 +2985,6 @@ export class AgentSession {
 		includeAllExtensionTools?: boolean;
 	}): void {
 		this._executionIntegrityTracker.updateSettings(this.settingsManager.getExecutionIntegritySettings());
-		this._executionIntegrityTracker.updateDiscovery(discoverValidationCommands(this._cwd));
 		const autoResizeImages = this.settingsManager.getImageAutoResize();
 		const shellCommandPrefix = this.settingsManager.getShellCommandPrefix();
 		const shellPath = this.settingsManager.getShellPath();
@@ -2947,7 +2997,11 @@ export class AgentSession {
 				)
 			: createAllToolDefinitions(this._cwd, {
 					read: { autoResizeImages },
-					bash: { commandPrefix: shellCommandPrefix, shellPath },
+					bash: {
+						commandPrefix: shellCommandPrefix,
+						shellPath,
+						validationDiscovery: this._validationCommandDiscovery,
+					},
 				});
 
 		this._baseToolDefinitions = new Map(
@@ -2984,6 +3038,11 @@ export class AgentSession {
 		});
 	}
 
+	private _refreshValidationCommandDiscovery(): void {
+		this._validationCommandDiscovery = discoverValidationCommands(this._cwd);
+		this._executionIntegrityTracker.updateDiscovery(this._validationCommandDiscovery);
+	}
+
 	async reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void> {
 		const previousFlagValues = this._extensionRunner.getFlagValues();
 		await emitSessionShutdownEvent(this._extensionRunner, { type: "session_shutdown", reason: "reload" });
@@ -2993,6 +3052,7 @@ export class AgentSession {
 		await this._resourceLoader.reload();
 		this._scopedContextTracker.reset();
 		this._dynamicContextPromptSuffix = "";
+		this._refreshValidationCommandDiscovery();
 		this._buildRuntime({
 			activeToolNames: this.getActiveToolNames(),
 			flagValues: previousFlagValues,
@@ -3123,6 +3183,11 @@ export class AgentSession {
 		options?: { excludeFromContext?: boolean; operations?: BashOperations },
 	): Promise<BashResult> {
 		this._bashAbortController = new AbortController();
+		const validationStart: Omit<ExecutionIntegrityUserValidationContext, "mutationVersionAtEnd"> = {
+			mutationVersionAtStart: this._executionIntegrityTracker.getSnapshot().mutationVersion,
+			agentStreamingAtStart: this.isStreaming,
+			pendingMutationAtStart: this._pendingMutationToolCalls.size > 0,
+		};
 
 		// Apply command prefix if configured (e.g., "shopt -s expand_aliases" for alias support)
 		const prefix = this.settingsManager.getShellCommandPrefix();
@@ -3141,7 +3206,10 @@ export class AgentSession {
 			);
 
 			this.recordBashResult(command, result, options);
-			this._executionIntegrityTracker.recordUserBashValidation(command, result, this._turnIndex);
+			this._executionIntegrityTracker.recordUserBashValidation(command, result, this._turnIndex, {
+				...validationStart,
+				mutationVersionAtEnd: this._executionIntegrityTracker.getSnapshot().mutationVersion,
+			});
 			return result;
 		} finally {
 			this._bashAbortController = undefined;

@@ -44,8 +44,8 @@ export type ToolExecutionMode = "sequential" | "parallel";
 export interface ExecutionLimits {
 	/** Maximum provider turns that may start in one run. */
 	maxTurns?: number;
-	/** Maximum tool calls that may execute in one run. Tool-call batches are atomic. */
-	maxToolCalls?: number;
+	/** Maximum assistant-requested tool calls accepted in one run. Tool-call batches are atomic. */
+	maxAcceptedToolCalls?: number;
 }
 
 /** Why an agent run reached its terminal event. */
@@ -53,7 +53,21 @@ export type AgentRunTermination =
 	| { reason: "completed" }
 	| { reason: "aborted"; message?: string }
 	| { reason: "error"; message?: string }
-	| { reason: "limit"; limit: "turns" | "toolCalls"; max: number };
+	| { reason: "limit"; limit: "turns" | "acceptedToolCalls"; max: number };
+
+/** Controls whether a subscriber failure is isolated or terminates the active run. */
+export type AgentEventListenerFailureMode = "isolate" | "fatal";
+
+/** Marks a failure from a critical lifecycle subscriber so it cannot be reported as user cancellation. */
+export class AgentEventHandlerError extends Error {
+	readonly causeError: unknown;
+
+	constructor(cause: unknown) {
+		super(cause instanceof Error ? cause.message : String(cause));
+		this.name = "AgentEventHandlerError";
+		this.causeError = cause;
+	}
+}
 
 /** Bounded in-memory diagnostics for the most recently settled run. */
 export interface AgentRunDiagnostics {
@@ -177,8 +191,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * that the LLM can understand. AgentMessages that cannot be converted (e.g., UI-only notifications,
 	 * status messages) should be filtered out.
 	 *
-	 * Contract: must not throw or reject. Return a safe fallback value instead.
-	 * Throwing interrupts the low-level agent loop without producing a normal event sequence.
+	 * Rejections are terminalized as structured run errors after preserving completed events.
 	 *
 	 * @example
 	 * ```typescript
@@ -205,8 +218,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * - Context window management (pruning old messages)
 	 * - Injecting context from external sources
 	 *
-	 * Contract: must not throw or reject. Return the original messages or another
-	 * safe fallback value instead.
+	 * Rejections are terminalized as structured run errors after preserving completed events.
 	 *
 	 * @example
 	 * ```typescript
@@ -226,7 +238,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 * Useful for short-lived OAuth tokens (e.g., GitHub Copilot) that may expire
 	 * during long-running tool execution phases.
 	 *
-	 * Contract: must not throw or reject. Return undefined when no key is available.
+	 * Rejections are terminalized as structured run errors after preserving completed events.
 	 */
 	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 
@@ -238,7 +250,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 *
 	 * Use this to request a graceful stop after the current turn, e.g. before context gets too full.
 	 *
-	 * Contract: must not throw or reject. Throwing interrupts the low-level agent loop without producing a normal event sequence.
+	 * Rejections are terminalized as structured run errors after preserving completed events.
 	 */
 	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
 
@@ -260,7 +272,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 *
 	 * Use this for "steering" the agent while it's working.
 	 *
-	 * Contract: must not throw or reject. Return [] when no steering messages are available.
+	 * Rejections are terminalized as structured run errors after preserving completed events.
 	 */
 	getSteeringMessages?: () => Promise<AgentMessage[]>;
 
@@ -273,7 +285,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	 *
 	 * Use this for follow-up messages that should wait until the agent finishes.
 	 *
-	 * Contract: must not throw or reject. Return [] when no follow-up messages are available.
+	 * Rejections are terminalized as structured run errors after preserving completed events.
 	 */
 	getFollowUpMessages?: () => Promise<AgentMessage[]>;
 

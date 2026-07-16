@@ -33,13 +33,14 @@ function metrics(overrides: Partial<Phase6EvaluationMetrics> = {}): Phase6Evalua
 function run(variant: "baseline" | "phase6", overrides: Partial<Phase6EvaluationRun> = {}): Phase6EvaluationRun {
 	return {
 		workloadId: "workload-1",
+		trialId: "trial-1",
 		providerModel: "faux/phase6",
 		contextWindow: 128_000,
 		taskInputHash: "task-hash",
 		initialContextHash: "context-hash",
 		controlledConfigHash: "controlled-hash",
 		variant,
-		treatmentConfig: variant === "phase6" ? { executionIntegrity: "enforce" } : undefined,
+		treatmentConfig: { executionIntegrity: { mode: variant === "phase6" ? "enforce" : "off" } },
 		metrics: metrics(),
 		...overrides,
 	};
@@ -48,14 +49,15 @@ function run(variant: "baseline" | "phase6", overrides: Partial<Phase6Evaluation
 describe("Phase 6 paired evaluator", () => {
 	it("pairs runs while keeping treatment settings separate", () => {
 		const baseline = run("baseline");
-		const phase6 = run("phase6", { treatmentConfig: { executionIntegrity: "enforce", maxContinuationAttempts: 1 } });
+		const phase6 = run("phase6", {
+			treatmentConfig: { executionIntegrity: { mode: "enforce", maxContinuationAttempts: 1 } },
+		});
 		const report = comparePhase6EvaluationRuns([baseline], [phase6]);
 
 		expect(report.decision).toBe("pass");
 		expect(report.efficiencyClaim).toBe("not-established");
 		expect(report.pairs[0]?.phase6.treatmentConfig).toEqual({
-			executionIntegrity: "enforce",
-			maxContinuationAttempts: 1,
+			executionIntegrity: { mode: "enforce", maxContinuationAttempts: 1 },
 		});
 	});
 
@@ -112,7 +114,54 @@ describe("Phase 6 paired evaluator", () => {
 		expect(parsed.runs).toHaveLength(1);
 		expect(() => parsePhase6EvaluationInput({ ...valid, variant: "phase5" })).toThrow(/variant/);
 		expect(() => parsePhase6EvaluationInput({ ...valid, runs: [run("baseline"), run("baseline")] })).toThrow(
-			/duplicate workloadId/,
+			/duplicate workload\/trial/,
 		);
+	});
+
+	it("requires the parent variant, approved treatment mode, and trial identity", () => {
+		const valid = {
+			schemaVersion: 1,
+			phase: "P6-live-evaluation",
+			variant: "baseline",
+			runs: [run("baseline")],
+		};
+
+		expect(() => parsePhase6EvaluationInput({ ...valid, runs: [run("phase6")] })).toThrow(
+			/variant must match input variant/,
+		);
+		expect(() =>
+			parsePhase6EvaluationInput({ ...valid, runs: [run("baseline", { treatmentConfig: undefined })] }),
+		).toThrow(/treatmentConfig is required/);
+		expect(() =>
+			parsePhase6EvaluationInput({
+				...valid,
+				runs: [run("baseline", { treatmentConfig: { executionIntegrity: { mode: "enforce" } } })],
+			}),
+		).toThrow(/baseline treatment must set executionIntegrity.mode to off/);
+		expect(() =>
+			parsePhase6EvaluationInput({
+				...valid,
+				runs: [run("baseline", { treatmentConfig: { executionIntegrity: { mode: "off" }, extra: true } as never })],
+			}),
+		).toThrow(/only approved/);
+		expect(() => parsePhase6EvaluationInput({ ...valid, runs: [run("baseline", { trialId: "" })] })).toThrow(
+			/trialId/,
+		);
+	});
+
+	it("allows repeated workloads when trial identities differ and pairs each trial", () => {
+		const baselineTrialOne = run("baseline", { trialId: "trial-1" });
+		const baselineTrialTwo = run("baseline", { trialId: "trial-2" });
+		const phase6TrialOne = run("phase6", { trialId: "trial-1" });
+		const phase6TrialTwo = run("phase6", { trialId: "trial-2" });
+		const report = comparePhase6EvaluationRuns(
+			[baselineTrialOne, baselineTrialTwo],
+			[phase6TrialOne, phase6TrialTwo],
+		);
+
+		expect(report.pairs.map((pair) => `${pair.workloadId}:${pair.trialId}`)).toEqual([
+			"workload-1:trial-1",
+			"workload-1:trial-2",
+		]);
 	});
 });

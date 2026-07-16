@@ -81,6 +81,174 @@ function identityConverter(messages: AgentMessage[]): Message[] {
 }
 
 describe("agentLoop with AgentMessage", () => {
+	it.each([
+		{
+			name: "prepareNextTurn",
+			configure: (config: AgentLoopConfig) => {
+				config.prepareNextTurn = async () => {
+					throw new Error("prepare failed");
+				};
+			},
+		},
+		{
+			name: "shouldStopAfterTurn",
+			configure: (config: AgentLoopConfig) => {
+				config.shouldStopAfterTurn = async () => {
+					throw new Error("stop check failed");
+				};
+			},
+		},
+		{
+			name: "steering polling",
+			configure: (config: AgentLoopConfig) => {
+				let polls = 0;
+				config.getSteeringMessages = async () => {
+					polls++;
+					if (polls > 1) throw new Error("steering failed");
+					return [];
+				};
+			},
+		},
+		{
+			name: "follow-up polling",
+			configure: (config: AgentLoopConfig) => {
+				config.getSteeringMessages = async () => [];
+				config.getFollowUpMessages = async () => {
+					throw new Error("follow-up failed");
+				};
+			},
+		},
+	])("terminalizes failures after a completed turn from $name", async ({ configure }) => {
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+		};
+		configure(config);
+		const events: AgentEvent[] = [];
+		const stream = agentLoop(
+			[createUserMessage("hello")],
+			{ systemPrompt: "", messages: [], tools: [] },
+			config,
+			undefined,
+			() => {
+				const response = new MockAssistantStream();
+				queueMicrotask(() =>
+					response.push({
+						type: "done",
+						reason: "stop",
+						message: createAssistantMessage([{ type: "text", text: "ok" }]),
+					}),
+				);
+				return response;
+			},
+		);
+
+		for await (const event of stream) events.push(event);
+
+		const terminalEvents = events.filter((event) => event.type === "agent_end");
+		expect(terminalEvents).toHaveLength(1);
+		expect(terminalEvents[0]).toMatchObject({ termination: { reason: "error" } });
+		expect(events.filter((event) => event.type === "turn_start")).toHaveLength(
+			events.filter((event) => event.type === "turn_end").length,
+		);
+		expect(terminalEvents[0]).toMatchObject({
+			messages: expect.arrayContaining([
+				expect.objectContaining({ role: "user" }),
+				expect.objectContaining({ role: "assistant", stopReason: "stop" }),
+				expect.objectContaining({ role: "assistant", stopReason: "error" }),
+			]),
+		});
+	});
+
+	it.each([
+		{
+			name: "transformContext",
+			configure: (config: AgentLoopConfig) => {
+				let calls = 0;
+				config.transformContext = async (messages) => {
+					calls++;
+					if (calls > 1) throw new Error("transform failed");
+					return messages;
+				};
+			},
+		},
+		{
+			name: "convertToLlm",
+			configure: (config: AgentLoopConfig) => {
+				let calls = 0;
+				config.convertToLlm = async (messages) => {
+					calls++;
+					if (calls > 1) throw new Error("conversion failed");
+					return identityConverter(messages);
+				};
+			},
+		},
+		{
+			name: "dynamic authentication",
+			configure: (config: AgentLoopConfig) => {
+				let calls = 0;
+				config.getApiKey = async () => {
+					calls++;
+					if (calls > 1) throw new Error("authentication failed");
+					return "token";
+				};
+			},
+		},
+	])("terminalizes failures after prior tool results from $name", async ({ configure }) => {
+		const tool: AgentTool = {
+			name: "inspect",
+			label: "Inspect",
+			description: "Inspect",
+			parameters: Type.Object({}),
+			async execute() {
+				return { content: [{ type: "text", text: "inspected" }], details: {} };
+			},
+		};
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+		};
+		configure(config);
+		let providerCalls = 0;
+		const events: AgentEvent[] = [];
+		const stream = agentLoop(
+			[createUserMessage("inspect")],
+			{ systemPrompt: "", messages: [], tools: [tool] },
+			config,
+			undefined,
+			() => {
+				providerCalls++;
+				const response = new MockAssistantStream();
+				queueMicrotask(() =>
+					response.push({
+						type: "done",
+						reason: providerCalls === 1 ? "toolUse" : "stop",
+						message:
+							providerCalls === 1
+								? createAssistantMessage(
+										[{ type: "toolCall", id: "call-1", name: "inspect", arguments: {} }],
+										"toolUse",
+									)
+								: createAssistantMessage([{ type: "text", text: "unexpected" }]),
+					}),
+				);
+				return response;
+			},
+		);
+
+		for await (const event of stream) events.push(event);
+
+		expect(providerCalls).toBe(1);
+		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
+		expect(events.filter((event) => event.type === "turn_start")).toHaveLength(
+			events.filter((event) => event.type === "turn_end").length,
+		);
+		expect(events.find((event) => event.type === "agent_end")).toMatchObject({
+			termination: { reason: "error" },
+			messages: expect.arrayContaining([expect.objectContaining({ role: "toolResult" })]),
+		});
+	});
+
 	it("should emit events with AgentMessage types", async () => {
 		const context: AgentContext = {
 			systemPrompt: "You are helpful.",

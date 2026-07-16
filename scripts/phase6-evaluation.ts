@@ -10,8 +10,14 @@ const MAX_PHASE6_EVALUATION_LIMITATIONS = 32;
 export type Phase6EvaluationVariant = "baseline" | "phase6";
 export type Phase6EvaluationOutcome = "pass" | "fail" | "unknown";
 export type Phase6EvaluationDecision = "pass" | "blocked" | "inconclusive";
-export type Phase6TreatmentValue = string | number | boolean | null;
-export type Phase6TreatmentConfig = Record<string, Phase6TreatmentValue>;
+export interface Phase6ExecutionIntegrityTreatment {
+	mode: "off" | "enforce";
+	maxContinuationAttempts?: number;
+}
+
+export interface Phase6TreatmentConfig {
+	executionIntegrity: Phase6ExecutionIntegrityTreatment;
+}
 
 export interface Phase6EvaluationMetrics {
 	outcome: Phase6EvaluationOutcome;
@@ -36,15 +42,16 @@ export interface Phase6EvaluationMetrics {
 
 export interface Phase6EvaluationRun {
 	workloadId: string;
+	trialId: string;
 	providerModel: string;
 	contextWindow: number;
 	taskInputHash: string;
 	initialContextHash: string;
 	controlledConfigHash: string;
-	treatmentConfig?: Phase6TreatmentConfig;
+	treatmentConfig: Phase6TreatmentConfig;
 	metrics: Phase6EvaluationMetrics;
 	limitations?: string[];
-	variant?: Phase6EvaluationVariant;
+	variant: Phase6EvaluationVariant;
 }
 
 export interface Phase6EvaluationInput {
@@ -76,6 +83,7 @@ export interface Phase6EvaluationDeltas {
 
 export interface Phase6EvaluationPair {
 	workloadId: string;
+	trialId: string;
 	baseline: Phase6EvaluationRun;
 	phase6: Phase6EvaluationRun;
 	correctnessRegression: boolean;
@@ -173,26 +181,41 @@ function parseLimitations(value: RecordValue, path: string): string[] | undefine
 	return [...field] as string[];
 }
 
-function parseTreatmentConfig(value: RecordValue, path: string): Phase6TreatmentConfig | undefined {
+function parseTreatmentConfig(value: RecordValue, path: string): Phase6TreatmentConfig {
 	const field = value.treatmentConfig;
-	if (field === undefined) return undefined;
+	if (field === undefined) throw new Error(`${path}.treatmentConfig is required`);
 	if (!isRecord(field)) throw new Error(`${path}.treatmentConfig must be an object`);
-	const result: Phase6TreatmentConfig = {};
-	for (const [key, candidate] of Object.entries(field)) {
-		if (
-			typeof candidate !== "string" &&
-			typeof candidate !== "number" &&
-			typeof candidate !== "boolean" &&
-			candidate !== null
-		) {
-			throw new Error(`${path}.treatmentConfig.${key} must be scalar or null`);
-		}
-		if (typeof candidate === "number" && !Number.isFinite(candidate)) {
-			throw new Error(`${path}.treatmentConfig.${key} must be finite`);
-		}
-		result[key] = candidate;
+	if (Object.keys(field).some((key) => key !== "executionIntegrity")) {
+		throw new Error(`${path}.treatmentConfig contains only approved treatment fields`);
 	}
-	return result;
+	const executionIntegrity = field.executionIntegrity;
+	if (!isRecord(executionIntegrity)) {
+		throw new Error(`${path}.treatmentConfig.executionIntegrity must be an object`);
+	}
+	if (Object.keys(executionIntegrity).some((key) => key !== "mode" && key !== "maxContinuationAttempts")) {
+		throw new Error(`${path}.treatmentConfig.executionIntegrity contains only approved fields`);
+	}
+	const mode = executionIntegrity.mode;
+	if (mode !== "off" && mode !== "enforce") {
+		throw new Error(`${path}.treatmentConfig.executionIntegrity.mode must be off or enforce`);
+	}
+	const maxContinuationAttempts = executionIntegrity.maxContinuationAttempts;
+	if (maxContinuationAttempts !== undefined) {
+		if (
+			typeof maxContinuationAttempts !== "number" ||
+			!Number.isInteger(maxContinuationAttempts) ||
+			maxContinuationAttempts < 0 ||
+			maxContinuationAttempts > 2
+		) {
+			throw new Error(`${path}.treatmentConfig.executionIntegrity.maxContinuationAttempts must be an integer from 0 through 2`);
+		}
+	}
+	return {
+		executionIntegrity: {
+			mode,
+			...(maxContinuationAttempts === undefined ? {} : { maxContinuationAttempts }),
+		},
+	};
 }
 
 function parseMetrics(value: unknown, path: string): Phase6EvaluationMetrics {
@@ -227,15 +250,16 @@ function parseMetrics(value: unknown, path: string): Phase6EvaluationMetrics {
 	return metrics;
 }
 
-function parseRun(value: unknown, index: number): Phase6EvaluationRun {
+function parseRun(value: unknown, index: number, expectedVariant: Phase6EvaluationVariant): Phase6EvaluationRun {
 	const path = `runs[${index}]`;
 	if (!isRecord(value)) throw new Error(`${path} must be an object`);
 	const variant = value.variant;
-	if (variant !== undefined && variant !== "baseline" && variant !== "phase6") {
-		throw new Error(`${path}.variant must be baseline or phase6`);
+	if (variant !== expectedVariant) {
+		throw new Error(`${path}.variant must match input variant ${expectedVariant}`);
 	}
 	return {
 		workloadId: requiredString(value, "workloadId", path),
+		trialId: requiredString(value, "trialId", path),
 		providerModel: requiredString(value, "providerModel", path),
 		contextWindow: requiredPositiveInteger(value, "contextWindow", path),
 		taskInputHash: requiredString(value, "taskInputHash", path),
@@ -244,7 +268,7 @@ function parseRun(value: unknown, index: number): Phase6EvaluationRun {
 		treatmentConfig: parseTreatmentConfig(value, path),
 		metrics: parseMetrics(value.metrics, `${path}.metrics`),
 		limitations: parseLimitations(value, path),
-		variant,
+		variant: expectedVariant,
 	};
 }
 
@@ -254,31 +278,48 @@ export function parsePhase6EvaluationInput(value: unknown): Phase6EvaluationInpu
 		throw new Error(`schemaVersion must be ${PHASE6_EVALUATION_SCHEMA_VERSION}`);
 	}
 	if (value.phase !== PHASE6_EVALUATION_PHASE) throw new Error(`phase must be ${PHASE6_EVALUATION_PHASE}`);
-	if (value.variant !== "baseline" && value.variant !== "phase6") {
+	const variant = value.variant;
+	if (variant !== "baseline" && variant !== "phase6") {
 		throw new Error("variant must be baseline or phase6");
 	}
 	if (!Array.isArray(value.runs) || value.runs.length === 0 || value.runs.length > MAX_PHASE6_EVALUATION_RUNS) {
 		throw new Error(`runs must contain between 1 and ${MAX_PHASE6_EVALUATION_RUNS} entries`);
 	}
-	const runs = value.runs.map(parseRun);
-	const workloadIds = new Set<string>();
+	const runs = value.runs.map((run, index) => parseRun(run, index, variant));
+	const workloadTrials = new Set<string>();
 	for (const run of runs) {
-		if (workloadIds.has(run.workloadId)) throw new Error(`duplicate workloadId: ${run.workloadId}`);
-		workloadIds.add(run.workloadId);
+		assertTreatmentMode(run, variant);
+		const key = evaluationPairKey(run);
+		if (workloadTrials.has(key)) throw new Error(`duplicate workload/trial: ${run.workloadId}/${run.trialId}`);
+		workloadTrials.add(key);
 	}
 	return {
 		schemaVersion: PHASE6_EVALUATION_SCHEMA_VERSION,
 		phase: PHASE6_EVALUATION_PHASE,
-		variant: value.variant,
+		variant,
 		runs,
 	};
 }
 
+function evaluationPairKey(run: Pick<Phase6EvaluationRun, "workloadId" | "trialId">): string {
+	return `${run.workloadId}\u0000${run.trialId}`;
+}
+
+function assertTreatmentMode(run: Phase6EvaluationRun, expectedVariant: Phase6EvaluationVariant): void {
+	const expectedMode = expectedVariant === "baseline" ? "off" : "enforce";
+	if (run.treatmentConfig?.executionIntegrity?.mode !== expectedMode) {
+		throw new Error(`${expectedVariant} treatment must set executionIntegrity.mode to ${expectedMode}`);
+	}
+}
+
 function indexRuns(runs: readonly Phase6EvaluationRun[], variant: Phase6EvaluationVariant): Map<string, Phase6EvaluationRun> {
 	const indexed = new Map<string, Phase6EvaluationRun>();
-	for (const run of runs) {
-		if (indexed.has(run.workloadId)) throw new Error(`duplicate workloadId in ${variant}: ${run.workloadId}`);
-		indexed.set(run.workloadId, run);
+	for (const [index, run] of runs.entries()) {
+		if (run.variant !== variant) throw new Error(`run ${index} variant must be ${variant}`);
+		assertTreatmentMode(run, variant);
+		const key = evaluationPairKey(run);
+		if (indexed.has(key)) throw new Error(`duplicate workload/trial in ${variant}: ${run.workloadId}/${run.trialId}`);
+		indexed.set(key, run);
 	}
 	return indexed;
 }
@@ -292,7 +333,9 @@ function requireSamePairContext(baseline: Phase6EvaluationRun, phase6: Phase6Eva
 		["controlledConfigHash", baseline.controlledConfigHash, phase6.controlledConfigHash],
 	] as const;
 	for (const [name, baselineValue, phase6Value] of sharedFields) {
-		if (baselineValue !== phase6Value) throw new Error(`${name} differs between baseline and phase6 for ${baseline.workloadId}`);
+		if (baselineValue !== phase6Value) {
+			throw new Error(`${name} differs between baseline and phase6 for ${baseline.workloadId}/${baseline.trialId}`);
+		}
 	}
 }
 
@@ -359,6 +402,7 @@ function createPair(baseline: Phase6EvaluationRun, phase6: Phase6EvaluationRun):
 
 	return {
 		workloadId: baseline.workloadId,
+		trialId: baseline.trialId,
 		baseline,
 		phase6,
 		correctnessRegression,
@@ -379,16 +423,16 @@ export function comparePhase6EvaluationRuns(
 	if (baselineRuns.length === 0 || phase6Runs.length === 0) throw new Error("baseline and phase6 runs must both be non-empty");
 	const baselineByWorkload = indexRuns(baselineRuns, "baseline");
 	const phase6ByWorkload = indexRuns(phase6Runs, "phase6");
-	for (const workloadId of baselineByWorkload.keys()) {
-		if (!phase6ByWorkload.has(workloadId)) throw new Error(`missing phase6 run for ${workloadId}`);
+	for (const [key, baseline] of baselineByWorkload) {
+		if (!phase6ByWorkload.has(key)) throw new Error(`missing phase6 run for ${baseline.workloadId}/${baseline.trialId}`);
 	}
-	for (const workloadId of phase6ByWorkload.keys()) {
-		if (!baselineByWorkload.has(workloadId)) throw new Error(`missing baseline run for ${workloadId}`);
+	for (const [key, phase6] of phase6ByWorkload) {
+		if (!baselineByWorkload.has(key)) throw new Error(`missing baseline run for ${phase6.workloadId}/${phase6.trialId}`);
 	}
 
 	const pairs = Array.from(baselineByWorkload.values()).map((baseline) => {
-		const phase6 = phase6ByWorkload.get(baseline.workloadId);
-		if (!phase6) throw new Error(`missing phase6 run for ${baseline.workloadId}`);
+		const phase6 = phase6ByWorkload.get(evaluationPairKey(baseline));
+		if (!phase6) throw new Error(`missing phase6 run for ${baseline.workloadId}/${baseline.trialId}`);
 		return createPair(baseline, phase6);
 	});
 	const decision: Phase6EvaluationDecision = pairs.some((pair) => pair.status === "blocked")
@@ -463,7 +507,7 @@ function printHumanReport(report: Phase6EvaluationReport): string {
 	];
 	for (const pair of report.pairs) {
 		lines.push(
-			`${pair.workloadId}: ${pair.status}, correctnessRegression=${pair.correctnessRegression}, prematureRegression=${pair.prematureCompletionRegression}, unsupportedSuccessRegression=${pair.unsupportedSuccessClaimRegression}, falseBlocks=${pair.falseCompletionBlockCount}`,
+			`${pair.workloadId}/${pair.trialId}: ${pair.status}, correctnessRegression=${pair.correctnessRegression}, prematureRegression=${pair.prematureCompletionRegression}, unsupportedSuccessRegression=${pair.unsupportedSuccessClaimRegression}, falseBlocks=${pair.falseCompletionBlockCount}`,
 		);
 	}
 	return `${lines.join("\n")}\n`;

@@ -19,6 +19,35 @@ export interface ValidationCommandDiscovery {
 	commands: ValidationCommand[];
 }
 
+export type ValidationCommandMatchScope = "exact" | "targeted-unverified";
+
+export interface ValidationCommandMatch {
+	command: ValidationCommand;
+	scope: ValidationCommandMatchScope;
+}
+
+export const VALIDATION_DISCOVERY_INPUT_FILES = [
+	"package.json",
+	"package-lock.json",
+	"npm-shrinkwrap.json",
+	"pnpm-lock.yaml",
+	"bun.lock",
+	"bun.lockb",
+	"yarn.lock",
+	"pyproject.toml",
+	"requirements.txt",
+	"setup.py",
+	"tox.ini",
+	"poetry.lock",
+	"Pipfile.lock",
+	"uv.lock",
+	"Cargo.toml",
+	"Cargo.lock",
+	"go.mod",
+	"go.sum",
+	"Makefile",
+] as const;
+
 const PACKAGE_MANAGER_ORDER: NodePackageManager[] = ["npm", "pnpm", "bun", "yarn"];
 
 const NODE_SCRIPT_KINDS: Array<{ kind: ValidationCommandKind; names: string[] }> = [
@@ -207,40 +236,67 @@ function normalizeCommandWhitespace(command: string): string {
 }
 
 function containsShellControlSyntax(command: string): boolean {
-	return /[;&|<>\r\n]/.test(command);
+	return /[;&|<>`\r\n]/.test(command) || /\$\(/.test(command);
+}
+
+function containsNonValidatingTestFlag(command: string): boolean {
+	return /(?:^|\s)--(?:help|list|collect-only|dry-run)(?:\s|$)/.test(command);
 }
 
 /**
  * Match an executed command only against commands already grounded in repository discovery.
  * This intentionally accepts no shell grammar and only permits targeted suffixes for tests.
  */
-export function matchValidationCommand(
+export function matchValidationCommandWithScope(
 	command: string,
 	discovery: ValidationCommandDiscovery,
-): ValidationCommand | undefined {
+): ValidationCommandMatch | undefined {
 	if (!command.trim() || containsShellControlSyntax(command)) return undefined;
 
 	const normalizedCommand = normalizeCommandWhitespace(command);
 	const exactMatches = discovery.commands.filter(
 		(candidate) => normalizeCommandWhitespace(candidate.command) === normalizedCommand,
 	);
-	if (exactMatches.length === 1) return exactMatches[0];
+	if (exactMatches.length === 1) return { command: exactMatches[0], scope: "exact" };
 	if (exactMatches.length > 1) return undefined;
+	if (containsNonValidatingTestFlag(normalizedCommand)) return undefined;
 
 	const targetedMatches = discovery.commands.filter((candidate) => {
 		if (candidate.kind !== "test") return false;
 		const normalizedCandidate = normalizeCommandWhitespace(candidate.command);
 		return normalizedCommand.startsWith(`${normalizedCandidate} `);
 	});
-	return targetedMatches.length === 1 ? targetedMatches[0] : undefined;
+	return targetedMatches.length === 1 ? { command: targetedMatches[0], scope: "targeted-unverified" } : undefined;
 }
 
-export function getProjectValidationPromptGuideline(cwd: string, toolNames: string[]): string | undefined {
+export function matchValidationCommand(
+	command: string,
+	discovery: ValidationCommandDiscovery,
+): ValidationCommand | undefined {
+	return matchValidationCommandWithScope(command, discovery)?.command;
+}
+
+export function fingerprintValidationCommandDiscovery(discovery: ValidationCommandDiscovery): string {
+	return JSON.stringify({
+		ecosystems: [...discovery.ecosystems].sort(),
+		packageManager: discovery.packageManager,
+		packageManagers: discovery.packageManagers ? [...discovery.packageManagers].sort() : undefined,
+		commands: discovery.commands
+			.map(({ kind, command, confidence, source }) => ({ kind, command, confidence, source }))
+			.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+	});
+}
+
+export function getProjectValidationPromptGuideline(
+	cwd: string,
+	toolNames: string[],
+	discovery = discoverValidationCommands(cwd),
+): string | undefined {
 	if (!toolNames.includes("bash")) return undefined;
-	const commands = discoverValidationCommands(cwd).commands;
+	const commands = discovery.commands;
 	if (commands.length === 0) return undefined;
 	const rendered = commands.map((command) =>
 		command.confidence === "inferred" ? `${command.command} (inferred)` : command.command,
 	);
-	return `Project validation commands detected from repository files: ${rendered.join(", ")}.`;
+	return `Project validation commands detected from repository files: ${rendered.join(", ")}. These are repository-provided suggestions, not safety-approved commands; existing command policy still applies.`;
 }

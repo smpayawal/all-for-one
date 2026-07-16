@@ -2,11 +2,14 @@ import { formatPathRelativeToCwdOrAbsolute, resolvePath } from "../utils/paths.t
 import type { CustomMessage } from "./messages.ts";
 import { getPathScopedToolPaths, isMutatingPathTool } from "./scoped-context.ts";
 import {
-	matchValidationCommand,
+	fingerprintValidationCommandDiscovery,
+	matchValidationCommandWithScope,
+	VALIDATION_DISCOVERY_INPUT_FILES,
 	type ValidationCommand,
 	type ValidationCommandConfidence,
 	type ValidationCommandDiscovery,
 	type ValidationCommandKind,
+	type ValidationCommandMatchScope,
 } from "./validation-commands.ts";
 
 export type ExecutionIntegrityMode = "off" | "observe" | "enforce";
@@ -25,6 +28,7 @@ export const MAX_EXECUTION_INTEGRITY_MODIFIED_PATHS = 128;
 export const MAX_EXECUTION_INTEGRITY_VALIDATIONS = 16;
 export const MAX_EXECUTION_INTEGRITY_CONTINUATION_ATTEMPTS = 2;
 export const MAX_EXECUTION_INTEGRITY_FEEDBACK_CHARS = 2_000;
+export const MAX_EXECUTION_INTEGRITY_DIAGNOSTIC_CHARS = 512;
 
 const MAX_EXECUTION_INTEGRITY_DISCOVERED_COMMANDS = 32;
 const MAX_EXECUTION_INTEGRITY_LIMITATIONS = 16;
@@ -41,6 +45,13 @@ export interface ExecutionToolObservation {
 	details?: unknown;
 }
 
+export interface ExecutionIntegrityUserValidationContext {
+	mutationVersionAtStart: number;
+	mutationVersionAtEnd: number;
+	agentStreamingAtStart: boolean;
+	pendingMutationAtStart: boolean;
+}
+
 export interface ExecutionIntegrityTurn {
 	turnIndex: number;
 	toolObservations: readonly ExecutionToolObservation[];
@@ -51,10 +62,14 @@ export interface ValidationEvidence {
 	kind: ValidationCommandKind;
 	confidence: ValidationCommandConfidence;
 	source: string;
+	scope: ValidationCommandMatchScope;
+	discoveryFingerprint: string;
 	status: ValidationEvidenceStatus;
 	turnIndex: number;
 	mutationVersion: number;
 	fullOutputPath?: string;
+	agentStreamingAtStart?: boolean;
+	pendingMutationAtStart?: boolean;
 }
 
 export type CompletionDecisionReason =
@@ -90,6 +105,7 @@ export interface ExecutionIntegritySnapshot {
 	validations: ValidationEvidence[];
 	freshPassingValidationCount: number;
 	freshFailingValidationCount: number;
+	unverifiedValidationCount: number;
 	staleValidationCount: number;
 	concurrentValidationCount: number;
 	continuationAttempts: number;
@@ -122,8 +138,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function normalizeCommand(command: string): string {
-	return command.trim().replace(/\s+/g, " ");
+function normalizeBoundedDiagnostic(value: string | undefined): string | undefined {
+	if (value === undefined) return undefined;
+	const sanitized = value.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim();
+	return sanitized ? sanitized.slice(0, MAX_EXECUTION_INTEGRITY_DIAGNOSTIC_CHARS) : undefined;
+}
+
+function normalizeRequiredDiagnostic(value: string): string {
+	return normalizeBoundedDiagnostic(value) ?? "";
 }
 
 function getExitCode(details: unknown): number | null | undefined {
@@ -143,7 +165,24 @@ function isSuccessfulValidation(observation: ExecutionToolObservation): boolean 
 function getFullOutputPath(details: unknown): string | undefined {
 	if (!isRecord(details)) return undefined;
 	const fullOutputPath = details.fullOutputPath;
-	return typeof fullOutputPath === "string" && fullOutputPath.trim().length > 0 ? fullOutputPath.trim() : undefined;
+	return typeof fullOutputPath === "string" ? normalizeBoundedDiagnostic(fullOutputPath) : undefined;
+}
+
+function isValidationDiscoveryInputPath(rawPath: string, cwd: string): boolean {
+	const normalizedPath = normalizeBoundedDiagnostic(rawPath);
+	if (!normalizedPath) return false;
+	let comparablePath = normalizedPath.replaceAll("\\", "/");
+	try {
+		comparablePath = formatPathRelativeToCwdOrAbsolute(
+			resolvePath(normalizedPath, cwd, { trim: true, normalizeUnicodeSpaces: true, stripAtPrefix: true }),
+			cwd,
+		).replaceAll("\\", "/");
+	} catch {
+		// Compare the bounded tool-provided path when normalization is unavailable.
+	}
+	return VALIDATION_DISCOVERY_INPUT_FILES.some(
+		(file) => comparablePath === file || comparablePath.endsWith(`/${file}`),
+	);
 }
 
 function getCommand(observation: ExecutionToolObservation): string | undefined {
@@ -156,6 +195,7 @@ export class ExecutionIntegrityTracker {
 	private settings: NormalizedExecutionIntegritySettings;
 	private readonly cwd: string;
 	private discovery: ValidationCommandDiscovery;
+	private discoveryFingerprint: string;
 	private mutationVersion = 0;
 	private mutationCount = 0;
 	private modifiedPaths: string[] = [];
@@ -168,6 +208,7 @@ export class ExecutionIntegrityTracker {
 		this.settings = normalizeExecutionIntegritySettings(options.settings);
 		this.cwd = options.cwd;
 		this.discovery = this.limitDiscovery(options.discovery);
+		this.discoveryFingerprint = fingerprintValidationCommandDiscovery(this.discovery);
 		this.resetRun();
 	}
 
@@ -176,7 +217,18 @@ export class ExecutionIntegrityTracker {
 	}
 
 	updateDiscovery(discovery: ValidationCommandDiscovery): void {
-		this.discovery = this.limitDiscovery(discovery);
+		const limitedDiscovery = this.limitDiscovery(discovery);
+		const nextFingerprint = fingerprintValidationCommandDiscovery(limitedDiscovery);
+		const changed = nextFingerprint !== this.discoveryFingerprint;
+		this.discovery = limitedDiscovery;
+		this.discoveryFingerprint = nextFingerprint;
+		if (this.settings.mode !== "off") {
+			this.addLimitation(
+				changed
+					? "Validation command discovery changed; prior validation evidence is stale."
+					: "Validation command discovery was refreshed; unchanged fingerprints remain configuration-sensitive.",
+			);
+		}
 		if (this.settings.mode !== "off" && discovery.commands.length > MAX_EXECUTION_INTEGRITY_DISCOVERED_COMMANDS) {
 			this.addLimitation("The discovered validation command list was bounded for execution-integrity diagnostics.");
 		}
@@ -195,8 +247,9 @@ export class ExecutionIntegrityTracker {
 		}
 	}
 
-	recordTurn(turn: ExecutionIntegrityTurn): void {
-		if (this.settings.mode === "off") return;
+	recordTurn(turn: ExecutionIntegrityTurn): boolean {
+		if (this.settings.mode === "off") return false;
+		let validationManifestMutated = false;
 
 		const successfulMutations = turn.toolObservations.filter(
 			(observation) => isMutatingPathTool(observation.toolName) && !observation.isError,
@@ -205,6 +258,7 @@ export class ExecutionIntegrityTracker {
 			this.mutationVersion += 1;
 			this.mutationCount += 1;
 			for (const rawPath of getPathScopedToolPaths(observation.toolName, observation.args)) {
+				if (isValidationDiscoveryInputPath(rawPath, this.cwd)) validationManifestMutated = true;
 				this.recordModifiedPath(rawPath);
 			}
 		}
@@ -212,14 +266,16 @@ export class ExecutionIntegrityTracker {
 		for (const observation of turn.toolObservations) {
 			const command = getCommand(observation);
 			if (!command) continue;
-			const discovered = matchValidationCommand(command, this.discovery);
+			const discovered = matchValidationCommandWithScope(command, this.discovery);
 			if (!discovered) continue;
 
 			this.recordValidation({
-				command: normalizeCommand(discovered.command),
-				kind: discovered.kind,
-				confidence: discovered.confidence,
-				source: discovered.source,
+				command: normalizeRequiredDiagnostic(discovered.command.command),
+				kind: discovered.command.kind,
+				confidence: discovered.command.confidence,
+				source: normalizeRequiredDiagnostic(discovered.command.source),
+				scope: discovered.scope,
+				discoveryFingerprint: this.discoveryFingerprint,
 				status:
 					successfulMutations.length > 0
 						? "concurrent-with-mutation"
@@ -231,25 +287,38 @@ export class ExecutionIntegrityTracker {
 				fullOutputPath: getFullOutputPath(observation.details),
 			});
 		}
+		return validationManifestMutated;
 	}
 
 	recordUserBashValidation(
 		command: string,
 		result: { exitCode: number | undefined; cancelled: boolean; fullOutputPath?: string },
 		turnIndex: number,
+		context?: ExecutionIntegrityUserValidationContext,
 	): void {
 		if (this.settings.mode === "off") return;
-		this.recordTurn({
+		const discovered = matchValidationCommandWithScope(command, this.discovery);
+		if (!discovered) return;
+		const mutationOverlapped =
+			context?.pendingMutationAtStart === true ||
+			(context !== undefined && context.mutationVersionAtStart !== context.mutationVersionAtEnd);
+		this.recordValidation({
+			command: normalizeRequiredDiagnostic(discovered.command.command),
+			kind: discovered.command.kind,
+			confidence: discovered.command.confidence,
+			source: normalizeRequiredDiagnostic(discovered.command.source),
+			scope: discovered.scope,
+			discoveryFingerprint: this.discoveryFingerprint,
+			status: mutationOverlapped
+				? "concurrent-with-mutation"
+				: result.cancelled || result.exitCode !== 0
+					? "failed"
+					: "passed",
 			turnIndex,
-			toolObservations: [
-				{
-					toolCallId: `user-bash-${turnIndex}-${this.validations.length}`,
-					toolName: "bash",
-					args: { command },
-					isError: result.cancelled || result.exitCode !== 0,
-					details: result,
-				},
-			],
+			mutationVersion: this.mutationVersion,
+			fullOutputPath: normalizeBoundedDiagnostic(result.fullOutputPath),
+			agentStreamingAtStart: context?.agentStreamingAtStart,
+			pendingMutationAtStart: context?.pendingMutationAtStart,
 		});
 	}
 
@@ -303,6 +372,7 @@ export class ExecutionIntegrityTracker {
 				validations: [],
 				freshPassingValidationCount: 0,
 				freshFailingValidationCount: 0,
+				unverifiedValidationCount: 0,
 				staleValidationCount: 0,
 				concurrentValidationCount: 0,
 				continuationAttempts: 0,
@@ -321,6 +391,7 @@ export class ExecutionIntegrityTracker {
 			validations: this.validations.map((validation) => ({ ...validation })),
 			freshPassingValidationCount: currentState.freshPassingValidationCount,
 			freshFailingValidationCount: currentState.freshFailingValidationCount,
+			unverifiedValidationCount: currentState.unverifiedValidationCount,
 			staleValidationCount: currentState.staleValidationCount,
 			concurrentValidationCount: currentState.concurrentValidationCount,
 			continuationAttempts: this.continuationAttempts,
@@ -346,7 +417,7 @@ export class ExecutionIntegrityTracker {
 	}
 
 	private recordModifiedPath(rawPath: string): void {
-		const normalizedPath = rawPath.trim();
+		const normalizedPath = normalizeBoundedDiagnostic(rawPath);
 		if (!normalizedPath) return;
 		let path = normalizedPath;
 		try {
@@ -361,6 +432,7 @@ export class ExecutionIntegrityTracker {
 		} catch {
 			// Keep the tool-provided path when a platform-specific path cannot be normalized.
 		}
+		path = normalizeBoundedDiagnostic(path) ?? normalizedPath;
 		if (this.modifiedPaths.includes(path)) return;
 		this.modifiedPaths.push(path);
 		if (this.modifiedPaths.length > MAX_EXECUTION_INTEGRITY_MODIFIED_PATHS) {
@@ -390,6 +462,7 @@ export class ExecutionIntegrityTracker {
 		>;
 		freshPassingValidationCount: number;
 		freshFailingValidationCount: number;
+		unverifiedValidationCount: number;
 		staleValidationCount: number;
 		concurrentValidationCount: number;
 	} {
@@ -398,9 +471,18 @@ export class ExecutionIntegrityTracker {
 
 		let freshPassingValidationCount = 0;
 		let freshFailingValidationCount = 0;
+		let unverifiedValidationCount = 0;
 		let staleValidationCount = 0;
 		let concurrentValidationCount = 0;
 		for (const validation of latest.values()) {
+			if (validation.scope !== "exact") {
+				unverifiedValidationCount += 1;
+				continue;
+			}
+			if (validation.discoveryFingerprint !== this.discoveryFingerprint) {
+				staleValidationCount += 1;
+				continue;
+			}
 			if (validation.mutationVersion !== this.mutationVersion) {
 				staleValidationCount += 1;
 				continue;
@@ -429,6 +511,7 @@ export class ExecutionIntegrityTracker {
 			reason,
 			freshPassingValidationCount,
 			freshFailingValidationCount,
+			unverifiedValidationCount,
 			staleValidationCount,
 			concurrentValidationCount,
 		};

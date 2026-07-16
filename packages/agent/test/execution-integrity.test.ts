@@ -132,13 +132,87 @@ describe("execution integrity", () => {
 		expect(failingCalls).toBe(1);
 		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
 		expect(agent.state.isStreaming).toBe(false);
-		expect(agent.state.errorMessage).toBe("listener exploded");
+		expect(agent.state.errorMessage).toBeUndefined();
 		expect(agent.lastRunDiagnostics?.listenerErrors).toEqual(["listener exploded"]);
 		expect(agent.lastRunDiagnostics?.termination).toEqual({ reason: "completed" });
 		expect(agent.state.messages.at(-1)).toMatchObject({
 			role: "assistant",
 			content: [{ type: "text", text: "ok" }],
 		});
+	});
+
+	it.each(["message_end", "turn_end"] as const)(
+		"fails the run when a fatal listener throws at %s",
+		async (failureEvent) => {
+			let providerCalls = 0;
+			let executions = 0;
+			const inspect = emptyTool("inspect", () => executions++);
+			const agent = new Agent({
+				initialState: { model: model(), tools: [inspect] },
+				streamFn: () => {
+					providerCalls++;
+					return stream(
+						providerCalls === 1
+							? assistant([{ type: "toolCall", id: "call-1", name: "inspect", arguments: {} }], "toolUse")
+							: assistant([{ type: "text", text: "unexpected" }]),
+					);
+				},
+			});
+			const events: AgentEvent[] = [];
+			agent.subscribe(
+				(event) => {
+					if (
+						event.type === failureEvent &&
+						(failureEvent !== "message_end" || event.message.role === "assistant")
+					) {
+						throw new Error(`fatal ${failureEvent}`);
+					}
+				},
+				{ failureMode: "fatal" },
+			);
+			agent.subscribe((event) => {
+				events.push(event);
+			});
+
+			await agent.prompt("inspect");
+
+			expect(providerCalls).toBe(1);
+			expect(executions).toBe(failureEvent === "message_end" ? 0 : 1);
+			expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
+			expect(events.find((event) => event.type === "agent_end")).toMatchObject({ termination: { reason: "error" } });
+			expect(agent.lastRunDiagnostics?.listenerErrors).toEqual([`fatal ${failureEvent}`]);
+			expect(agent.state.errorMessage).toBeUndefined();
+		},
+	);
+
+	it("retains completed messages when a post-turn callback fails", async () => {
+		let providerCalls = 0;
+		const inspect = emptyTool("inspect", () => {});
+		const agent = new Agent({
+			initialState: { model: model(), tools: [inspect] },
+			streamFn: () => {
+				providerCalls++;
+				return stream(
+					providerCalls === 1
+						? assistant([{ type: "toolCall", id: "call-1", name: "inspect", arguments: {} }], "toolUse")
+						: assistant([{ type: "text", text: "unexpected" }]),
+				);
+			},
+			prepareNextTurnWithContext: async () => {
+				throw new Error("prepare failed");
+			},
+		});
+		const events: AgentEvent[] = [];
+		agent.subscribe((event) => {
+			events.push(event);
+		});
+
+		await agent.prompt("inspect");
+
+		expect(providerCalls).toBe(1);
+		expect(agent.state.messages.filter((message) => message.role === "toolResult")).toHaveLength(1);
+		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
+		expect(agent.lastRunDiagnostics?.termination).toMatchObject({ reason: "error", message: "prepare failed" });
 	});
 
 	it("preserves tool-result pairing when a listener rejects at tool_execution_end", async () => {
@@ -229,7 +303,7 @@ describe("execution integrity", () => {
 		const second = emptyTool("second", () => executions.push("second"));
 		const agent = new Agent({
 			initialState: { model: model(), tools: [first, second] },
-			executionLimits: { maxToolCalls: 1 },
+			executionLimits: { maxAcceptedToolCalls: 1 },
 			streamFn: () =>
 				stream(
 					assistant(
@@ -247,7 +321,7 @@ describe("execution integrity", () => {
 		expect(toolResults(agent).every((message) => message.isError)).toBe(true);
 		expect(agent.lastRunDiagnostics?.termination).toEqual({
 			reason: "limit",
-			limit: "toolCalls",
+			limit: "acceptedToolCalls",
 			max: 1,
 		});
 	});
