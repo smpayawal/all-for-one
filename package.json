@@ -25,6 +25,8 @@
 		"evaluate:phase5": "tsx --tsconfig tsconfig.json scripts/phase5-evaluation.ts",
 		"evaluate:phase6": "tsx --tsconfig tsconfig.json scripts/phase6-evaluation.ts",
 		"doctor:phase4": "tsx --tsconfig tsconfig.json scripts/phase4-doctor.ts",
+		"generate:model-catalog": "npm --prefix packages/ai run generate-model-catalog",
+		"check:model-catalog": "node scripts/publish-model-catalog.mjs --input .artifacts/model-catalog --dry-run",
 		"profile:tui": "node scripts/profile-coding-agent-node.mjs --mode tui",
 		"profile:rpc": "node scripts/profile-coding-agent-node.mjs --mode rpc",
 		"test": "npm run test --workspaces --if-present",
