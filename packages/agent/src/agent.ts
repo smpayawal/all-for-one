@@ -236,9 +236,6 @@ export class Agent {
 	private readonly listeners = new Set<AgentEventListener>();
 	private readonly steeringQueue: PendingMessageQueue;
 	private readonly followUpQueue: PendingMessageQueue;
-	private activeRun?: ActiveRun;
-	private _executionLimits?: ExecutionLimits;
-	private _lastRunDiagnostics?: AgentRunDiagnostics;
 
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
@@ -261,6 +258,9 @@ export class Agent {
 		context: PrepareNextTurnContext,
 		signal?: AbortSignal,
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
+	private activeRun?: ActiveRun;
+	private _executionLimits?: ExecutionLimits;
+	private _lastRunDiagnostics?: AgentRunDiagnostics;
 	/** Session identifier forwarded to providers for cache-aware backends. */
 	public sessionId?: string;
 	/** Optional per-level thinking token budgets forwarded to the stream function. */
@@ -301,8 +301,8 @@ export class Agent {
 	 * the current run's settlement. Listeners also receive the active abort
 	 * signal for the current run.
 	 *
-	 * A listener that rejects is isolated for the remainder of the current run.
-	 * Healthy listeners still receive the terminal event.
+	 * `agent_end` is the final emitted event for a run, but the agent does not
+	 * become idle until all awaited listeners for that event have settled.
 	 */
 	subscribe(listener: AgentEventListener): () => void {
 		this.listeners.add(listener);
@@ -400,7 +400,7 @@ export class Agent {
 		return this.activeRun?.promise ?? Promise.resolve();
 	}
 
-	/** Clear transcript state, runtime state, queued messages, and latest diagnostics. */
+	/** Clear transcript state, runtime state, and queued messages. */
 	reset(): void {
 		this._state.messages = [];
 		this._state.isStreaming = false;
@@ -439,7 +439,9 @@ export class Agent {
 		if (lastMessage.role === "assistant") {
 			const queuedSteering = this.steeringQueue.drain();
 			if (queuedSteering.length > 0) {
-				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
+				await this.runPromptMessages(queuedSteering, {
+					skipInitialSteeringPoll: true,
+				});
 				return;
 			}
 
@@ -587,10 +589,10 @@ export class Agent {
 		}
 	}
 
-	private recordListenerError(listener: AgentEventListener, error: unknown): Error {
+	private recordListenerError(listener: AgentEventListener, error: unknown): void {
 		const activeRun = this.activeRun;
 		const normalized = error instanceof Error ? error : new Error(String(error));
-		if (!activeRun) return normalized;
+		if (!activeRun) return;
 
 		activeRun.failedListeners.add(listener);
 		const message = normalized.message.slice(0, MAX_LISTENER_ERROR_CHARS);
@@ -598,15 +600,13 @@ export class Agent {
 			activeRun.diagnostics.listenerErrors.push(message);
 		}
 		this._state.errorMessage = message;
-		return normalized;
 	}
 
 	private async processFailureEvent(event: AgentEvent): Promise<void> {
 		try {
 			await this.processEvents(event);
 		} catch {
-			// Listener errors are already recorded by processEvents. Terminalization
-			// continues so one observer cannot strand the run.
+			// Listener errors are already recorded. Terminalization must continue.
 		}
 	}
 
@@ -614,8 +614,7 @@ export class Agent {
 		const activeRun = this.activeRun;
 		if (!activeRun || activeRun.terminalEventEmitted) return;
 
-		const signalReason = abortReason(activeRun.abortController.signal);
-		const message = aborted && signalReason ? signalReason : errorText(error);
+		const message = aborted ? (abortReason(activeRun.abortController.signal) ?? errorText(error)) : errorText(error);
 		const termination: AgentRunTermination = aborted
 			? message
 				? { reason: "aborted", message }
@@ -632,10 +631,24 @@ export class Agent {
 			errorMessage: message,
 			timestamp: Date.now(),
 		} satisfies AgentMessage;
-		await this.processFailureEvent({ type: "message_start", message: failureMessage });
-		await this.processFailureEvent({ type: "message_end", message: failureMessage });
-		await this.processFailureEvent({ type: "turn_end", message: failureMessage, toolResults: [] });
-		await this.processFailureEvent({ type: "agent_end", messages: [failureMessage], termination });
+		await this.processFailureEvent({
+			type: "message_start",
+			message: failureMessage,
+		});
+		await this.processFailureEvent({
+			type: "message_end",
+			message: failureMessage,
+		});
+		await this.processFailureEvent({
+			type: "turn_end",
+			message: failureMessage,
+			toolResults: [],
+		});
+		await this.processFailureEvent({
+			type: "agent_end",
+			messages: [failureMessage],
+			termination,
+		});
 	}
 
 	private finishRun(): void {
@@ -643,11 +656,12 @@ export class Agent {
 		if (!activeRun) return;
 
 		const endedAt = Date.now();
+		const reason = abortReason(activeRun.abortController.signal);
 		const termination =
 			activeRun.diagnostics.termination ??
 			(activeRun.abortController.signal.aborted
-				? abortReason(activeRun.abortController.signal)
-					? { reason: "aborted" as const, message: abortReason(activeRun.abortController.signal) }
+				? reason
+					? { reason: "aborted" as const, message: reason }
 					: { reason: "aborted" as const }
 				: { reason: "completed" as const });
 		this._lastRunDiagnostics = {
@@ -669,13 +683,6 @@ export class Agent {
 		this.activeRun = undefined;
 	}
 
-	/**
-	 * Reduce internal state for a loop event, then await listeners.
-	 *
-	 * `agent_end` only means no further loop events will be emitted. The run is
-	 * considered idle later, after all healthy listeners for `agent_end` finish
-	 * and `finishRun()` clears runtime-owned state.
-	 */
 	private async processEvents(event: AgentEvent): Promise<void> {
 		const activeRun = this.activeRun;
 		if (!activeRun) {
@@ -686,20 +693,16 @@ export class Agent {
 			case "turn_start":
 				activeRun.diagnostics.turns++;
 				break;
-
 			case "message_start":
 				this._state.streamingMessage = event.message;
 				break;
-
 			case "message_update":
 				this._state.streamingMessage = event.message;
 				break;
-
 			case "message_end":
 				this._state.streamingMessage = undefined;
 				this._state.messages.push(event.message);
 				break;
-
 			case "tool_execution_start": {
 				activeRun.diagnostics.toolCalls++;
 				const pendingToolCalls = new Set(this._state.pendingToolCalls);
@@ -707,7 +710,6 @@ export class Agent {
 				this._state.pendingToolCalls = pendingToolCalls;
 				break;
 			}
-
 			case "tool_execution_end": {
 				if (event.isError) activeRun.diagnostics.toolErrors++;
 				const pendingToolCalls = new Set(this._state.pendingToolCalls);
@@ -715,13 +717,11 @@ export class Agent {
 				this._state.pendingToolCalls = pendingToolCalls;
 				break;
 			}
-
 			case "turn_end":
 				if (event.message.role === "assistant" && event.message.errorMessage) {
 					this._state.errorMessage = event.message.errorMessage;
 				}
 				break;
-
 			case "agent_end":
 				activeRun.terminalEventEmitted = true;
 				activeRun.diagnostics.terminalEvents++;
@@ -730,19 +730,13 @@ export class Agent {
 				break;
 		}
 
-		let firstListenerError: Error | undefined;
 		for (const listener of this.listeners) {
 			if (activeRun.failedListeners.has(listener)) continue;
 			try {
 				await listener(event, activeRun.abortController.signal);
 			} catch (error) {
-				const normalized = this.recordListenerError(listener, error);
-				firstListenerError ??= normalized;
+				this.recordListenerError(listener, error);
 			}
-		}
-
-		if (firstListenerError && event.type !== "agent_end") {
-			throw firstListenerError;
 		}
 	}
 }
