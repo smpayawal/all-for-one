@@ -24,6 +24,42 @@ import type {
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
+const EMPTY_USAGE = {
+	input: 0,
+	output: 0,
+	cacheRead: 0,
+	cacheWrite: 0,
+	totalTokens: 0,
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+function createRunFailureMessage(config: AgentLoopConfig, error: unknown, aborted: boolean): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text: "" }],
+		api: config.model.api,
+		provider: config.model.provider,
+		model: config.model.id,
+		usage: EMPTY_USAGE,
+		stopReason: aborted ? "aborted" : "error",
+		errorMessage: error instanceof Error ? error.message : String(error),
+		timestamp: Date.now(),
+	};
+}
+
+function settleAgentStreamFailure(
+	stream: EventStream<AgentEvent, AgentMessage[]>,
+	config: AgentLoopConfig,
+	error: unknown,
+	signal?: AbortSignal,
+): void {
+	const message = createRunFailureMessage(config, error, signal?.aborted === true);
+	stream.push({ type: "message_start", message });
+	stream.push({ type: "message_end", message });
+	stream.push({ type: "turn_end", message, toolResults: [] });
+	stream.push({ type: "agent_end", messages: [message] });
+}
+
 /**
  * Start an agent loop with a new prompt message.
  * The prompt is added to the context and events are emitted for it.
@@ -46,9 +82,13 @@ export function agentLoop(
 		},
 		signal,
 		streamFn,
-	).then((messages) => {
-		stream.end(messages);
-	});
+	)
+		.then((messages) => {
+			stream.end(messages);
+		})
+		.catch((error) => {
+			settleAgentStreamFailure(stream, config, error, signal);
+		});
 
 	return stream;
 }
@@ -85,9 +125,13 @@ export function agentLoopContinue(
 		},
 		signal,
 		streamFn,
-	).then((messages) => {
-		stream.end(messages);
-	});
+	)
+		.then((messages) => {
+			stream.end(messages);
+		})
+		.catch((error) => {
+			settleAgentStreamFailure(stream, config, error, signal);
+		});
 
 	return stream;
 }
