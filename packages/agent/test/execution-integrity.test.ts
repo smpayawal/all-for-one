@@ -134,6 +134,39 @@ describe("execution integrity", () => {
 		expect(agent.state.isStreaming).toBe(false);
 		expect(agent.state.errorMessage).toBe("listener exploded");
 		expect(agent.lastRunDiagnostics?.listenerErrors).toEqual(["listener exploded"]);
+		expect(agent.lastRunDiagnostics?.termination).toEqual({ reason: "completed" });
+		expect(agent.state.messages.at(-1)).toMatchObject({
+			role: "assistant",
+			content: [{ type: "text", text: "ok" }],
+		});
+	});
+
+	it("preserves tool-result pairing when a listener rejects at tool_execution_end", async () => {
+		let executions = 0;
+		let providerCalls = 0;
+		const inspect = emptyTool("inspect", () => executions++);
+		const agent = new Agent({
+			initialState: { model: model(), tools: [inspect] },
+			streamFn: () => {
+				providerCalls++;
+				return stream(
+					providerCalls === 1
+						? assistant([{ type: "toolCall", id: "call-1", name: "inspect", arguments: {} }], "toolUse")
+						: assistant([{ type: "text", text: "done" }]),
+				);
+			},
+		});
+		agent.subscribe((event) => {
+			if (event.type === "tool_execution_end") throw new Error("tool observer exploded");
+		});
+
+		await agent.prompt("inspect");
+
+		expect(executions).toBe(1);
+		expect(providerCalls).toBe(2);
+		expect(toolResults(agent)).toHaveLength(1);
+		expect(agent.lastRunDiagnostics?.termination).toEqual({ reason: "completed" });
+		expect(agent.lastRunDiagnostics?.listenerErrors).toEqual(["tool observer exploded"]);
 	});
 
 	it("does not re-enter terminalization when an agent_end listener rejects", async () => {
