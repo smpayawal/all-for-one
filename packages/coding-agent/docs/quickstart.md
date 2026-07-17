@@ -74,13 +74,14 @@ Once pi starts, type a request and press Enter:
 Summarize this repository and tell me how to run its checks.
 ```
 
-By default, pi gives the model five tools:
+By default, pi gives the model the native four-tool profile:
 
 - `read` - read files
 - `write` - create or overwrite files
 - `edit` - patch files
-- `apply_patch` - preflight coherent multi-file patches with best-effort rollback
 - `bash` - run shell commands
+
+Use `--tool-profile patch` to activate `apply_patch` in place of `edit`, or `--tool-profile full` to expose both mutation tools.
 
 Additional built-in read-only tools (`grep`, `find`, `ls`) are available through tool options. When `bash` is active, pi inspects root project manifests and adds guidance for likely validation commands; inferred commands are labeled and nothing is run automatically. Pi runs in your current working directory and can modify files there. Use git or another checkpointing workflow if you want easy rollback.
 

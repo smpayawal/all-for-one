@@ -88,7 +88,8 @@ import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } fro
 
 export type Tool = AgentTool<any>;
 export type ToolDef = ToolDefinition<any, any>;
-export const DEFAULT_ACTIVE_TOOL_NAMES = ["read", "bash", "edit", "write", "apply_patch"] as const;
+export { getToolNamesForProfile, type ToolProfile } from "../coding-model-profile.ts";
+export const DEFAULT_ACTIVE_TOOL_NAMES = ["read", "bash", "edit", "write"] as const;
 
 export type ToolName = "read" | "bash" | "edit" | "write" | "grep" | "find" | "ls" | "apply_patch";
 export const allToolNames: Set<ToolName> = new Set([

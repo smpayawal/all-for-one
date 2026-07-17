@@ -386,6 +386,36 @@ describe("parseArgs", () => {
 			expect(result.excludeTools).toEqual(["read", "bash"]);
 		});
 
+		test("parses the built-in tool profile and coding behavior overrides", () => {
+			const result = parseArgs([
+				"--tool-profile",
+				"patch",
+				"--mutation-strategy",
+				"apply_patch",
+				"--tool-execution",
+				"sequential",
+			]);
+			expect(result.toolProfile).toBe("patch");
+			expect(result.codingModelProfile).toEqual({ mutationStrategy: "apply_patch", toolExecution: "sequential" });
+			expect(result.diagnostics).toEqual([]);
+		});
+
+		test("reports invalid coding profile values", () => {
+			const result = parseArgs(["--tool-profile", "unknown", "--tool-execution", "serial"]);
+			expect(result.toolProfile).toBeUndefined();
+			expect(result.codingModelProfile).toBeUndefined();
+			expect(result.diagnostics).toEqual([
+				{
+					type: "warning",
+					message: 'Invalid tool profile "unknown". Valid values: native, patch, full',
+				},
+				{
+					type: "warning",
+					message: 'Invalid tool execution mode "serial". Valid values: sequential, parallel',
+				},
+			]);
+		});
+
 		test("parses --no-tools with explicit --tools flags", () => {
 			const result = parseArgs(["--no-tools", "--tools", "read,bash"]);
 			expect(result.noTools).toBe(true);

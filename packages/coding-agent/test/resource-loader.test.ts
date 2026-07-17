@@ -60,6 +60,24 @@ Skill content here.`,
 			expect(skills.some((s) => s.name === "test-skill")).toBe(true);
 		});
 
+		it("should load the five native coding skills from the package", async () => {
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			const names = loader
+				.getSkills()
+				.skills.filter((skill) => skill.filePath.includes("packages/coding-agent/skills/"))
+				.map((skill) => skill.name)
+				.sort();
+			expect(names).toEqual([
+				"plan-complex-change",
+				"repository-orientation",
+				"review-diff",
+				"systematic-debugging",
+				"verify-before-completion",
+			]);
+		});
+
 		it("should ignore extra markdown files in auto-discovered skill dirs", async () => {
 			const skillDir = join(agentDir, "skills", "pi-skills", "browser-tools");
 			mkdirSync(skillDir, { recursive: true });

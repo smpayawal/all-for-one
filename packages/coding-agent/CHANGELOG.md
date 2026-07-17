@@ -5,6 +5,7 @@
 ### Added
 
 - Added extension registration for complete pi-ai providers, including native authentication, model refresh, filtering, and streaming behavior.
+- Added native, patch, and full coding-tool profiles with explicit CLI/SDK overrides, model-keyed coding behavior settings, and five bundled repository/debugging/verification skills.
 
 ### Fixed
 

@@ -5,6 +5,13 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import chalk from "chalk";
 import { APP_NAME, APP_TITLE, CONFIG_DIR_NAME, ENV_AGENT_DIR, ENV_SESSION_DIR } from "../config.ts";
+import {
+	type CodingModelProfileOverride,
+	isMutationStrategy,
+	isToolExecutionMode,
+	isToolProfile,
+	type ToolProfile,
+} from "../core/coding-model-profile.ts";
 import type { ExtensionFlag } from "../core/extensions/types.ts";
 
 export type Mode = "text" | "json" | "rpc";
@@ -30,6 +37,8 @@ export interface Args {
 	models?: string[];
 	tools?: string[];
 	excludeTools?: string[];
+	toolProfile?: ToolProfile;
+	codingModelProfile?: CodingModelProfileOverride;
 	noTools?: boolean;
 	noBuiltinTools?: boolean;
 	extensions?: string[];
@@ -127,6 +136,36 @@ export function parseArgs(args: string[]): Args {
 				.split(",")
 				.map((s) => s.trim())
 				.filter((name) => name.length > 0);
+		} else if ((arg === "--tool-profile" || arg === "-tp") && i + 1 < args.length) {
+			const profile = args[++i];
+			if (isToolProfile(profile)) {
+				result.toolProfile = profile;
+			} else {
+				result.diagnostics.push({
+					type: "warning",
+					message: `Invalid tool profile "${profile}". Valid values: native, patch, full`,
+				});
+			}
+		} else if (arg === "--mutation-strategy" && i + 1 < args.length) {
+			const mutationStrategy = args[++i];
+			if (isMutationStrategy(mutationStrategy)) {
+				result.codingModelProfile = { ...result.codingModelProfile, mutationStrategy };
+			} else {
+				result.diagnostics.push({
+					type: "warning",
+					message: `Invalid mutation strategy "${mutationStrategy}". Valid values: edit, apply_patch`,
+				});
+			}
+		} else if (arg === "--tool-execution" && i + 1 < args.length) {
+			const toolExecution = args[++i];
+			if (isToolExecutionMode(toolExecution)) {
+				result.codingModelProfile = { ...result.codingModelProfile, toolExecution };
+			} else {
+				result.diagnostics.push({
+					type: "warning",
+					message: `Invalid tool execution mode "${toolExecution}". Valid values: sequential, parallel`,
+				});
+			}
 		} else if (arg === "--thinking" && i + 1 < args.length) {
 			const level = args[++i];
 			if (isValidThinkingLevel(level)) {
@@ -258,6 +297,9 @@ ${chalk.bold("Options:")}
                                  Applies to built-in, extension, and custom tools
   --exclude-tools, -xt <tools>   Comma-separated denylist of tool names to disable
                                  Applies to built-in, extension, and custom tools
+  --tool-profile, -tp <profile>  Built-in mutation profile: native, patch, or full
+  --mutation-strategy <strategy> Coding strategy: edit or apply_patch
+  --tool-execution <mode>        Tool scheduling: sequential or parallel
   --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max
   --extension, -e <path>         Load an extension file (can be used multiple times)
   --no-extensions, -ne           Disable extension discovery (explicit -e paths still work)

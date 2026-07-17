@@ -70,6 +70,18 @@ For project-level Claude Code skills, add to `.pi/settings.json`:
 
 This is progressive disclosure: only descriptions are always in context, full instructions load on-demand.
 
+## Bundled first-party skills
+
+The coding-agent package ships five dependency-free skills under its native skills directory:
+
+- repository-orientation: bounded repository and instruction mapping before unfamiliar changes
+- systematic-debugging: reproduction, earliest-wrong-boundary tracing, and focused regression verification
+- verify-before-completion: proportionate checks and evidence-bounded reporting
+- plan-complex-change: manual-only planning for architecture or cross-package work
+- review-diff: manual-only final review for scope, regressions, and missing evidence
+
+The first three are eligible for model invocation through metadata. The planning and review skills remain manual-only and are available through skill commands. The package manifest registers this directory, and the runtime loads it as a low-precedence native resource. The no-skills option disables the bundled set.
+
 ## Skill Commands
 
 Skills register as `/skill:name` commands:

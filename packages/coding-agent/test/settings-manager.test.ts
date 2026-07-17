@@ -25,6 +25,27 @@ describe("SettingsManager", () => {
 		}
 	});
 
+	describe("coding model profile settings", () => {
+		it("loads, validates, and persists the profile configuration", () => {
+			const manager = SettingsManager.inMemory({
+				toolProfile: "patch",
+				codingModelProfiles: {
+					"openai/gpt-test": { mutationStrategy: "apply_patch", toolExecution: "sequential" },
+				},
+			});
+
+			expect(manager.getToolProfile()).toBe("patch");
+			expect(manager.getCodingModelProfiles()).toEqual({
+				"openai/gpt-test": { mutationStrategy: "apply_patch", toolExecution: "sequential" },
+			});
+
+			manager.setToolProfile("full");
+			manager.setCodingModelProfiles({ "*": { toolExecution: "parallel" } });
+			expect(manager.getToolProfile()).toBe("full");
+			expect(manager.getCodingModelProfiles()).toEqual({ "*": { toolExecution: "parallel" } });
+		});
+	});
+
 	describe("preserves externally added settings", () => {
 		it("should preserve enabledModels when changing thinking level", async () => {
 			// Create initial settings file

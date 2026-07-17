@@ -4,7 +4,8 @@ All-For-One is a narrow hardening layer over the Native Pi monorepo. The core ag
 
 The main changes are:
 
-- canonical built-in capability registry with five default active tools;
+- canonical built-in capability registry with five registered coding tools and a four-tool native default profile;
+- explicit native, patch, and full tool profiles with model-keyed execution behavior;
 - bounded path-scoped context and skill metadata diagnostics;
 - preflighted `apply_patch` mutations with concurrent-change detection and best-effort rollback;
 - opt-in, repository-grounded execution-integrity observation;
@@ -12,4 +13,4 @@ The main changes are:
 - in-memory compaction telemetry; and
 - generic offline baselines, doctors, evaluators, and an upstream relationship verifier.
 
-Optional behavior remains optional. No validator agent, workflow engine, database, embedding system, automatic command runner, or semantic memory subsystem was added.
+Optional behavior remains optional. Safe-mode authorization, read-only code-intelligence, external sandbox, and lazy MCP guidance live in [optional capabilities](optional-capabilities.md), not in the default harness. No validator agent, workflow engine, database, embedding system, automatic command runner, or semantic memory subsystem was added.

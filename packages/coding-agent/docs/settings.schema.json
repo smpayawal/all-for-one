@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pi.dev/schemas/coding-agent-settings.json",
+  "title": "Pi coding-agent settings",
+  "description": "Machine-readable definitions for the documented coding-agent settings. Additional properties are allowed for extensions and forward-compatible settings.",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "defaultProvider": { "type": "string" },
+    "defaultModel": { "type": "string" },
+    "defaultThinkingLevel": {
+      "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
+    },
+    "toolProfile": {
+      "enum": ["native", "patch", "full"],
+      "default": "native"
+    },
+    "codingModelProfiles": {
+      "type": "object",
+      "description": "Profiles keyed by *, provider, model ID, or provider/model.",
+      "additionalProperties": {
+        "$ref": "#/$defs/codingModelProfile"
+      }
+    },
+    "executionIntegrity": { "$ref": "#/$defs/executionIntegrity" },
+    "skillMetadataBudget": { "$ref": "#/$defs/skillMetadataBudget" },
+    "compaction": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "reserveTokens": { "type": "integer", "minimum": 0 },
+        "keepRecentTokens": { "type": "integer", "minimum": 0 },
+        "retainRecentUserMessages": { "type": "integer", "minimum": 0 },
+        "retainRecentUserMessageChars": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "enabledModels": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "packages": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          { "type": "string" },
+          { "$ref": "#/$defs/packageSource" }
+        ]
+      }
+    },
+    "extensions": { "$ref": "#/$defs/pathList" },
+    "skills": { "$ref": "#/$defs/pathList" },
+    "prompts": { "$ref": "#/$defs/pathList" },
+    "themes": { "$ref": "#/$defs/pathList" },
+    "enableSkillCommands": { "type": "boolean", "default": true }
+  },
+  "$defs": {
+    "codingModelProfile": {
+      "type": "object",
+      "properties": {
+        "mutationStrategy": { "enum": ["edit", "apply_patch"] },
+        "toolExecution": { "enum": ["sequential", "parallel"] }
+      },
+      "additionalProperties": false
+    },
+    "executionIntegrity": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["off", "observe", "enforce"] },
+        "maxContinuationAttempts": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "skillMetadataBudget": {
+      "type": "object",
+      "properties": {
+        "maxChars": { "type": "integer", "minimum": 0 },
+        "maxContextPercent": { "type": "number", "minimum": 0, "maximum": 100 }
+      },
+      "additionalProperties": false
+    },
+    "pathList": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "packageSource": {
+      "type": "object",
+      "required": ["source"],
+      "properties": {
+        "source": { "type": "string" },
+        "autoload": { "type": "boolean" },
+        "extensions": { "$ref": "#/$defs/pathList" },
+        "skills": { "$ref": "#/$defs/pathList" },
+        "prompts": { "$ref": "#/$defs/pathList" },
+        "themes": { "$ref": "#/$defs/pathList" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -9,6 +9,8 @@ Pi uses JSON settings files with project settings overriding global settings.
 
 Edit directly or use `/settings` for common options.
 
+For editor validation and machine-readable option definitions, see settings.schema.json.
+
 ## Project Trust
 
 On interactive startup, pi asks before trusting a project folder that contains project-local settings, resources, or project `.agents/skills` and has no saved decision for the folder or a parent folder in `~/.pi/agent/trust.json`. Trusting a project allows pi to load `.pi/settings.json` and `.pi` resources, install missing project packages, and execute project extensions.
@@ -33,6 +35,25 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
 | `showCacheMissNotices` | boolean | `false` | Show transcript notices for significant prompt-cache misses |
 | `thinkingBudgets` | object | - | Custom token budgets per thinking level |
+
+### Coding agent profiles
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| toolProfile | string | "native" | Active built-in profile: "native", "patch", or "full" |
+| codingModelProfiles | object | - | Model-keyed behavior overrides; keys may be "*", a provider, a model ID, or "provider/model" |
+
+Each codingModelProfiles value may set mutationStrategy to "edit" or "apply_patch" and toolExecution to "sequential" or "parallel". Explicit CLI/SDK overrides take precedence over settings, and an explicit tools allowlist takes precedence over the profile's active built-ins.
+
+Example:
+
+{
+  "toolProfile": "native",
+  "codingModelProfiles": {
+    "*": { "toolExecution": "parallel" },
+    "provider/model-id": { "mutationStrategy": "apply_patch" }
+  }
+}
 
 #### thinkingBudgets
 

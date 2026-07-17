@@ -13,7 +13,7 @@ import {
 export interface BuildSystemPromptOptions {
 	/** Custom system prompt (replaces default). */
 	customPrompt?: string;
-	/** Tools to include in prompt. Default: [read, bash, edit, write, apply_patch] */
+	/** Tools to include in prompt. Default: [read, bash, edit, write] */
 	selectedTools?: string[];
 	/** Optional one-line tool snippets keyed by tool name. */
 	toolSnippets?: Record<string, string>;
@@ -102,7 +102,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 
 	// Build tools list based on selected tools.
 	// A tool appears in Available tools only when the caller provides a one-line snippet.
-	const tools = selectedTools || ["read", "bash", "edit", "write", "apply_patch"];
+	const tools = selectedTools || ["read", "bash", "edit", "write"];
 	const visibleTools = tools.filter((name) => !!toolSnippets?.[name]);
 	const toolsList =
 		visibleTools.length > 0 ? visibleTools.map((name) => `- ${name}: ${toolSnippets![name]}`).join("\n") : "(none)";
@@ -123,6 +123,10 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const hasFind = tools.includes("find");
 	const hasLs = tools.includes("ls");
 	const hasRead = tools.includes("read");
+	const hasEdit = tools.includes("edit");
+	const hasWrite = tools.includes("write");
+	const hasApplyPatch = tools.includes("apply_patch");
+	const hasMutationTool = hasEdit || hasWrite || hasApplyPatch;
 
 	// File exploration guidelines
 	if (hasBash && !hasGrep && !hasFind && !hasLs) {
@@ -136,7 +140,25 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		}
 	}
 
-	// Always include these
+	// Keep the default coding contract short and stable. Custom prompts replace this contract.
+	addGuideline("Inspect the relevant implementation, project instructions, and nearby tests before changing code");
+	if (hasMutationTool) {
+		addGuideline("Use the narrowest appropriate mutation tool");
+	}
+	if (hasWrite) {
+		addGuideline("Use write only for new files or deliberate full-file replacement");
+	}
+	if (hasEdit) {
+		addGuideline("Use edit for precise targeted replacements in an existing file");
+	}
+	if (hasApplyPatch) {
+		addGuideline("Use apply_patch for coherent multi-hunk or multi-file changes");
+	}
+	if (hasMutationTool || hasBash) {
+		addGuideline("After code changes, run the smallest relevant validation available");
+	}
+	addGuideline("Report exactly what was validated; never claim an unrun check passed");
+
 	addGuideline("Be concise in your responses");
 	addGuideline("Show file paths clearly when working with files");
 

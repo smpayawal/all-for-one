@@ -429,9 +429,9 @@ export function createApplyPatchToolDefinition(
 		name: "apply_patch",
 		label: "apply_patch",
 		description:
-			"Apply a coherent patch that adds, updates, or deletes one or more files. The complete patch is preflighted before any file is changed, canonical paths enforce workspace and symlink safety, overlapping mutations are serialized, and later write failures trigger best-effort in-process rollback. This is not a filesystem transaction: process crashes, power loss, or OS interruption can still leave partial changes.",
-		promptSnippet: "Apply coherent add, update, or delete operations across files",
-		promptGuidelines: ["Use apply_patch when a coherent patch is more convenient, especially across multiple files."],
+			"Apply a coherent multi-hunk or multi-file patch that adds, updates, or deletes files. Use for changes spanning files or distant hunks. The complete patch is preflighted before any file is changed, canonical paths enforce workspace and symlink safety, overlapping mutations are serialized, and later write failures trigger best-effort in-process rollback. This is not a filesystem transaction: process crashes, power loss, or OS interruption can still leave partial changes.",
+		promptSnippet: "Apply coherent multi-hunk or multi-file changes",
+		promptGuidelines: ["Use apply_patch for coherent multi-hunk or multi-file changes."],
 		parameters: applyPatchSchema,
 		executionMode: "sequential",
 		async execute(_toolCallId, { patch }: ApplyPatchToolInput, signal?: AbortSignal) {

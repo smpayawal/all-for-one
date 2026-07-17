@@ -6,6 +6,7 @@ import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
+import { type CodingModelProfileOverride, isToolProfile, type ToolProfile } from "./coding-model-profile.ts";
 import {
 	type ExecutionIntegrityMode,
 	type ExecutionIntegritySettings,
@@ -107,6 +108,10 @@ export interface Settings {
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
 	executionIntegrity?: ExecutionIntegritySettings;
+	/** Default active built-in mutation-tool profile when no CLI profile is supplied. */
+	toolProfile?: ToolProfile;
+	/** Optional per-model coding behavior keyed by *, provider, model, or provider/model. */
+	codingModelProfiles?: Record<string, CodingModelProfileOverride>;
 	hideThinkingBlock?: boolean;
 	showCacheMissNotices?: boolean; // default: false - show transcript notices for significant prompt-cache misses
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
@@ -694,6 +699,26 @@ export class SettingsManager {
 
 	getDefaultModel(): string | undefined {
 		return this.settings.defaultModel;
+	}
+
+	getToolProfile(): ToolProfile | undefined {
+		return isToolProfile(this.settings.toolProfile) ? this.settings.toolProfile : undefined;
+	}
+
+	setToolProfile(profile: ToolProfile | undefined): void {
+		this.globalSettings.toolProfile = profile;
+		this.markModified("toolProfile");
+		this.save();
+	}
+
+	getCodingModelProfiles(): Record<string, CodingModelProfileOverride> {
+		return structuredClone(this.settings.codingModelProfiles ?? {});
+	}
+
+	setCodingModelProfiles(profiles: Record<string, CodingModelProfileOverride>): void {
+		this.globalSettings.codingModelProfiles = structuredClone(profiles);
+		this.markModified("codingModelProfiles");
+		this.save();
 	}
 
 	setDefaultProvider(provider: string): void {

@@ -59,6 +59,31 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain("- write:");
 		});
 
+		test("includes the coding contract and only active mutation guidance", () => {
+			const prompt = buildSystemPrompt({
+				selectedTools: ["read", "bash", "edit", "write"],
+				toolSnippets: {
+					read: "Read file contents",
+					bash: "Execute bash commands",
+					edit: "Make precise targeted changes in one existing file",
+					write: "Create a new file or deliberately replace an entire file",
+				},
+				contextFiles: [],
+				skills: [],
+				cwd: process.cwd(),
+			});
+
+			expect(prompt).toContain(
+				"Inspect the relevant implementation, project instructions, and nearby tests before changing code",
+			);
+			expect(prompt).toContain("Use the narrowest appropriate mutation tool");
+			expect(prompt).toContain("Use write only for new files or deliberate full-file replacement");
+			expect(prompt).toContain("Use edit for precise targeted replacements in an existing file");
+			expect(prompt).not.toContain("Use apply_patch for coherent multi-hunk or multi-file changes");
+			expect(prompt).toContain("After code changes, run the smallest relevant validation available");
+			expect(prompt).toContain("Report exactly what was validated; never claim an unrun check passed");
+		});
+
 		test("instructs models to resolve pi docs and examples under absolute base paths", () => {
 			const prompt = buildSystemPrompt({
 				contextFiles: [],

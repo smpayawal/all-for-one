@@ -26,6 +26,21 @@ export {
 	type ToolOutputTelemetry,
 } from "./core/agent-session.ts";
 export { readStoredCredential } from "./core/auth-storage.ts";
+export {
+	type CodingModelIdentity,
+	type CodingModelProfile,
+	type CodingModelProfileOverride,
+	DEFAULT_CODING_MODEL_PROFILE,
+	getToolNamesForProfile,
+	isMutationStrategy,
+	isToolExecutionMode,
+	isToolProfile,
+	type MutationStrategy,
+	resolveCodingModelProfile,
+	resolveToolProfile,
+	type ToolProfile,
+	toolProfileForMutationStrategy,
+} from "./core/coding-model-profile.ts";
 // Compaction
 export {
 	assertCompactionResultValid,
@@ -314,6 +329,7 @@ export {
 	type ImageSettings,
 	type PackageSource,
 	type RetrySettings,
+	type Settings,
 	SettingsManager,
 	type SettingsManagerCreateOptions,
 	type SkillMetadataBudgetSettings,

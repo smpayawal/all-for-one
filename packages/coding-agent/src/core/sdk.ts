@@ -5,6 +5,13 @@ import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { AgentSession } from "./agent-session.ts";
 import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
+import {
+	type CodingModelProfileOverride,
+	getToolNamesForProfile,
+	resolveCodingModelProfile,
+	resolveToolProfile,
+	type ToolProfile,
+} from "./coding-model-profile.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
@@ -27,7 +34,6 @@ import {
 	createReadOnlyTools,
 	createReadTool,
 	createWriteTool,
-	DEFAULT_ACTIVE_TOOL_NAMES,
 	withFileMutationQueue,
 } from "./tools/index.ts";
 
@@ -46,6 +52,10 @@ export interface CreateAgentSessionOptions {
 	thinkingLevel?: ThinkingLevel;
 	/** Models available for cycling (Ctrl+P in interactive mode) */
 	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+	/** Active built-in tool profile. Explicit CLI/SDK selection takes precedence over settings. */
+	toolProfile?: ToolProfile;
+	/** Explicit coding behavior override for this session or model. */
+	codingModelProfile?: CodingModelProfileOverride;
 
 	/**
 	 * Optional default tool suppression mode when no explicit allowlist is provided.
@@ -58,7 +68,7 @@ export interface CreateAgentSessionOptions {
 	/**
 	 * Optional allowlist of tool names.
 	 *
-	 * When omitted, pi enables the default built-in tools (read, bash, edit, write, apply_patch)
+	 * When omitted, pi enables the default native built-in tools (read, bash, edit, write)
 	 * and leaves extension/custom tools enabled unless `noTools` changes that default.
 	 * When provided, only the listed tool names are enabled.
 	 */
@@ -239,12 +249,22 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = clampThinkingLevel(model, thinkingLevel) as ThinkingLevel;
 	}
 
-	const defaultActiveToolNames = [...DEFAULT_ACTIVE_TOOL_NAMES];
+	const codingModelProfile = resolveCodingModelProfile({
+		model,
+		explicit: options.codingModelProfile,
+		settings: settingsManager.getCodingModelProfiles(),
+	});
+	const toolProfile = resolveToolProfile({
+		explicit: options.toolProfile,
+		settings: settingsManager.getToolProfile(),
+		modelProfile: codingModelProfile,
+	});
+	const defaultActiveToolNames = getToolNamesForProfile(toolProfile);
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;
 	const excludedToolNameSet = excludedToolNames ? new Set(excludedToolNames) : undefined;
 	const initialActiveToolNames: string[] = (
-		options.tools ? [...options.tools] : options.noTools ? [] : defaultActiveToolNames
+		options.tools !== undefined ? [...options.tools] : options.noTools ? [] : defaultActiveToolNames
 	).filter((name) => !excludedToolNameSet?.has(name));
 
 	let agent: Agent;
@@ -289,6 +309,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
 
 	agent = new Agent({
+		toolExecution: codingModelProfile.toolExecution,
 		initialState: {
 			systemPrompt: "",
 			model,

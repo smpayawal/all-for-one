@@ -40,7 +40,7 @@ The focused regressions, repository check, and read-only upstream relationship c
 
 ## Structural measurement
 
-The recorded structural comparison against the clean `allforone` HEAD snapshot measured five default tools instead of six after removing `changes`. The active tool schema decreased from 3,888 to 3,356 characters/bytes (532, about 13.7%); active prompt snippets decreased from 370 to 298 characters/bytes (72, about 19.5%). This is a structural reduction, not a model-quality benchmark.
+The recorded structural comparison against the clean `allforone` HEAD snapshot measured five default tools instead of six after removing `changes`. The active tool schema decreased from 3,888 to 3,356 characters/bytes (532, about 13.7%); active prompt snippets decreased from 370 to 298 characters/bytes (72, about 19.5%). This is a historical structural reduction, not a model-quality benchmark. The current adaptive profile defaults to four native mutation tools and keeps `apply_patch` available through explicit patch/full profiles.
 
 ## Upstream rehearsal
 

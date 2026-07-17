@@ -447,6 +447,12 @@ function buildSessionOptions(
 	if (parsed.excludeTools) {
 		options.excludeTools = [...parsed.excludeTools];
 	}
+	if (parsed.toolProfile) {
+		options.toolProfile = parsed.toolProfile;
+	}
+	if (parsed.codingModelProfile) {
+		options.codingModelProfile = { ...parsed.codingModelProfile };
+	}
 
 	return { options, cliThinkingFromModel, diagnostics };
 }
@@ -719,6 +725,8 @@ export async function main(args: string[], options?: MainOptions) {
 			model: sessionOptions.model,
 			thinkingLevel: sessionOptions.thinkingLevel,
 			scopedModels: sessionOptions.scopedModels,
+			toolProfile: sessionOptions.toolProfile,
+			codingModelProfile: sessionOptions.codingModelProfile,
 			tools: sessionOptions.tools,
 			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,

@@ -88,7 +88,7 @@ pi
 /login  # Then select provider
 ```
 
-Then just talk to pi. By default, pi gives the model five tools: `read`, `bash`, `edit`, `write`, and `apply_patch`. The model uses these to fulfill your requests. Add capabilities via [skills](#skills), [prompt templates](#prompt-templates), [extensions](#extensions), or [pi packages](#pi-packages).
+Then just talk to pi. By default, pi gives the model the native four-tool profile: `read`, `bash`, `edit`, and `write`. Use `--tool-profile patch` or `--tool-profile full` when the model should use `apply_patch`. Add capabilities via [skills](#skills), [prompt templates](#prompt-templates), [extensions](#extensions), or [pi packages](#pi-packages).
 
 **Platform notes:** [Windows](docs/windows.md) | [Termux (Android)](docs/termux.md) | [tmux](docs/tmux.md) | [Terminal setup](docs/terminal-setup.md) | [Shell aliases](docs/shell-aliases.md)
 
@@ -575,6 +575,9 @@ cat README.md | pi -p "Summarize this text"
 |--------|-------------|
 | `--tools <list>`, `-t <list>` | Allowlist specific tool names across built-in, extension, and custom tools |
 | `--exclude-tools <list>`, `-xt <list>` | Disable specific tool names across built-in, extension, and custom tools |
+| `--tool-profile <profile>`, `-tp <profile>` | Select the native, patch, or full built-in profile |
+| `--mutation-strategy <strategy>` | Override edit or apply_patch behavior for the session |
+| `--tool-execution <mode>` | Select sequential or parallel tool scheduling |
 | `--no-builtin-tools`, `-nbt` | Disable built-in tools by default but keep extension/custom tools enabled |
 | `--no-tools`, `-nt` | Disable all tools by default |
 
