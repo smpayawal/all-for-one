@@ -116,14 +116,15 @@ export function getMutationPaths(event: ToolCallEvent): { paths: string[]; malfo
 export async function validateMutationPaths(
 	event: ToolCallEvent,
 	workspace: string,
+	trustedReadOnlyBuiltIn = false,
 ): Promise<SafeModeMutationValidation> {
 	const mutation = getMutationPaths(event);
 	if (mutation.malformed) {
 		return { action: "block", reason: "Safe mode blocks malformed mutation tool input.", paths: [] };
 	}
 	if (mutation.paths.length === 0) {
-		if (KNOWN_READ_ONLY_TOOLS.has(event.toolName)) {
-			return { action: "allow", reason: "Tool is a known read-only built-in.", paths: [] };
+		if (trustedReadOnlyBuiltIn) {
+			return { action: "allow", reason: "Tool is an active read-only built-in.", paths: [] };
 		}
 		return { action: "ask", reason: "Unknown or extension tools require safe-mode approval.", paths: [] };
 	}
@@ -195,11 +196,19 @@ export default function safeModeExtension(pi: ExtensionAPI): void {
 			return approved ? undefined : { block: true, reason: "Bash command denied by safe mode." };
 		}
 
-		const validation = await validateMutationPaths(event, ctx.cwd);
+		const activeTool = pi.getAllTools().find((tool) => tool.name === event.toolName);
+		const trustedReadOnlyBuiltIn =
+			KNOWN_READ_ONLY_TOOLS.has(event.toolName) && activeTool?.sourceInfo.source === "builtin";
+		const validation = await validateMutationPaths(event, ctx.cwd, trustedReadOnlyBuiltIn);
 		if (validation.action === "block") return { block: true, reason: validation.reason };
 		if (validation.action === "allow") return undefined;
 
-		const approved = await askForApproval(ctx, "Allow workspace mutation?", validation.paths.join("\n"));
-		return approved ? undefined : { block: true, reason: "Workspace mutation denied by safe mode." };
+		if (validation.paths.length > 0) {
+			const approved = await askForApproval(ctx, "Allow workspace mutation?", validation.paths.join("\n"));
+			return approved ? undefined : { block: true, reason: "Workspace mutation denied by safe mode." };
+		}
+
+		const approved = await askForApproval(ctx, `Allow tool \"${event.toolName}\"?`, validation.reason);
+		return approved ? undefined : { block: true, reason: `Tool \"${event.toolName}\" denied by safe mode.` };
 	});
 }
