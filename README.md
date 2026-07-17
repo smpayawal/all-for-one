@@ -12,7 +12,7 @@ All-For-One is an independent downstream project. [Pi](https://github.com/earend
 
 The main coding-agent runtime keeps Pi's adaptive single-agent design. It does not require a general orchestration layer or workflow engine.
 
-The approved P0-P5 evolution plan freezes architecture and compatibility first, delivers UI/UX as the first runtime workstream, then adds the centralized adaptive tool profile, the five essential Native Pi skills, clearer knowledge ownership, optional robustness packages, and downstream-maintenance cleanup. See the [All-For-One documentation index](docs/all-for-one/README.md) and [implementation roadmap](docs/all-for-one/implementation-roadmap.md).
+The approved P0-P5 evolution plan freezes architecture and compatibility first. UI/UX is the first runtime workstream within P0, followed by the centralized adaptive tool profile, the five essential Native Pi skills, clearer knowledge ownership, optional robustness packages, and downstream-maintenance cleanup. See the [All-For-One documentation index](docs/all-for-one/README.md) and [implementation roadmap](docs/all-for-one/implementation-roadmap.md).
 
 ## Changes from Pi
 
