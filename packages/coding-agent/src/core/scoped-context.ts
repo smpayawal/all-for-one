@@ -186,6 +186,9 @@ export class ScopedContextTracker {
 					for (const warning of result.diagnostics.warnings) this.addWarning(warning, addedWarnings);
 					continue;
 				}
+				if (result.diagnostics.lookupIncomplete === true || (result.diagnostics.readFailures?.length ?? 0) > 0) {
+					allLookupsSuccessfulInProject = false;
+				}
 				if (
 					result.agentsFiles.some((contextFile) => {
 						const canonicalPath = canonicalizePath(contextFile.path);

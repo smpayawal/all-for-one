@@ -402,6 +402,26 @@ Content`,
 			expect(frontendContext.agentsFiles.some((file) => file.content === "Backend instructions")).toBe(false);
 		});
 
+		it("reports unreadable nested instruction files as an incomplete lookup", async () => {
+			const frontendDir = join(cwd, "frontend");
+			mkdirSync(join(frontendDir, "src"), { recursive: true });
+			writeFileSync(join(cwd, "AGENTS.md"), "Root instructions");
+			mkdirSync(join(frontendDir, "AGENTS.md"), { recursive: true });
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			const result = loader.getAgentsFilesForPath(join(frontendDir, "src", "App.tsx"));
+			const diagnostics = result.diagnostics as typeof result.diagnostics & {
+				lookupIncomplete: boolean;
+				readFailures: string[];
+			};
+			expect(result.agentsFiles.map((file) => file.content)).toEqual(["Root instructions"]);
+			expect(diagnostics.lookupIncomplete).toBe(true);
+			expect(diagnostics.readFailures).toEqual([expect.stringContaining(join(frontendDir, "AGENTS.md"))]);
+			expect(result.diagnostics.warnings).toContainEqual(expect.stringContaining("AGENTS.md"));
+		});
+
 		it("rejects path-scoped instructions reached through a symlink outside the project root", async () => {
 			const outsideDir = join(tempDir, "outside");
 			const linkedDir = join(cwd, "linked");

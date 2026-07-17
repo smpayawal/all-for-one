@@ -306,6 +306,52 @@ describe("agentLoop with AgentMessage", () => {
 			details: { source: "hook" },
 		});
 	});
+
+	it.each([
+		["null", { details: null }, null],
+		["false", { details: false }, false],
+		["zero", { details: 0 }, 0],
+		["empty string", { details: "" }, ""],
+		["omitted", {}, { source: "tool" }],
+		["object", { details: { source: "hook" } }, { source: "hook" }],
+	] as const)("honors an afterToolCall details %s override", async (_label, override, expectedDetails) => {
+		const tool: AgentTool = {
+			name: "details-tool",
+			label: "Details Tool",
+			description: "Returns a result with details for hook override testing.",
+			parameters: Type.Object({}),
+			execute: async () => ({
+				content: [{ type: "text", text: "original" }],
+				details: { source: "tool" },
+			}),
+		};
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+			afterToolCall: async () => ({ ...override, terminate: true }),
+		};
+		const stream = agentLoop([createUserMessage("run the details tool")], context, config, undefined, () => {
+			const mockStream = new MockAssistantStream();
+			queueMicrotask(() => {
+				const message = createAssistantMessage(
+					[{ type: "toolCall", id: "details-1", name: "details-tool", arguments: {} }],
+					"toolUse",
+				);
+				mockStream.push({ type: "done", reason: "toolUse", message });
+			});
+			return mockStream;
+		});
+
+		const events: AgentEvent[] = [];
+		for await (const event of stream) events.push(event);
+		const messages = await stream.result();
+		const toolEnd = events.find((event) => event.type === "tool_execution_end");
+		const toolResult = messages.find((message) => message.role === "toolResult");
+
+		expect(toolEnd).toMatchObject({ result: { details: expectedDetails } });
+		expect(toolResult).toMatchObject({ details: expectedDetails });
+	});
 	it.each([
 		{
 			name: "prepareNextTurn",

@@ -50,6 +50,8 @@ export interface ContextDiagnostics {
 	duplicateContentCount: number;
 	duplicatePaths: string[];
 	duplicateContentPaths: Array<{ winnerPath: string; duplicatePath: string }>;
+	lookupIncomplete: boolean;
+	readFailures: string[];
 	warnings: string[];
 }
 
@@ -106,41 +108,72 @@ function canonicalizePathWithMissingParents(path: string): string {
 	return join(canonicalizePath(candidate), ...missingSegments);
 }
 
-function loadContextFileFromDir(dir: string): ProjectContextFile | null {
-	const candidates = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
-	for (const filename of candidates) {
+const CONTEXT_FILE_CANDIDATES = ["AGENTS.md", "AGENTS.MD", "CLAUDE.md", "CLAUDE.MD"];
+const MAX_CONTEXT_READ_FAILURES = 8;
+
+interface ContextFileLoadResult {
+	contextFile: ProjectContextFile | null;
+	readFailures: string[];
+}
+
+function loadContextFileFromDir(dir: string): ContextFileLoadResult {
+	const readFailures: string[] = [];
+	const failedCanonicalPaths = new Set<string>();
+	for (const filename of CONTEXT_FILE_CANDIDATES) {
 		const filePath = join(dir, filename);
 		if (existsSync(filePath)) {
 			try {
 				return {
-					path: filePath,
-					content: readFileSync(filePath, "utf-8"),
+					contextFile: {
+						path: filePath,
+						content: readFileSync(filePath, "utf-8"),
+					},
+					readFailures,
 				};
 			} catch (error) {
-				console.error(chalk.yellow(`Warning: Could not read ${filePath}: ${error}`));
+				const message = error instanceof Error ? error.message : String(error);
+				let failureKey = canonicalizePath(filePath);
+				try {
+					const fileStat = statSync(filePath);
+					failureKey = `${fileStat.dev}:${fileStat.ino}`;
+				} catch {
+					// Keep the canonical path fallback when the failed entry also disappears.
+				}
+				if (!failedCanonicalPaths.has(failureKey)) {
+					failedCanonicalPaths.add(failureKey);
+					readFailures.push(`Could not read ${filePath}: ${message}`);
+				}
 			}
 		}
 	}
-	return null;
+	return { contextFile: null, readFailures };
 }
 
 export function loadProjectContextFiles(options: { cwd: string; agentDir: string }): ProjectContextFile[] {
-	return deduplicateContextFiles(loadProjectContextFilesRaw(options)).agentsFiles;
+	return deduplicateContextFiles(loadProjectContextFilesRaw(options).contextFiles).agentsFiles;
+}
+
+interface RawContextFilesResult {
+	contextFiles: ProjectContextFile[];
+	readFailures: string[];
 }
 
 function loadProjectContextFilesRaw(options: {
 	cwd: string;
 	agentDir: string;
 	rootDir?: string;
-}): ProjectContextFile[] {
+}): RawContextFilesResult {
 	const resolvedCwd = resolvePath(options.cwd);
 	const resolvedAgentDir = resolvePath(options.agentDir);
 	const resolvedRootDir = options.rootDir ? resolvePath(options.rootDir) : undefined;
 
 	const contextFiles: ProjectContextFile[] = [];
+	const readFailures: string[] = [];
 	const seenPaths = new Set<string>();
 
-	const globalContext = loadContextFileFromDir(resolvedAgentDir);
+	const globalContextResult = loadContextFileFromDir(resolvedAgentDir);
+	readFailures.push(...globalContextResult.readFailures);
+	const globalContext = globalContextResult.contextFile;
 	if (globalContext) {
 		contextFiles.push(globalContext);
 		seenPaths.add(canonicalizePath(globalContext.path));
@@ -151,7 +184,9 @@ function loadProjectContextFilesRaw(options: {
 	let currentDir = resolvedCwd;
 
 	while (true) {
-		const contextFile = loadContextFileFromDir(currentDir);
+		const contextFileResult = loadContextFileFromDir(currentDir);
+		readFailures.push(...contextFileResult.readFailures);
+		const contextFile = contextFileResult.contextFile;
 		const canonicalPath = contextFile ? canonicalizePath(contextFile.path) : undefined;
 		if (contextFile && canonicalPath && !seenPaths.has(canonicalPath)) {
 			ancestorContextFiles.unshift(contextFile);
@@ -167,16 +202,21 @@ function loadProjectContextFilesRaw(options: {
 
 	contextFiles.push(...ancestorContextFiles);
 
-	return contextFiles;
+	return { contextFiles, readFailures };
 }
 
-export function deduplicateContextFiles(contextFiles: ProjectContextFile[]): ContextFilesResult {
+export function deduplicateContextFiles(
+	contextFiles: ProjectContextFile[],
+	readFailures: string[] = [],
+): ContextFilesResult {
 	const seenCanonicalPaths = new Map<string, string>();
 	const seenContentHashes = new Map<string, string>();
 	const duplicatePaths: string[] = [];
 	const duplicateContentPaths: Array<{ winnerPath: string; duplicatePath: string }> = [];
 	const warnings: string[] = [];
 	const agentsFiles: ProjectContextFile[] = [];
+	const uniqueReadFailures = [...new Set(readFailures)].sort((left, right) => left.localeCompare(right));
+	const boundedReadFailures = uniqueReadFailures.slice(0, MAX_CONTEXT_READ_FAILURES);
 
 	for (const contextFile of contextFiles) {
 		const canonicalPath = canonicalizePath(contextFile.path);
@@ -216,6 +256,14 @@ export function deduplicateContextFiles(contextFiles: ProjectContextFile[]): Con
 	if (duplicateContentPaths.length > 0) {
 		warnings.push(`${duplicateContentPaths.length} exact duplicate context file(s) were omitted by content hash.`);
 	}
+	if (boundedReadFailures.length > 0) {
+		const omittedCount = uniqueReadFailures.length - boundedReadFailures.length;
+		warnings.push(
+			`Context lookup was incomplete; instruction file read failure(s): ${boundedReadFailures.join(", ")}${
+				omittedCount > 0 ? ` (+${omittedCount} more)` : ""
+			}.`,
+		);
+	}
 
 	return {
 		agentsFiles,
@@ -230,6 +278,8 @@ export function deduplicateContextFiles(contextFiles: ProjectContextFile[]): Con
 			duplicateContentPaths: duplicateContentPaths.sort((left, right) =>
 				left.duplicatePath.localeCompare(right.duplicatePath),
 			),
+			lookupIncomplete: uniqueReadFailures.length > 0,
+			readFailures: boundedReadFailures,
 			warnings,
 		},
 	};
@@ -240,7 +290,8 @@ function loadProjectContextFilesWithDiagnostics(options: {
 	agentDir: string;
 	rootDir?: string;
 }): ContextFilesResult {
-	return deduplicateContextFiles(loadProjectContextFilesRaw(options));
+	const loaded = loadProjectContextFilesRaw(options);
+	return deduplicateContextFiles(loaded.contextFiles, loaded.readFailures);
 }
 
 export interface DefaultResourceLoaderOptions {
@@ -433,6 +484,8 @@ export class DefaultResourceLoader implements ResourceLoader {
 					duplicateContentCount: 0,
 					duplicatePaths: [],
 					duplicateContentPaths: [],
+					lookupIncomplete: false,
+					readFailures: [],
 					warnings: [`Path-scoped context lookup skipped outside the project root: ${resolvedTarget}`],
 				},
 			};
@@ -625,16 +678,18 @@ export class DefaultResourceLoader implements ResourceLoader {
 			}
 		}
 
-		const agentsFiles = {
-			agentsFiles: this.noContextFiles
-				? []
-				: loadProjectContextFilesRaw({
-						cwd: this.cwd,
-						agentDir: this.agentDir,
-					}),
-		};
+		const loadedAgentsFiles = this.noContextFiles
+			? { contextFiles: [], readFailures: [] }
+			: loadProjectContextFilesRaw({
+					cwd: this.cwd,
+					agentDir: this.agentDir,
+				});
+		const agentsFiles = { agentsFiles: loadedAgentsFiles.contextFiles };
 		const resolvedAgentsFiles = this.agentsFilesOverride ? this.agentsFilesOverride(agentsFiles) : agentsFiles;
-		const deduplicatedAgentsFiles = deduplicateContextFiles(resolvedAgentsFiles.agentsFiles);
+		const deduplicatedAgentsFiles = deduplicateContextFiles(
+			resolvedAgentsFiles.agentsFiles,
+			loadedAgentsFiles.readFailures,
+		);
 		this.agentsFiles = deduplicatedAgentsFiles.agentsFiles;
 		this.contextDiagnostics = deduplicatedAgentsFiles.diagnostics;
 
