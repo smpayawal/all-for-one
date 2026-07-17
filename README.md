@@ -12,6 +12,8 @@ All-For-One is an independent downstream project. [Pi](https://github.com/earend
 
 The main coding-agent runtime keeps Pi's adaptive single-agent design. It does not require a general orchestration layer or workflow engine.
 
+The current evolution plan prioritizes a cleaner terminal UI/UX followed by adaptive skill and tool use through Native Pi's existing progressive-disclosure and extension boundaries. See the [All-For-One documentation index](docs/all-for-one/README.md) and [implementation roadmap](docs/all-for-one/implementation-roadmap.md).
+
 ## Changes from Pi
 
 The current `allforone` branch adds or records:
@@ -23,7 +25,7 @@ The current `allforone` branch adds or records:
 - offline baseline, doctor, and evaluator commands, with a read-only upstream relationship check; and
 - focused branch CI and validation documentation.
 
-These are repository-level capabilities and diagnostics. No measured quality, latency, token, cost, or performance improvement is claimed from them. Enforcement remains opt-in where documented. See the [All-For-One documentation](docs/all-for-one/).
+These are repository-level capabilities and diagnostics. No measured quality, latency, token, cost, or performance improvement is claimed from them. Enforcement remains opt-in where documented. See the [All-For-One documentation](docs/all-for-one/README.md).
 
 ## Packages
 
