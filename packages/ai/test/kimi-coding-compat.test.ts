@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-	KIMI_CODING_COMPATIBILITY_MODELS,
 	ensureKimiCodingCompatibilityModels,
+	KIMI_CODING_COMPATIBILITY_MODELS,
 } from "../scripts/ensure-kimi-coding-compat.ts";
 import type { Model } from "../src/types.ts";
 
