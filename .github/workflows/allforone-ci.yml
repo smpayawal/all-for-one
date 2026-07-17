@@ -83,8 +83,22 @@ jobs:
       - name: Check coding-agent install lock
         run: npm run check:install-lock:coding-agent
 
-      - name: Typecheck
-        run: npx tsgo --noEmit
+      - name: Capture typecheck
+        id: typecheck
+        continue-on-error: true
+        run: npx tsgo --noEmit --pretty false > typecheck.log 2>&1
+
+      - name: Upload typecheck diagnostics
+        if: steps.typecheck.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: typecheck-diagnostics
+          path: typecheck.log
+          if-no-files-found: error
+
+      - name: Enforce typecheck
+        if: steps.typecheck.outcome == 'failure'
+        run: exit 1
 
       - name: Browser smoke check
         run: npm run check:browser-smoke
