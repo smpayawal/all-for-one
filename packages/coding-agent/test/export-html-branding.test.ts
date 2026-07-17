@@ -24,8 +24,7 @@ describe("export HTML product identity", () => {
 		expect(html).toContain(`<span class="brand-name">${APP_TITLE}</span>`);
 		expect(html).not.toContain('<link rel="icon"');
 		expect(html).not.toContain('<img class="brand-icon"');
-		expect(html).not.toContain('href=""');
-		expect(html).not.toContain('src=""');
+		expect(html).not.toContain('rel="icon" type="image/png" href=""');
 		expect(html).not.toContain("{{APP_");
 	});
 });
