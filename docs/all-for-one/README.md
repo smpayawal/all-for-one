@@ -2,34 +2,52 @@
 
 This directory contains the current architecture, constraints, implementation direction, and operational guidance for All-For-One.
 
-All-For-One remains a lightweight downstream of Native Pi. The documentation in this directory preserves the branch relationship and compatibility contract:
+All-For-One remains a lightweight downstream of Native Pi. The branch and integration model is:
 
 ```text
 upstream Pi -> main -> allforone -> focused branches
 ```
 
-## Current architecture and plans
+`main` remains the clean local mirror of upstream Pi. All-For-One changes are integrated through `allforone`; focused branches start from and return to `allforone`.
 
-- [Architecture](architecture.md) — package ownership, runtime boundaries, compatibility rules, and prohibited duplication.
-- [UI/UX design](ui-ux.md) — terminal-native visual and interaction improvements delivered as the first runtime workstream in P0.
-- [Adaptive capabilities](adaptive-capabilities.md) — the P1 centralized coding-model profile and P2 automatic skill, tool, and workflow selection without another orchestration layer.
-- [Implementation roadmap](implementation-roadmap.md) — the authoritative P0-P5 delivery plan, affected files, validation gates, and completion criteria.
+## Current sources of truth
+
+- [Architecture](architecture.md) — ownership, runtime boundaries, compatible tool inventory, active profiles, optional-cost rules, and prohibited duplication.
+- [UI/UX design](ui-ux.md) — terminal-native visual and interaction improvements delivered after P0 consolidation.
+- [Adaptive capabilities](adaptive-capabilities.md) — the minimal P1 mutation profile and P2 adaptive Native Pi skills.
+- [Implementation roadmap](implementation-roadmap.md) — the authoritative P0-P5 order, cleanup gates, implementation scope, and validation criteria.
 
 ## Authoritative roadmap
 
-The approved order is:
-
 ```text
-P0  Consolidate and freeze architecture
-    + complete the UI/UX foundation as the first runtime workstream
-P1  Make the tool interface adaptive and unambiguous
-P2  Add the essential adaptive skill package
+P0  Consolidate and freeze the architecture
+    P0-A audit, simplify, remove duplication, and make optional behavior lazy
+    P0-B deliver the terminal UI/UX foundation as the first new product feature
+P1  Make the active tool interface adaptive and unambiguous
+P2  Add exactly five essential Native Pi skills
 P3  Clarify knowledge ownership
-P4  Ship optional robustness packages
-P5  Reduce downstream maintenance cost
+P4  Consider optional robustness capabilities independently
+P5  Complete release consolidation and upstream-maintenance review
 ```
 
-There is no dedicated evaluation-platform phase. Validation is performed within the phase that introduces the behavior.
+P5 maintenance rules apply continuously from P0 onward; they are not deferred until the end. There is no dedicated evaluation-platform phase. Validation is performed within the change that introduces or removes behavior.
+
+## Project invariants
+
+Every proposal and implementation preserves these rules:
+
+1. Native Pi remains the architectural baseline.
+2. The normal runtime remains one adaptive primary agent.
+3. Pi-compatible commands, configuration paths, package names, sessions, extension APIs, SDK behavior, print mode, and RPC mode remain compatible unless a separate migration is intentionally designed and tested.
+4. The compatible built-in tool inventory remains available; active profiles expose only the smallest useful subset.
+5. The recommended normal coding profile contains `read`, `bash`, `write`, and one primary existing-file mutation tool: `edit` or `apply_patch`.
+6. The complete five-tool coding profile remains available through explicit configuration for compatibility and troubleshooting.
+7. New behavior uses existing Pi skills, extensions, themes, prompts, settings, SDK hooks, or coding-agent-local modules before any `packages/agent` change is considered.
+8. A new package or generic agent-runtime change requires a demonstrated problem that existing Pi public boundaries cannot solve cleanly.
+9. Disabled optional behavior adds no model-visible schema, filesystem discovery, background process, model request, persistent mutation, or meaningful rendering cost.
+10. No classifier model, skill tool, workflow engine, semantic retrieval layer, duplicate memory system, permanent agent hierarchy, or evaluation platform is introduced.
+11. No quality, latency, token, cost, reliability, performance, or security improvement is claimed without evidence.
+12. Every pull request is reviewed against both `allforone` and `main` for unnecessary upstream-hot edits, duplicate ownership, compatibility risk, and rollback.
 
 ## Existing operational documentation
 
@@ -45,27 +63,13 @@ There is no dedicated evaluation-platform phase. Validation is performed within 
 - [Test baseline](test-baseline.md)
 - [Hardening report](hardening-report.md)
 
-## Project invariants
-
-Every proposal and implementation preserves these invariants:
-
-1. Native Pi remains the architectural baseline.
-2. `main` remains the clean local mirror of upstream Pi.
-3. All-For-One work is integrated through `allforone` and focused branches created from it.
-4. The primary runtime remains adaptive and single-agent.
-5. Pi-compatible commands, configuration paths, package names, sessions, extension APIs, SDK behavior, print mode, and RPC mode remain compatible unless an intentional migration is separately designed.
-6. The canonical built-in tool registry remains `read`, `bash`, `edit`, `write`, and `apply_patch`.
-7. New behavior belongs in an existing Native Pi skill, extension, theme, prompt, settings, SDK, or coding-agent-local boundary before a core agent-loop change is considered.
-8. A new package or `packages/agent` change requires evidence that Pi's public boundaries cannot satisfy the requirement cleanly.
-9. Optional behavior has no prompt, process, or rendering cost while disabled.
-10. No performance, quality, latency, cost, model-reliability, or security claim is made without supporting evidence.
-11. No classifier model, skill tool, workflow engine, semantic retrieval layer, duplicate memory system, or evaluation platform is introduced.
+These documents record current implementation and historical evidence. They do not override the architecture, adaptive-capability, UI/UX, and roadmap documents listed above.
 
 ## Documentation ownership
 
-- `architecture.md` owns stable package, runtime, compatibility, and subsystem ownership decisions.
-- `ui-ux.md` owns P0 terminal presentation and interaction decisions.
-- `adaptive-capabilities.md` owns the P1 model profile and P2 skill, tool, and workflow activation rules.
-- `implementation-roadmap.md` owns the P0-P5 delivery order and implementation gates.
+- `architecture.md` owns stable package, runtime, compatibility, tool-profile, optional-cost, and subsystem ownership decisions.
+- `ui-ux.md` owns interactive presentation decisions.
+- `adaptive-capabilities.md` owns the P1 mutation profile and P2 skill-selection rules.
+- `implementation-roadmap.md` owns the delivery order, cleanup gates, and completion criteria.
 
-Do not duplicate these decisions in new phase documents. Historical plans may remain for traceability, but these four documents are the current source of truth.
+Do not create new phase documents that repeat these decisions. Historical documents may remain for traceability, but conflicting guidance must be corrected, archived, or clearly marked as historical.
