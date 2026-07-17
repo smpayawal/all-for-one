@@ -208,7 +208,7 @@ export default function safeModeExtension(pi: ExtensionAPI): void {
 			return approved ? undefined : { block: true, reason: "Workspace mutation denied by safe mode." };
 		}
 
-		const approved = await askForApproval(ctx, `Allow tool \"${event.toolName}\"?`, validation.reason);
-		return approved ? undefined : { block: true, reason: `Tool \"${event.toolName}\" denied by safe mode.` };
+		const approved = await askForApproval(ctx, `Allow tool "${event.toolName}"?`, validation.reason);
+		return approved ? undefined : { block: true, reason: `Tool "${event.toolName}" denied by safe mode.` };
 	});
 }
