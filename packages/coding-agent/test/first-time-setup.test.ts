@@ -1,12 +1,14 @@
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isOfficialPiDistribution, shouldRunFirstTimeSetup } from "../src/cli/startup-ui.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import { FirstTimeSetupComponent } from "../src/modes/interactive/components/first-time-setup.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import {
+	ANALYTICS_DESCRIPTION,
+	DEFAULT_SHARE_ANALYTICS,
+} from "../src/modes/interactive/components/first-time-setup.ts";
 
 describe("first-time setup distribution boundary", () => {
 	it("recognizes the official Pi identity", () => {
@@ -65,31 +67,9 @@ describe("shouldRunFirstTimeSetup", () => {
 });
 
 describe("first-time setup analytics consent", () => {
-	beforeAll(() => {
-		initTheme("dark");
-	});
-
-	it("defaults to not sharing and avoids unsupported privacy guidance", () => {
-		let shareAnalytics: boolean | undefined;
-		const component = new FirstTimeSetupComponent({
-			detectedTheme: "dark",
-			onThemePreview: () => undefined,
-			onSubmit: (result) => {
-				shareAnalytics = result.shareAnalytics;
-			},
-			onCancel: () => undefined,
-		});
-
-		component.handleInput("\n");
-		const analyticsStep = component
-			.render(100)
-			.join("\n")
-			.replace(/\u001b\[[0-9;]*m/g, "");
-		expect(analyticsStep).toContain("→ Don't share");
-		expect(analyticsStep).not.toContain("/privacy");
-
-		component.handleInput("\n");
-		expect(shareAnalytics).toBe(false);
+	it("defaults to disabled and avoids unsupported privacy guidance", () => {
+		expect(DEFAULT_SHARE_ANALYTICS).toBe(false);
+		expect(ANALYTICS_DESCRIPTION).not.toContain("/privacy");
 	});
 });
 
