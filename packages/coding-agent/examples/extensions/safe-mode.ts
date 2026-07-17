@@ -19,7 +19,7 @@ const SAFE_COMMAND =
 const DENIED_COMMAND =
 	/\b(?:sudo|su|mkfs|fdisk|shutdown|reboot|poweroff|dd)\b|\b(?:rm|rmdir|del)\b[^\n]*(?:-r|--recursive|-f|--force)|(?:curl|wget)[^\n]*\|\s*(?:sh|bash|zsh)\b/i;
 const SENSITIVE_PATH =
-	/(^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.git(?:[\\/]|$)|node_modules(?:[\\/]|$)|[^\\/]*(?:credential|secret|token)[^\\/]*|[^\\/]+\.(?:pem|key))$/i;
+	/(^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.git|node_modules|[^\\/]*(?:credential|secret|token)[^\\/]*|[^\\/]+\.(?:pem|key))(?=[\\/]|$)/i;
 const SENSITIVE_REFERENCE =
 	/(?:^|[\s"'=])(?:\.env(?:\.[^\s"']*)?|auth\.json|[^\s"']*(?:credential|secret|token)[^\s"']*|[^\s"']+\.(?:pem|key))(?:$|[\s"'])/i;
 
@@ -53,13 +53,12 @@ async function askForApproval(ctx: ExtensionContext, title: string, detail: stri
 }
 
 export default function safeModeExtension(pi: ExtensionAPI): void {
-	let enabled = true;
-
 	pi.registerFlag("safe-mode", {
 		description: "Enable authorization-oriented safe mode (not an OS sandbox)",
 		type: "boolean",
 		default: true,
 	});
+	let enabled = pi.getFlag("safe-mode") === true;
 
 	pi.registerCommand("safe-mode", {
 		description: "Toggle authorization-oriented safe mode",
