@@ -12,10 +12,7 @@ function getAppIconDataUri(): string | null {
 	}
 }
 
-export function applyExportBranding(
-	template: string,
-	iconDataUri: string | null = getAppIconDataUri(),
-): string {
+export function applyExportBranding(template: string, iconDataUri: string | null = getAppIconDataUri()): string {
 	const favicon = iconDataUri ? `<link rel="icon" type="image/png" href="${iconDataUri}">` : "";
 	const brandIcon = iconDataUri ? `<img class="brand-icon" src="${iconDataUri}" alt="">` : "";
 
