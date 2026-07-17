@@ -6,9 +6,9 @@ Make All-For-One select the smallest useful skill, tool, or workflow from the cu
 
 The primary model remains responsible for task reasoning. All-For-One improves that decision through:
 
-- one centralized coding-model profile;
+- the P1 centralized coding-model profile;
 - precise and non-overlapping built-in tool contracts;
-- Native Pi's model-visible skill metadata and progressive disclosure;
+- the P2 essential Native Pi skill package;
 - existing extension and package registration;
 - deterministic safety, trust, and eligibility boundaries;
 - explicit manual overrides.
@@ -28,7 +28,7 @@ All-For-One already has the required primitives:
 - package filtering and project/global overrides;
 - context diagnostics for active and inactive tools, visible skills, manual-only skills, origins, and prompt cost.
 
-The implementation should refine these capabilities rather than replace them.
+The implementation refines these capabilities rather than replacing them.
 
 ## Selection principles
 
@@ -95,7 +95,7 @@ The profile must not create a second model registry. It consumes Native Pi's exi
 
 ### Minimum profile
 
-The initial profile should remain small:
+The initial profile remains small:
 
 ```ts
 export interface CodingModelProfile {
@@ -105,7 +105,7 @@ export interface CodingModelProfile {
 }
 ```
 
-Only fields supported by a verified use case should be added. The profile is not a general provider configuration object.
+Only fields supported by a verified use case are added. The profile is not a general provider configuration object.
 
 ### Mutation selection
 
@@ -156,7 +156,7 @@ The model profile determines the primary existing-file mutation tool. Tool descr
 
 ### Tool interface standard
 
-All built-in tools should follow the same interface quality rules:
+All built-in tools follow the same interface quality rules:
 
 - concise names and descriptions;
 - one clearly stated responsibility;
@@ -199,12 +199,12 @@ Manual invocation remains available for every skill. A project or user may set a
 | `repository-orientation` | Unfamiliar repository, broad architecture task, cross-package change, or execution-path tracing | Trivial single-file edit with sufficient existing context |
 | `systematic-debugging` | Reproducible bug, failing test, crash, regression, unexpected behavior, or performance fault | New feature planning without a failure to diagnose |
 | `plan-complex-change` | Multi-module feature, architectural change, migration, compatibility-sensitive refactor, or work needing staged implementation | Small isolated edit with an obvious implementation path |
-| `verify-before-completion` | Before claiming a change is fixed, complete, passing, secure, or compatible | Pure explanation or brainstorming with no implementation claim |
+| `verify-before-completion` | Before claiming a code change is complete, fixed, passing, secure, or compatible | Pure explanation or brainstorming with no implementation claim |
 | `review-diff` | Requested code review, high-risk change, broad mutation, or final scope and regression review | Ordinary read-only explanation without a change set |
 
 ### Description contract
 
-Each skill description must state:
+Each skill description states:
 
 1. what the skill does;
 2. the concrete situations that should trigger it;
@@ -335,7 +335,7 @@ interface ActiveCapabilityState {
 }
 ```
 
-The exact type should follow repository conventions.
+The exact type follows repository conventions.
 
 Requirements:
 
@@ -350,7 +350,7 @@ Requirements:
 ## Failure and fallback behavior
 
 - Missing or invalid skill content produces a bounded diagnostic and normal model fallback.
-- Ambiguous skill descriptions should cause no automatic skill selection rather than several speculative loads.
+- Ambiguous skill descriptions cause no automatic skill selection rather than several speculative loads.
 - An unknown model uses the documented default coding profile.
 - If the primary mutation tool cannot express a valid operation, the model may use an explicitly available fallback or provide corrective guidance.
 - Disabled optional capabilities are not represented as available.
