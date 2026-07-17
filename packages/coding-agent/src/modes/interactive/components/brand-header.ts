@@ -27,17 +27,19 @@ export class BrandHeaderComponent extends Container {
 	constructor() {
 		super();
 
-		const iconBase64 = loadIconBase64();
-		if (iconBase64 && getCapabilities().images) {
-			this.addChild(
-				new Image(
-					iconBase64,
-					"image/png",
-					{ fallbackColor: (text) => theme.fg("muted", text) },
-					{ maxWidthCells: 12, maxHeightCells: 6, filename: ICON_FILENAME },
-				),
-			);
-			this.addChild(new Spacer(1));
+		if (getCapabilities().images) {
+			const iconBase64 = loadIconBase64();
+			if (iconBase64) {
+				this.addChild(
+					new Image(
+						iconBase64,
+						"image/png",
+						{ fallbackColor: (text) => theme.fg("muted", text) },
+						{ maxWidthCells: 12, maxHeightCells: 6, filename: ICON_FILENAME },
+					),
+				);
+				this.addChild(new Spacer(1));
+			}
 		}
 
 		this.addChild(new Text(theme.bold(theme.fg("accent", APP_TITLE)), 0, 0));
