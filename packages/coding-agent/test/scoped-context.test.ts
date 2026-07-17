@@ -38,6 +38,7 @@ function createFixture() {
 		agentsFiles: ProjectContextFile[],
 		warnings: string[] = [],
 		contextDiagnostics: { lookupIncomplete?: boolean; readFailures?: string[] } = {},
+		includeIntegrityDiagnostics = true,
 	) {
 		return {
 			agentsFiles,
@@ -51,8 +52,12 @@ function createFixture() {
 				duplicatePaths: [],
 				duplicateContentPaths: [],
 				warnings,
-				lookupIncomplete: contextDiagnostics.lookupIncomplete ?? false,
-				readFailures: contextDiagnostics.readFailures ?? [],
+				...(includeIntegrityDiagnostics
+					? {
+							lookupIncomplete: contextDiagnostics.lookupIncomplete ?? false,
+							readFailures: contextDiagnostics.readFailures ?? [],
+						}
+					: {}),
 			},
 		};
 	}
@@ -61,10 +66,11 @@ function createFixture() {
 		getAgentsFilesForPath(targetPath: string) {
 			if (targetPath.includes("outside")) return result([], ["outside project root"]);
 			if (targetPath.includes("failed")) throw new Error("lookup failed");
-			if (targetPath.includes("unreadable")) {
-				const readFailure = `Could not read ${join(frontend, "AGENTS.md")}: EISDIR`;
+			if (targetPath.includes("rejected")) {
+				const readFailure = `Could not read ${join(frontend, "AGENTS.md")}: instruction-file symbolic links are not allowed.`;
 				return result([root], [readFailure], { lookupIncomplete: true, readFailures: [readFailure] });
 			}
+			if (targetPath.includes("legacy")) return result([root, frontendFile], [], {}, false);
 			if (targetPath.includes("frontend")) return result([root, frontendFile]);
 			if (targetPath.includes("backend")) return result([root, backendFile]);
 			return result([root]);
@@ -371,12 +377,12 @@ describe("ScopedContextTracker", () => {
 		expect(tracker.getFiles()).toEqual([]);
 	});
 
-	it("preserves a nested scope after an incomplete read and clears it after a later successful lookup", () => {
+	it("preserves a nested scope after a rejected candidate and clears it after a later successful lookup", () => {
 		const fixture = createFixture();
 		const tracker = new ScopedContextTracker(fixture.cwd, fixture.resourceLoader);
 
 		tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
-		const failed = tracker.loadForToolCall("read", { path: "unreadable/src/App.tsx" }, [
+		const failed = tracker.loadForToolCall("read", { path: "rejected/src/App.tsx" }, [
 			fixture.root,
 			fixture.frontendFile,
 		]);
@@ -385,7 +391,7 @@ describe("ScopedContextTracker", () => {
 		expect(failed.warnings).toContainEqual(expect.stringContaining("Could not read"));
 		expect(tracker.getFiles()).toEqual([fixture.frontendFile]);
 
-		const failedLookup = fixture.resourceLoader.getAgentsFilesForPath!("unreadable/src/App.tsx");
+		const failedLookup = fixture.resourceLoader.getAgentsFilesForPath!("rejected/src/App.tsx");
 		const failedDiagnostics = failedLookup.diagnostics as typeof failedLookup.diagnostics & {
 			lookupIncomplete: boolean;
 			readFailures: string[];
@@ -401,5 +407,19 @@ describe("ScopedContextTracker", () => {
 		const nestedAgain = tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
 		expect(nestedAgain.changed).toBe(true);
 		expect(tracker.getFiles()).toEqual([fixture.frontendFile]);
+	});
+
+	it("treats legacy custom resource-loader diagnostics as successful lookups", () => {
+		const fixture = createFixture();
+		const tracker = new ScopedContextTracker(fixture.cwd, fixture.resourceLoader);
+
+		const nested = tracker.loadForToolCall("read", { path: "legacy/src/App.tsx" }, [fixture.root]);
+		expect(nested.changed).toBe(true);
+		expect(tracker.getFiles()).toEqual([fixture.frontendFile]);
+
+		const rootOnly = tracker.loadForToolCall("read", { path: "README.md" }, [fixture.root, fixture.frontendFile]);
+		expect(rootOnly.changed).toBe(true);
+		expect(rootOnly.diagnostics.activeScopes).toEqual([]);
+		expect(tracker.getFiles()).toEqual([]);
 	});
 });

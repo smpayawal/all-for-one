@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -379,6 +380,7 @@ Content`,
 
 			const { agentsFiles } = loader.getAgentsFiles();
 			expect(agentsFiles.some((f) => f.path.includes("AGENTS.md"))).toBe(true);
+			expect(loader.getContextDiagnostics()).toMatchObject({ lookupIncomplete: false, readFailures: [] });
 		});
 
 		it("loads nested instructions only for the touched path", async () => {
@@ -420,6 +422,64 @@ Content`,
 			expect(diagnostics.lookupIncomplete).toBe(true);
 			expect(diagnostics.readFailures).toEqual([expect.stringContaining(join(frontendDir, "AGENTS.md"))]);
 			expect(result.diagnostics.warnings).toContainEqual(expect.stringContaining("AGENTS.md"));
+		});
+
+		it.each(["AGENTS.md", "CLAUDE.md"])("rejects an instruction-file symlink for %s", async (filename) => {
+			const outsideDir = join(tempDir, "outside-instruction");
+			const outsideFile = join(outsideDir, filename);
+			const linkedFile = join(cwd, filename);
+			const outsideContent = `outside-${filename}-must-not-load`;
+			mkdirSync(outsideDir, { recursive: true });
+			writeFileSync(outsideFile, outsideContent);
+
+			try {
+				symlinkSync(outsideFile, linkedFile, "file");
+			} catch {
+				// Windows environments without symlink privileges cannot exercise this boundary.
+				return;
+			}
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			const diagnostics = loader.getContextDiagnostics();
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([]);
+			expect(diagnostics.lookupIncomplete).toBe(true);
+			expect(diagnostics.readFailures).toEqual([expect.stringContaining(linkedFile)]);
+			expect(JSON.stringify(diagnostics)).not.toContain(outsideContent);
+		});
+
+		it("rejects a directory instruction entry without reading it", async () => {
+			const directoryPath = join(cwd, "AGENTS.md");
+			mkdirSync(directoryPath);
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			const diagnostics = loader.getContextDiagnostics();
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([]);
+			expect(diagnostics.lookupIncomplete).toBe(true);
+			expect(diagnostics.readFailures).toEqual([expect.stringContaining(directoryPath)]);
+			expect(diagnostics.warnings).toContainEqual(expect.stringContaining("not a regular file"));
+		});
+
+		it("rejects a FIFO instruction entry when supported", async () => {
+			if (process.platform === "win32") return;
+
+			const fifoPath = join(cwd, "AGENTS.md");
+			try {
+				execFileSync("mkfifo", [fifoPath]);
+			} catch {
+				return;
+			}
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			const diagnostics = loader.getContextDiagnostics();
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([]);
+			expect(diagnostics.lookupIncomplete).toBe(true);
+			expect(diagnostics.readFailures).toEqual([expect.stringContaining(fifoPath)]);
 		});
 
 		it("rejects path-scoped instructions reached through a symlink outside the project root", async () => {

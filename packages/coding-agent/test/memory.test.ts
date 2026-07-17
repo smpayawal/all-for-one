@@ -161,7 +161,7 @@ describe("ProjectMemoryStore", () => {
 		expect(statSync(store.filePath).isDirectory()).toBe(true);
 	});
 
-	it("reports a stat failure and refuses mutation when a parent path is not a directory", () => {
+	it("reports a non-directory parent path and refuses mutation", () => {
 		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
 		const projectsPath = join(agentDir, "projects");
 		writeFileSync(projectsPath, "parent path bytes");

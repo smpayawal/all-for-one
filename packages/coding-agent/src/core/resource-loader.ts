@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME } from "../config.ts";
@@ -50,8 +50,8 @@ export interface ContextDiagnostics {
 	duplicateContentCount: number;
 	duplicatePaths: string[];
 	duplicateContentPaths: Array<{ winnerPath: string; duplicatePath: string }>;
-	lookupIncomplete: boolean;
-	readFailures: string[];
+	lookupIncomplete?: boolean;
+	readFailures?: string[];
 	warnings: string[];
 }
 
@@ -118,35 +118,49 @@ interface ContextFileLoadResult {
 
 function loadContextFileFromDir(dir: string): ContextFileLoadResult {
 	const readFailures: string[] = [];
-	const failedCanonicalPaths = new Set<string>();
+	const reportedFailureKeys = new Set<string>();
+	let contextFile: ProjectContextFile | null = null;
+
+	const addReadFailure = (filePath: string, reason: string, failureKey: string): void => {
+		if (reportedFailureKeys.has(failureKey)) return;
+		reportedFailureKeys.add(failureKey);
+		readFailures.push(`Could not read ${filePath}: ${reason}`);
+	};
+
 	for (const filename of CONTEXT_FILE_CANDIDATES) {
 		const filePath = join(dir, filename);
-		if (existsSync(filePath)) {
-			try {
-				return {
-					contextFile: {
-						path: filePath,
-						content: readFileSync(filePath, "utf-8"),
-					},
-					readFailures,
-				};
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				let failureKey = canonicalizePath(filePath);
-				try {
-					const fileStat = statSync(filePath);
-					failureKey = `${fileStat.dev}:${fileStat.ino}`;
-				} catch {
-					// Keep the canonical path fallback when the failed entry also disappears.
-				}
-				if (!failedCanonicalPaths.has(failureKey)) {
-					failedCanonicalPaths.add(failureKey);
-					readFailures.push(`Could not read ${filePath}: ${message}`);
-				}
-			}
+		let fileStats: ReturnType<typeof lstatSync>;
+		try {
+			fileStats = lstatSync(filePath);
+		} catch (error) {
+			if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") continue;
+			const message = error instanceof Error ? error.message : String(error);
+			addReadFailure(filePath, `could not inspect the candidate: ${message}`, filePath);
+			continue;
+		}
+
+		const failureKey = `${fileStats.dev}:${fileStats.ino}`;
+		if (fileStats.isSymbolicLink()) {
+			addReadFailure(filePath, "instruction-file symbolic links are not allowed.", failureKey);
+			continue;
+		}
+		if (!fileStats.isFile()) {
+			addReadFailure(filePath, "instruction file is not a regular file.", failureKey);
+			continue;
+		}
+		if (contextFile) continue;
+
+		try {
+			contextFile = {
+				path: filePath,
+				content: readFileSync(filePath, "utf-8"),
+			};
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			addReadFailure(filePath, message, failureKey);
 		}
 	}
-	return { contextFile: null, readFailures };
+	return { contextFile, readFailures };
 }
 
 export function loadProjectContextFiles(options: { cwd: string; agentDir: string }): ProjectContextFile[] {

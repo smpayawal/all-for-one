@@ -126,6 +126,20 @@ function isMissingPathError(error: unknown): boolean {
 	return code === "ENOENT";
 }
 
+function isMissingMemoryFilePath(filePath: string): boolean {
+	let currentPath = dirname(filePath);
+	while (true) {
+		try {
+			return lstatSync(currentPath).isDirectory();
+		} catch (error) {
+			if (!isMissingPathError(error)) return false;
+			const parentPath = dirname(currentPath);
+			if (parentPath === currentPath) return true;
+			currentPath = parentPath;
+		}
+	}
+}
+
 function ensureStorageDirectory(directory: string): void {
 	mkdirSync(directory, { recursive: true, mode: 0o700 });
 	let directoryStats: ReturnType<typeof lstatSync>;
@@ -163,7 +177,9 @@ export class ProjectMemoryStore {
 		try {
 			fileStats = lstatSync(this.filePath);
 		} catch (error) {
-			if (isMissingPathError(error)) return { entries: [], warnings: [], status: "ok" };
+			if (isMissingPathError(error) && isMissingMemoryFilePath(this.filePath)) {
+				return { entries: [], warnings: [], status: "ok" };
+			}
 			const message = error instanceof Error ? error.message : String(error);
 			return { entries: [], warnings: [`Could not inspect local memory: ${message}.`], status: "fatal-file-error" };
 		}
