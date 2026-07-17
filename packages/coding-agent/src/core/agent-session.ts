@@ -431,11 +431,15 @@ export class AgentSession {
 	private _scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 
 	// Event subscription state
-	private _unsubscribeAgent?: () => void;
+	private _unsubscribeExtension?: () => void;
+	private _unsubscribePersistence?: () => void;
+	private _unsubscribeObserver?: () => void;
 	private _eventListeners: AgentSessionEventListener[] = [];
 	private _sessionListenerErrors: string[] = [];
 	private _isAgentRunActive = false;
 	private _agentEndSeenForRun = false;
+	private _criticalRuntimeFailureForRun = false;
+	private _failedExtensionEvent?: AgentEvent;
 	private _idleWaitPromise: Promise<void> | undefined;
 	private _resolveIdleWait: (() => void) | undefined;
 
@@ -531,9 +535,10 @@ export class AgentSession {
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 
-		// Always subscribe to agent events for internal handling
-		// (session persistence, extensions, auto-compaction, retry logic)
-		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent, { failureMode: "fatal" });
+		// Keep extension/runtime bookkeeping, persistence, and external observers in separate failure domains.
+		this._unsubscribeExtension = this.agent.subscribe(this._handleAgentExtensionEvent, { failureMode: "fatal" });
+		this._unsubscribePersistence = this.agent.subscribe(this._handleAgentPersistenceEvent, { failureMode: "fatal" });
+		this._unsubscribeObserver = this.agent.subscribe(this._handleAgentObserverEvent, { failureMode: "isolate" });
 		this._installAgentToolHooks();
 		this._installAgentNextTurnRefresh();
 
@@ -817,64 +822,67 @@ export class AgentSession {
 	// Track last assistant message for auto-compaction check
 	private _lastAssistantMessage: AssistantMessage | undefined = undefined;
 
-	/** Internal handler for agent events - shared by subscribe and reconnect */
-	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
-		if (event.type === "agent_start") {
-			if (!this._executionIntegrityRunStarted) {
-				this._executionIntegrityTracker.resetRun();
-				this._executionIntegrityRunStarted = true;
+	/** Critical extension dispatch and execution-integrity bookkeeping. */
+	private _handleAgentExtensionEvent = async (event: AgentEvent): Promise<void> => {
+		try {
+			if (event.type === "agent_start") {
+				this._criticalRuntimeFailureForRun = false;
+				this._failedExtensionEvent = undefined;
+				if (!this._executionIntegrityRunStarted) {
+					this._executionIntegrityTracker.resetRun();
+					this._executionIntegrityRunStarted = true;
+				}
+				this._agentEndSeenForRun = false;
+				this._pendingMutationToolCalls.clear();
 			}
-			this._agentEndSeenForRun = false;
-			this._pendingMutationToolCalls.clear();
-		}
-		if (event.type === "tool_execution_start" && isMutatingPathTool(event.toolName)) {
-			this._pendingMutationToolCalls.add(event.toolCallId);
-		} else if (event.type === "tool_execution_end" && isMutatingPathTool(event.toolName)) {
-			this._pendingMutationToolCalls.delete(event.toolCallId);
-		}
+			if (event.type === "tool_execution_start" && isMutatingPathTool(event.toolName)) {
+				this._pendingMutationToolCalls.add(event.toolCallId);
+			} else if (event.type === "tool_execution_end" && isMutatingPathTool(event.toolName)) {
+				this._pendingMutationToolCalls.delete(event.toolCallId);
+			}
 
-		// When a user message starts, check if it's from either queue and remove it BEFORE emitting
-		// This ensures the UI sees the updated queue state
-		if (event.type === "message_start" && event.message.role === "user") {
-			this._overflowRecoveryAttempted = false;
-			const messageText = this._getUserMessageText(event.message);
-			if (messageText) {
-				// Check steering queue first
-				const steeringIndex = this._steeringMessages.indexOf(messageText);
-				if (steeringIndex !== -1) {
-					this._steeringMessages.splice(steeringIndex, 1);
-					this._emitQueueUpdate();
-				} else {
-					// Check follow-up queue
-					const followUpIndex = this._followUpMessages.indexOf(messageText);
-					if (followUpIndex !== -1) {
-						this._followUpMessages.splice(followUpIndex, 1);
+			// When a user message starts, check if it's from either queue and remove it BEFORE emitting.
+			if (event.type === "message_start" && event.message.role === "user") {
+				this._overflowRecoveryAttempted = false;
+				const messageText = this._getUserMessageText(event.message);
+				if (messageText) {
+					const steeringIndex = this._steeringMessages.indexOf(messageText);
+					if (steeringIndex !== -1) {
+						this._steeringMessages.splice(steeringIndex, 1);
 						this._emitQueueUpdate();
+					} else {
+						const followUpIndex = this._followUpMessages.indexOf(messageText);
+						if (followUpIndex !== -1) {
+							this._followUpMessages.splice(followUpIndex, 1);
+							this._emitQueueUpdate();
+						}
 					}
 				}
 			}
+
+			const turnIndex = event.type === "turn_end" ? this._turnIndex : undefined;
+			await this._emitExtensionEvent(event);
+			if (event.type === "turn_end" && turnIndex !== undefined) {
+				const validationManifestMutated = this._executionIntegrityTracker.recordTurn({
+					turnIndex,
+					toolObservations: this._getExecutionToolObservations(event),
+				});
+				if (validationManifestMutated) this._refreshValidationCommandDiscovery();
+			}
+		} catch (error) {
+			this._criticalRuntimeFailureForRun = true;
+			this._failedExtensionEvent = event;
+			throw error;
 		}
+	};
 
-		// Emit to extensions first
-		const turnIndex = event.type === "turn_end" ? this._turnIndex : undefined;
-		await this._emitExtensionEvent(event);
-		if (event.type === "turn_end" && turnIndex !== undefined) {
-			const validationManifestMutated = this._executionIntegrityTracker.recordTurn({
-				turnIndex,
-				toolObservations: this._getExecutionToolObservations(event),
-			});
-			if (validationManifestMutated) this._refreshValidationCommandDiscovery();
-		}
+	/** Critical persistence listener; it runs after extension transformation when possible. */
+	private _handleAgentPersistenceEvent = async (event: AgentEvent): Promise<void> => {
+		try {
+			if (event.type !== "message_end") return;
+			if (event.message.role === "toolResult" && this._failedExtensionEvent === event) return;
 
-		// Notify all listeners
-		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
-		if (event.type === "agent_end") this._agentEndSeenForRun = true;
-
-		// Handle session persistence
-		if (event.type === "message_end") {
-			// Check if this is a custom message from extensions
 			if (event.message.role === "custom") {
-				// Persist as CustomMessageEntry
 				this.sessionManager.appendCustomMessageEntry(
 					event.message.customType,
 					event.message.content,
@@ -886,12 +894,9 @@ export class AgentSession {
 				event.message.role === "assistant" ||
 				event.message.role === "toolResult"
 			) {
-				// Regular LLM message - persist as SessionMessageEntry
 				this.sessionManager.appendMessage(event.message);
 			}
-			// Other message types (bashExecution, compactionSummary, branchSummary) are persisted elsewhere
 
-			// Track assistant message for auto-compaction (checked on agent_end)
 			if (event.message.role === "assistant") {
 				this._lastAssistantMessage = event.message;
 
@@ -900,8 +905,6 @@ export class AgentSession {
 					this._overflowRecoveryAttempted = false;
 				}
 
-				// Reset retry counter immediately on successful assistant response
-				// This prevents accumulation across multiple LLM calls within a turn
 				if (assistantMsg.stopReason !== "error" && this._retryAttempt > 0) {
 					this._emit({
 						type: "auto_retry_end",
@@ -911,10 +914,20 @@ export class AgentSession {
 					this._retryAttempt = 0;
 				}
 			}
+		} catch (error) {
+			this._criticalRuntimeFailureForRun = true;
+			throw error;
 		}
 	};
 
+	/** Isolated session/UI/RPC event delivery after critical listeners have settled. */
+	private _handleAgentObserverEvent = (event: AgentEvent): void => {
+		this._emit(event.type === "agent_end" ? { ...event, willRetry: this._willRetryAfterAgentEnd(event) } : event);
+		if (event.type === "agent_end") this._agentEndSeenForRun = true;
+	};
+
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
+		if (this._criticalRuntimeFailureForRun) return false;
 		const settings = this.settingsManager.getRetrySettings();
 		if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {
 			return false;
@@ -969,7 +982,7 @@ export class AgentSession {
 
 	private _replaceMessageInPlace(target: AgentMessage, replacement: AgentMessage): void {
 		// Agent-core stores the finalized message object in its state before emitting message_end.
-		// SessionManager persistence happens later in _handleAgentEvent() with event.message.
+		// SessionManager persistence happens later in _handleAgentPersistenceEvent() with event.message.
 		// Mutating this object in place keeps agent state, later turn/agent events, listeners,
 		// and the eventual SessionManager.appendMessage(event.message) persistence in sync.
 		if (target === replacement) {
@@ -1090,10 +1103,12 @@ export class AgentSession {
 	 * Used internally during operations that need to pause event processing.
 	 */
 	private _disconnectFromAgent(): void {
-		if (this._unsubscribeAgent) {
-			this._unsubscribeAgent();
-			this._unsubscribeAgent = undefined;
-		}
+		this._unsubscribeExtension?.();
+		this._unsubscribePersistence?.();
+		this._unsubscribeObserver?.();
+		this._unsubscribeExtension = undefined;
+		this._unsubscribePersistence = undefined;
+		this._unsubscribeObserver = undefined;
 	}
 
 	/**
@@ -1101,8 +1116,10 @@ export class AgentSession {
 	 * Preserves all existing listeners.
 	 */
 	private _reconnectToAgent(): void {
-		if (this._unsubscribeAgent) return; // Already connected
-		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent, { failureMode: "fatal" });
+		if (this._unsubscribeExtension || this._unsubscribePersistence || this._unsubscribeObserver) return;
+		this._unsubscribeExtension = this.agent.subscribe(this._handleAgentExtensionEvent, { failureMode: "fatal" });
+		this._unsubscribePersistence = this.agent.subscribe(this._handleAgentPersistenceEvent, { failureMode: "fatal" });
+		this._unsubscribeObserver = this.agent.subscribe(this._handleAgentObserverEvent, { failureMode: "isolate" });
 	}
 
 	/**

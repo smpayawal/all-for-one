@@ -9,6 +9,7 @@ import {
 	type Transport,
 } from "@earendil-works/pi-ai/compat";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
+import { normalizeRuntimeError } from "./runtime-error.ts";
 import type {
 	AfterToolCallContext,
 	AfterToolCallResult,
@@ -118,12 +119,8 @@ function normalizeExecutionLimits(limits: ExecutionLimits | undefined): Executio
 	return normalized.maxTurns === undefined && normalized.maxAcceptedToolCalls === undefined ? undefined : normalized;
 }
 
-function errorText(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
 function abortReason(signal: AbortSignal): string | undefined {
-	return signal.reason === undefined ? undefined : errorText(signal.reason);
+	return signal.reason === undefined ? undefined : normalizeRuntimeError(signal.reason);
 }
 
 function inferTermination(messages: AgentMessage[]): AgentRunTermination {
@@ -597,11 +594,10 @@ export class Agent {
 
 	private recordListenerError(listener: AgentEventListener, error: unknown): void {
 		const activeRun = this.activeRun;
-		const normalized = error instanceof Error ? error : new Error(String(error));
 		if (!activeRun) return;
 
 		activeRun.failedListeners.add(listener);
-		const message = normalized.message.slice(0, MAX_LISTENER_ERROR_CHARS);
+		const message = normalizeRuntimeError(error).slice(0, MAX_LISTENER_ERROR_CHARS);
 		if (activeRun.diagnostics.listenerErrors.length < MAX_LISTENER_ERRORS) {
 			activeRun.diagnostics.listenerErrors.push(message);
 		}
@@ -621,10 +617,10 @@ export class Agent {
 
 		const criticalFailure = error instanceof AgentEventHandlerError || activeRun.criticalFailure;
 		const message = criticalFailure
-			? errorText(error)
+			? normalizeRuntimeError(error)
 			: aborted
-				? (abortReason(activeRun.abortController.signal) ?? errorText(error))
-				: errorText(error);
+				? (abortReason(activeRun.abortController.signal) ?? normalizeRuntimeError(error))
+				: normalizeRuntimeError(error);
 		const termination: AgentRunTermination = criticalFailure
 			? { reason: "error", message }
 			: aborted
@@ -675,7 +671,7 @@ export class Agent {
 		const termination =
 			activeRun.diagnostics.termination ??
 			(activeRun.criticalFailure
-				? { reason: "error" as const, message: activeRun.criticalFailure.message }
+				? { reason: "error" as const, message: normalizeRuntimeError(activeRun.criticalFailure) }
 				: activeRun.abortController.signal.aborted
 					? reason
 						? { reason: "aborted" as const, message: reason }
@@ -764,21 +760,25 @@ export class Agent {
 						...listenerEntries.filter(([, failureMode]) => failureMode === "isolate"),
 					]
 				: listenerEntries;
+		let fatalError: AgentEventHandlerError | undefined;
 		for (const [listener, failureMode] of orderedListeners) {
 			if (activeRun.failedListeners.has(listener)) continue;
+			if (fatalError && failureMode === "isolate") continue;
 			try {
 				await listener(event, activeRun.abortController.signal);
 			} catch (error) {
 				this.recordListenerError(listener, error);
 				if (failureMode === "fatal") {
-					const fatalError = error instanceof AgentEventHandlerError ? error : new AgentEventHandlerError(error);
-					activeRun.criticalFailure = fatalError;
+					const listenerError =
+						error instanceof AgentEventHandlerError ? error : new AgentEventHandlerError(error);
+					activeRun.criticalFailure ??= listenerError;
+					fatalError ??= listenerError;
 					activeRun.failedListeners.add(listener);
-					if (!activeRun.abortController.signal.aborted) activeRun.abortController.abort(fatalError);
-					throw fatalError;
+					if (!activeRun.abortController.signal.aborted) activeRun.abortController.abort(listenerError);
 				}
 			}
 		}
+		if (fatalError) throw fatalError;
 
 		if (event.type === "agent_end") {
 			activeRun.terminalEventEmitted = true;

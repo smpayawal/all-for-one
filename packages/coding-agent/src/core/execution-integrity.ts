@@ -374,7 +374,8 @@ export class ExecutionIntegrityTracker {
 			? "concurrent-with-mutation"
 			: result.cancelled || result.exitCode !== 0
 				? "failed"
-				: hasFreshLocalProvenance(executionProvenance, command, this.cwd, result.cancelled)
+				: discovered.scope === "exact" &&
+						hasFreshLocalProvenance(executionProvenance, command, this.cwd, result.cancelled)
 					? "passed"
 					: "unverified";
 		this.recordValidation({

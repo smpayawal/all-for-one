@@ -11,6 +11,7 @@ import {
 	type ToolResultMessage,
 	validateToolArguments,
 } from "@earendil-works/pi-ai/compat";
+import { normalizeRuntimeError } from "./runtime-error.ts";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -51,24 +52,20 @@ function resolveExecutionLimits(limits: ExecutionLimits | undefined): ExecutionL
 	};
 }
 
-function errorText(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
 function abortMessage(signal?: AbortSignal): string | undefined {
 	if (!signal?.aborted || signal.reason === undefined) return undefined;
-	return errorText(signal.reason);
+	return normalizeRuntimeError(signal.reason);
 }
 
 function terminationForFailure(error: unknown, signal?: AbortSignal): AgentRunTermination {
 	if (error instanceof AgentEventHandlerError || signal?.reason instanceof AgentEventHandlerError) {
-		return { reason: "error", message: errorText(error) };
+		return { reason: "error", message: normalizeRuntimeError(error) };
 	}
 	if (signal?.aborted) {
-		const message = abortMessage(signal) ?? errorText(error);
+		const message = abortMessage(signal) ?? normalizeRuntimeError(error);
 		return message ? { reason: "aborted", message } : { reason: "aborted" };
 	}
-	return { reason: "error", message: errorText(error) };
+	return { reason: "error", message: normalizeRuntimeError(error) };
 }
 
 function createRunFailureMessage(
@@ -84,7 +81,7 @@ function createRunFailureMessage(
 		model: config.model.id,
 		usage: EMPTY_USAGE,
 		stopReason: termination.reason === "aborted" ? "aborted" : "error",
-		errorMessage: errorText(error),
+		errorMessage: normalizeRuntimeError(error),
 		timestamp: Date.now(),
 	};
 }
@@ -117,6 +114,7 @@ function createLifecycleFailureToolResult(tracked: TrackedToolCall): ToolResultM
 class AgentRunLifecycle {
 	private readonly messages: AgentMessage[] = [];
 	private readonly requestedToolCalls = new Map<string, TrackedToolCall>();
+	private readonly stagedToolCalls = new Map<string, TrackedToolCall>();
 	private readonly emittedToolResultIds = new Set<string>();
 	private openMessageIndex: number | undefined;
 	private turnOpen = false;
@@ -169,6 +167,14 @@ class AgentRunLifecycle {
 				} else {
 					this.messages[this.openMessageIndex] = event.message;
 				}
+				if (event.message.role === "assistant" && Array.isArray(event.message.content)) {
+					for (const block of event.message.content) {
+						if (block.type !== "toolCall" || this.requestedToolCalls.has(block.id)) continue;
+						const tracked = { toolCall: block, phase: "not-started" as const };
+						this.requestedToolCalls.set(block.id, tracked);
+						this.stagedToolCalls.set(block.id, tracked);
+					}
+				}
 				break;
 			case "tool_execution_start":
 				this.setToolFailurePhase(event.toolCallId, "not-started");
@@ -191,13 +197,22 @@ class AgentRunLifecycle {
 	private commit(event: AgentEvent): void {
 		if (event.type === "message_end") {
 			this.openMessageIndex = undefined;
+			const finalizedToolCallIds = new Set<string>();
 			if (event.message.role === "assistant" && Array.isArray(event.message.content)) {
 				for (const block of event.message.content) {
-					if (block.type === "toolCall" && !this.requestedToolCalls.has(block.id)) {
+					if (block.type !== "toolCall") continue;
+					finalizedToolCallIds.add(block.id);
+					if (!this.requestedToolCalls.has(block.id)) {
 						this.requestedToolCalls.set(block.id, { toolCall: block, phase: "not-started" });
 					}
 				}
 			}
+			for (const [toolCallId, tracked] of this.stagedToolCalls) {
+				if (!finalizedToolCallIds.has(toolCallId) && this.requestedToolCalls.get(toolCallId) === tracked) {
+					this.requestedToolCalls.delete(toolCallId);
+				}
+			}
+			this.stagedToolCalls.clear();
 			if (event.message.role === "toolResult") {
 				this.emittedToolResultIds.add(event.message.toolCallId);
 			}
@@ -1033,7 +1048,7 @@ async function prepareToolCall(
 	} catch (error) {
 		return {
 			kind: "immediate",
-			result: createErrorToolResult(errorText(error)),
+			result: createErrorToolResult(normalizeRuntimeError(error)),
 			isError: true,
 		};
 	}
@@ -1074,7 +1089,7 @@ async function executePreparedToolCall(
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
 		return {
-			result: createErrorToolResult(errorText(error)),
+			result: createErrorToolResult(normalizeRuntimeError(error)),
 			isError: true,
 		};
 	} finally {
@@ -1116,7 +1131,7 @@ async function finalizeExecutedToolCall(
 				isError = afterResult.isError ?? isError;
 			}
 		} catch (error) {
-			result = createErrorToolResult(errorText(error));
+			result = createErrorToolResult(normalizeRuntimeError(error));
 			isError = true;
 		}
 	}

@@ -182,6 +182,30 @@ describe("ExecutionIntegrityTracker", () => {
 		});
 	});
 
+	it("does not treat a successful user-run targeted command as exact evidence", () => {
+		const tracker = createTracker();
+		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });
+		tracker.recordUserBashValidation(
+			"npm test -- test/example.test.ts",
+			{
+				exitCode: 0,
+				cancelled: false,
+				executionProvenance: validationProvenance("npm test -- test/example.test.ts"),
+			},
+			1,
+		);
+
+		expect(tracker.getSnapshot().validations.at(-1)).toMatchObject({
+			scope: "targeted-unverified",
+			status: "unverified",
+		});
+		expect(tracker.getSnapshot()).toMatchObject({
+			unverifiedValidationCount: 1,
+			freshPassingValidationCount: 0,
+		});
+		expect(tracker.decideCompletion()).toEqual({ action: "continue", reason: "validation-missing" });
+	});
+
 	it("does not treat an exact command without execution provenance as fresh evidence", () => {
 		const tracker = createTracker();
 		tracker.recordTurn({ turnIndex: 0, toolObservations: [mutation()] });

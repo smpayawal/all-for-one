@@ -13,6 +13,7 @@ import type {
 	ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import type { Static, TSchema } from "typebox";
+import { normalizeRuntimeError } from "./runtime-error.ts";
 
 /**
  * Stream function used by the agent loop. `Models.streamSimple` satisfies
@@ -63,7 +64,7 @@ export class AgentEventHandlerError extends Error {
 	readonly causeError: unknown;
 
 	constructor(cause: unknown) {
-		super(cause instanceof Error ? cause.message : String(cause));
+		super(normalizeRuntimeError(cause));
 		this.name = "AgentEventHandlerError";
 		this.causeError = cause;
 	}

@@ -9,6 +9,7 @@ import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { Agent } from "../src/agent.ts";
 import { agentLoop } from "../src/agent-loop.ts";
+import { MAX_RUNTIME_ERROR_CHARS, normalizeRuntimeError } from "../src/runtime-error.ts";
 import type { AgentContext, AgentEvent, AgentMessage, AgentTool } from "../src/types.ts";
 
 class MockStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
@@ -100,6 +101,77 @@ function emptyTool(name: string, execute: () => void): AgentTool {
 const toolResults = (agent: Agent) => agent.state.messages.filter((message) => message.role === "toolResult");
 
 describe("execution integrity", () => {
+	it("bounds, sanitizes, and redacts unknown runtime errors safely", () => {
+		const normalized = normalizeRuntimeError(
+			new Error(
+				[
+					"request failed\u0000\u0007",
+					"Authorization: Bearer bearer-test-value",
+					"Bearer standalone-test-value",
+					"api_key=api-test-value",
+					"apikey=apikey-test-value",
+					"token=token-test-value",
+					"access_token=access-test-value",
+					"refresh_token=refresh-test-value",
+					"OPENAI_API_KEY=sk-test-value",
+					"Cookie: session=test-cookie; other=value",
+					"x".repeat(MAX_RUNTIME_ERROR_CHARS),
+				].join("\n"),
+			),
+		);
+
+		expect(normalized.length).toBeLessThanOrEqual(MAX_RUNTIME_ERROR_CHARS);
+		expect(normalized).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+		for (const secret of [
+			"bearer-test-value",
+			"standalone-test-value",
+			"api-test-value",
+			"apikey-test-value",
+			"token-test-value",
+			"access-test-value",
+			"refresh-test-value",
+			"sk-test-value",
+			"session=test-cookie",
+		]) {
+			expect(normalized).not.toContain(secret);
+		}
+		expect(normalized).toContain("[REDACTED]");
+
+		const circular: Record<string, unknown> = {};
+		circular.self = circular;
+		expect(() => normalizeRuntimeError(circular)).not.toThrow();
+		expect(() =>
+			normalizeRuntimeError({
+				toString: () => {
+					throw new Error("toString failed");
+				},
+			}),
+		).not.toThrow();
+	});
+
+	it("uses normalized runtime error text for terminal messages and diagnostics", async () => {
+		const failureText =
+			"runtime failed\nAuthorization: Bearer bearer-test-value\napi_key=api-test-value\nOPENAI_API_KEY=sk-test-value";
+		const agent = new Agent({
+			initialState: { model: model() },
+			streamFn: () => stream(assistant([{ type: "text", text: "ok" }])),
+		});
+		agent.subscribe(
+			(event) => {
+				if (event.type === "message_end" && event.message.role === "assistant") throw new Error(failureText);
+			},
+			{ failureMode: "fatal" },
+		);
+
+		await agent.prompt("hello");
+
+		const terminalMessage = agent.state.messages.at(-1);
+		const normalized = normalizeRuntimeError(failureText);
+		expect(terminalMessage).toMatchObject({ role: "assistant", stopReason: "error", errorMessage: normalized });
+		expect(agent.lastRunDiagnostics?.termination).toEqual({ reason: "error", message: normalized });
+		expect(agent.lastRunDiagnostics?.listenerErrors).toEqual([normalized]);
+	});
+
 	it("settles a low-level stream when context conversion rejects", async () => {
 		const events: AgentEvent[] = [];
 		const result = agentLoop([{ role: "user", content: "hello", timestamp: Date.now() }], context(), {
@@ -190,6 +262,97 @@ describe("execution integrity", () => {
 			expect(agent.state.errorMessage).toBeUndefined();
 		},
 	);
+
+	it("recovers finalized assistant tool calls when a fatal message_end listener fails", async () => {
+		let providerCalls = 0;
+		let executions = 0;
+		let conversionCalls = 0;
+		const inspect: AgentTool = {
+			name: "inspect",
+			label: "inspect",
+			description: "inspect",
+			parameters: Type.Object({}),
+			async execute() {
+				executions++;
+				return { content: [{ type: "text", text: "inspected" }], details: {} };
+			},
+		};
+		const agent = new Agent({
+			initialState: { model: model(), tools: [inspect] },
+			convertToLlm: (messages: AgentMessage[]) => {
+				conversionCalls++;
+				const pendingToolCalls = new Set<string>();
+				for (const message of messages) {
+					if (message.role === "assistant" && Array.isArray(message.content)) {
+						for (const block of message.content) {
+							if (block.type === "toolCall") pendingToolCalls.add(block.id);
+						}
+					} else if (message.role === "toolResult") {
+						if (!pendingToolCalls.delete(message.toolCallId)) {
+							throw new Error(`unexpected tool result ${message.toolCallId}`);
+						}
+					}
+				}
+				if (conversionCalls > 1) expect(pendingToolCalls).toHaveLength(0);
+				return messages.filter(
+					(message): message is Message =>
+						message.role === "user" || message.role === "assistant" || message.role === "toolResult",
+				);
+			},
+			streamFn: () => {
+				providerCalls++;
+				return stream(
+					providerCalls === 1
+						? assistant(
+								[
+									{ type: "toolCall", id: "call-1", name: "inspect", arguments: {} },
+									{ type: "toolCall", id: "call-2", name: "inspect", arguments: {} },
+								],
+								"toolUse",
+							)
+						: assistant([{ type: "text", text: "follow-up complete" }]),
+				);
+			},
+		});
+		const events: AgentEvent[] = [];
+		agent.subscribe(
+			(event) => {
+				if (
+					event.type === "message_end" &&
+					event.message.role === "assistant" &&
+					event.message.content.some((block) => block.type === "toolCall")
+				) {
+					throw new Error("fatal assistant message_end");
+				}
+			},
+			{ failureMode: "fatal" },
+		);
+		agent.subscribe((event) => {
+			events.push(event);
+		});
+
+		await agent.prompt("inspect");
+
+		expect(providerCalls).toBe(1);
+		expect(executions).toBe(0);
+		const recoveredResults = toolResults(agent).filter((message) => message.toolCallId.startsWith("call-"));
+		expect(recoveredResults.map((message) => message.toolCallId)).toEqual(["call-1", "call-2"]);
+		expect(recoveredResults).toHaveLength(2);
+		expect(recoveredResults).toEqual([
+			expect.objectContaining({ details: { failurePhase: "not-started" } }),
+			expect.objectContaining({ details: { failurePhase: "not-started" } }),
+		]);
+		expect(events.filter((event) => event.type === "agent_end")).toHaveLength(1);
+		expect(events.find((event) => event.type === "agent_end")).toMatchObject({ termination: { reason: "error" } });
+
+		await agent.prompt("continue after failure");
+
+		expect(providerCalls).toBe(2);
+		expect(agent.state.messages.at(-1)).toMatchObject({
+			role: "assistant",
+			content: [{ type: "text", text: "follow-up complete" }],
+		});
+	});
 
 	it.each([
 		{ failureEvent: "tool_execution_start" as const, expectedPhase: "not-started", executions: 0 },

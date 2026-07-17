@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { normalizeRuntimeError } from "@earendil-works/pi-agent-core";
 import { fauxToolCall } from "@earendil-works/pi-ai";
 import { type FauxResponseStep, fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
@@ -472,6 +473,13 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		expect(sessionEnd).toMatchObject({ termination: { reason: "error" } });
 		expect(sdkEnd.termination).toEqual(sessionEnd.termination);
 		expect(sessionEnd.termination).toEqual(runtimeHost.session.agent.lastRunDiagnostics?.termination);
+		const sessionFile = runtimeHost.session.sessionFile;
+		expect(sessionFile).toBeTruthy();
+		const persistedMessages = SessionManager.open(sessionFile!).buildSessionContext().messages;
+		expect(persistedMessages.filter((message) => message.role === "toolResult")).toHaveLength(0);
+		expect(
+			persistedMessages.filter((message) => message.role === "assistant" && message.stopReason === "error"),
+		).toHaveLength(0);
 	});
 
 	it("terminalizes extension failures at message_end and turn_end", async () => {
@@ -515,6 +523,164 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 			expect(events).toHaveLength(1);
 			expect(events[0]).toMatchObject({ termination: { reason: "error" } });
 		}
+	});
+
+	it.each(["assistant_message_end", "tool_result_message_end", "tool_execution_end", "turn_end"] as const)(
+		"persists a paired recovery transcript after %s extension failure",
+		async (failureEvent) => {
+			const requestedToolCall = fauxToolCall("edit", {
+				path: "example.ts",
+				edits: [{ oldText: "old", newText: "new" }],
+			});
+			const { runtimeHost, faux, tempDir } = await createRuntimeHost(() => {}, {
+				responses: [
+					fauxAssistantMessage(requestedToolCall, { stopReason: "toolUse" }),
+					fauxAssistantMessage("recovered after reload"),
+				],
+			});
+			writeFileSync(join(tempDir, "example.ts"), "old\n");
+
+			const runner = runtimeHost.session as unknown as {
+				_extensionRunner: {
+					emit: (event: { type: string; [key: string]: unknown }) => Promise<void>;
+					emitMessageEnd: (event: {
+						type: string;
+						message?: { role?: string; content?: Array<{ type?: string }> };
+					}) => Promise<unknown>;
+				};
+			};
+			const originalEmit = runner._extensionRunner.emit.bind(runner._extensionRunner);
+			const originalEmitMessageEnd = runner._extensionRunner.emitMessageEnd.bind(runner._extensionRunner);
+			runner._extensionRunner.emit = async (event) => {
+				if (failureEvent === "tool_execution_end" && event.type === "tool_execution_end") {
+					throw new Error("extension tool_execution_end failed");
+				}
+				if (failureEvent === "turn_end" && event.type === "turn_end") {
+					throw new Error("extension turn_end failed");
+				}
+				return originalEmit(event);
+			};
+			runner._extensionRunner.emitMessageEnd = async (event) => {
+				const message = event.message;
+				const hasToolCall =
+					message?.role === "assistant" && message.content?.some((block) => block.type === "toolCall");
+				if (failureEvent === "assistant_message_end" && hasToolCall) {
+					throw new Error("extension assistant message_end failed");
+				}
+				if (failureEvent === "tool_result_message_end" && message?.role === "toolResult") {
+					throw new Error("extension tool-result message_end failed");
+				}
+				return originalEmitMessageEnd(event);
+			};
+
+			const terminalEvents: AgentSessionEvent[] = [];
+			runtimeHost.session.subscribe((event) => {
+				if (event.type === "agent_end") terminalEvents.push(event);
+			});
+
+			await runtimeHost.session.prompt("edit the file");
+
+			expect(faux.getPendingResponseCount()).toBe(1);
+			expect(terminalEvents).toHaveLength(1);
+			expect(terminalEvents[0]).toMatchObject({ termination: { reason: "error" } });
+			const agentMessages = runtimeHost.session.messages;
+			const agentToolCalls = agentMessages.flatMap((message) =>
+				message.role === "assistant" && Array.isArray(message.content)
+					? message.content.filter((block) => block.type === "toolCall").map((block) => block.id)
+					: [],
+			);
+			const agentResults = agentMessages.filter((message) => message.role === "toolResult");
+			expect(agentToolCalls).toEqual([requestedToolCall.id]);
+			expect(agentResults.filter((message) => message.toolCallId === requestedToolCall.id)).toHaveLength(1);
+			expect(
+				agentMessages.filter((message) => message.role === "assistant" && message.stopReason === "error"),
+			).toHaveLength(1);
+			const inMemoryMessages = runtimeHost.session.sessionManager.buildSessionContext().messages;
+			expect(inMemoryMessages).toEqual(agentMessages);
+
+			const sessionFile = runtimeHost.session.sessionFile;
+			expect(sessionFile).toBeTruthy();
+			expect(existsSync(sessionFile!)).toBe(true);
+			const reloadedManager = SessionManager.open(sessionFile!);
+			const reloadedMessages = reloadedManager.buildSessionContext().messages;
+			expect(reloadedMessages).toEqual(inMemoryMessages);
+			expect(
+				reloadedMessages.filter(
+					(message) => message.role === "toolResult" && message.toolCallId === requestedToolCall.id,
+				),
+			).toHaveLength(1);
+			expect(
+				reloadedMessages.filter((message) => message.role === "assistant" && message.stopReason === "error"),
+			).toHaveLength(1);
+
+			await runtimeHost.switchSession(sessionFile!);
+			await runtimeHost.session.bindExtensions({});
+			expect(runtimeHost.session.messages).toEqual(reloadedMessages);
+			await runtimeHost.session.prompt("continue after reload");
+			expect(faux.getPendingResponseCount()).toBe(0);
+		},
+	);
+
+	it("normalizes runtime errors in terminal diagnostics and persisted failure messages", async () => {
+		const failureText =
+			"runtime failed\nAuthorization: Bearer bearer-test-value\napi_key=api-test-value\nOPENAI_API_KEY=sk-test-value";
+		const requestedToolCall = fauxToolCall("edit", {
+			path: "example.ts",
+			edits: [{ oldText: "old", newText: "new" }],
+		});
+		const { runtimeHost, faux, tempDir } = await createRuntimeHost(() => {}, {
+			responses: [fauxAssistantMessage(requestedToolCall, { stopReason: "toolUse" })],
+		});
+		writeFileSync(join(tempDir, "example.ts"), "old\n");
+
+		const runner = runtimeHost.session as unknown as {
+			_extensionRunner: {
+				emitMessageEnd: (event: {
+					type: string;
+					message?: { role?: string; content?: Array<{ type?: string }> };
+				}) => Promise<unknown>;
+			};
+		};
+		const originalEmitMessageEnd = runner._extensionRunner.emitMessageEnd.bind(runner._extensionRunner);
+		runner._extensionRunner.emitMessageEnd = async (event) => {
+			const message = event.message;
+			if (message?.role === "assistant" && message.content?.some((block) => block.type === "toolCall")) {
+				throw new Error(failureText);
+			}
+			return originalEmitMessageEnd(event);
+		};
+
+		const terminalEvents: AgentSessionEvent[] = [];
+		runtimeHost.session.subscribe((event) => {
+			if (event.type === "agent_end") terminalEvents.push(event);
+		});
+
+		await runtimeHost.session.prompt("edit the file");
+
+		const normalized = normalizeRuntimeError(failureText);
+		expect(faux.getPendingResponseCount()).toBe(0);
+		expect(terminalEvents).toHaveLength(1);
+		const terminalEvent = terminalEvents[0];
+		if (!terminalEvent || terminalEvent.type !== "agent_end") throw new Error("Expected an agent_end event");
+		expect(terminalEvent.termination).toEqual({ reason: "error", message: normalized });
+		expect(runtimeHost.session.agent.lastRunDiagnostics?.termination).toEqual({
+			reason: "error",
+			message: normalized,
+		});
+		const inMemoryFailureMessages = runtimeHost.session.messages.filter(
+			(message) => message.role === "assistant" && message.stopReason === "error",
+		);
+		expect(inMemoryFailureMessages).toHaveLength(1);
+		expect(inMemoryFailureMessages[0]).toMatchObject({ errorMessage: normalized });
+
+		const sessionFile = runtimeHost.session.sessionFile;
+		expect(sessionFile).toBeTruthy();
+		const reloadedMessages = SessionManager.open(sessionFile!).buildSessionContext().messages;
+		const persistedFailureMessages = reloadedMessages.filter(
+			(message) => message.role === "assistant" && message.stopReason === "error",
+		);
+		expect(persistedFailureMessages).toHaveLength(1);
+		expect(persistedFailureMessages[0]).toMatchObject({ errorMessage: normalized });
 	});
 
 	it("isolates a throwing session subscriber from internal persistence", async () => {
