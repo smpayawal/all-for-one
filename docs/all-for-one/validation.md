@@ -8,7 +8,7 @@ Validation is pinned to immutable commits and a workflow run:
 
 ```text
 validatedImplementationCommit: 74208c65e8522ea9988ebaf2d44782c127f754e8
-validationEvidenceCommit: DOCUMENTATION_EVIDENCE_COMMIT_PENDING
+validationEvidenceCommit: da9a2408e8fe2b0f1344982f3841a1995de97c51
 workflowTestedCommit: 74208c65e8522ea9988ebaf2d44782c127f754e8
 workflowRunId: 29568117295
 ```
