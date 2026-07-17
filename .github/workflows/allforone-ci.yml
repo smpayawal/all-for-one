@@ -87,15 +87,23 @@ jobs:
           test/suite/lax-message-content.test.ts
           test/memory.test.ts
 
-      - name: Interactive and session regression tests
-        run: >-
-          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
-          test/interactive-mode-status.test.ts
-          test/session-rail.test.ts
-          test/suite/agent-session-runtime.test.ts
-          test/suite/agent-session-bash-persistence.test.ts
-          test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts
-          test/suite/regressions/5109-exclude-tools.test.ts
+      - name: Interactive mode status test
+        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/interactive-mode-status.test.ts
+
+      - name: Session rail test
+        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/session-rail.test.ts
+
+      - name: Agent session runtime test
+        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/suite/agent-session-runtime.test.ts
+
+      - name: Agent session bash persistence test
+        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/suite/agent-session-bash-persistence.test.ts
+
+      - name: Extension allowlist regression test
+        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts
+
+      - name: Excluded tools regression test
+        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/suite/regressions/5109-exclude-tools.test.ts
 
       - name: Focused agent runtime tests
         run: npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/execution-integrity.test.ts
