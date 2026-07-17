@@ -47,7 +47,7 @@ There is no dedicated evaluation-platform phase. Validation is performed within 
 
 ## Project invariants
 
-Every proposal and implementation must preserve these invariants:
+Every proposal and implementation preserves these invariants:
 
 1. Native Pi remains the architectural baseline.
 2. `main` remains the clean local mirror of upstream Pi.
@@ -57,7 +57,7 @@ Every proposal and implementation must preserve these invariants:
 6. The canonical built-in tool registry remains `read`, `bash`, `edit`, `write`, and `apply_patch`.
 7. New behavior belongs in an existing Native Pi skill, extension, theme, prompt, settings, SDK, or coding-agent-local boundary before a core agent-loop change is considered.
 8. A new package or `packages/agent` change requires evidence that Pi's public boundaries cannot satisfy the requirement cleanly.
-9. Optional behavior must have no prompt, process, or rendering cost while disabled.
+9. Optional behavior has no prompt, process, or rendering cost while disabled.
 10. No performance, quality, latency, cost, model-reliability, or security claim is made without supporting evidence.
 11. No classifier model, skill tool, workflow engine, semantic retrieval layer, duplicate memory system, or evaluation platform is introduced.
 
