@@ -2,7 +2,7 @@
 
 This directory contains the current architecture, constraints, implementation direction, and operational guidance for All-For-One.
 
-All-For-One remains a lightweight downstream of Native Pi. The documentation in this directory must preserve the branch relationship and compatibility contract:
+All-For-One remains a lightweight downstream of Native Pi. The documentation in this directory preserves the branch relationship and compatibility contract:
 
 ```text
 upstream Pi -> main -> allforone -> focused branches
@@ -10,10 +10,26 @@ upstream Pi -> main -> allforone -> focused branches
 
 ## Current architecture and plans
 
-- [Architecture](architecture.md) — current and target ownership boundaries.
-- [UI/UX design](ui-ux.md) — terminal-native visual and interaction improvements.
-- [Adaptive capabilities](adaptive-capabilities.md) — automatic skill, tool, and workflow selection without a second orchestration layer.
-- [Implementation roadmap](implementation-roadmap.md) — ordered implementation tasks, affected files, acceptance criteria, and rollback boundaries.
+- [Architecture](architecture.md) — package ownership, runtime boundaries, compatibility rules, and prohibited duplication.
+- [UI/UX design](ui-ux.md) — terminal-native visual and interaction improvements delivered as the first runtime workstream.
+- [Adaptive capabilities](adaptive-capabilities.md) — centralized coding-model behavior plus automatic skill, tool, and workflow selection without another orchestration layer.
+- [Implementation roadmap](implementation-roadmap.md) — the authoritative P0-P5 delivery plan, affected files, validation gates, and completion criteria.
+
+## Authoritative roadmap
+
+The approved order is:
+
+```text
+P0  Consolidate and freeze architecture
+    + complete the UI/UX foundation as the first runtime workstream
+P1  Make the tool interface adaptive and unambiguous
+P2  Add the essential adaptive skill package
+P3  Clarify knowledge ownership
+P4  Ship optional robustness packages
+P5  Reduce downstream maintenance cost
+```
+
+There is no dedicated evaluation-platform phase. Validation is performed within the phase that introduces the behavior.
 
 ## Existing operational documentation
 
@@ -38,15 +54,18 @@ Every proposal and implementation must preserve these invariants:
 3. All-For-One work is integrated through `allforone` and focused branches created from it.
 4. The primary runtime remains adaptive and single-agent.
 5. Pi-compatible commands, configuration paths, package names, sessions, extension APIs, SDK behavior, print mode, and RPC mode remain compatible unless an intentional migration is separately designed.
-6. New behavior belongs in a skill, extension, theme, prompt, or coding-agent-local module before a core agent-loop change is considered.
-7. Optional behavior must have no material normal-session cost while disabled.
-8. No performance, quality, latency, cost, or security claim is made without supporting evidence.
+6. The canonical built-in tool registry remains `read`, `bash`, `edit`, `write`, and `apply_patch`.
+7. New behavior belongs in an existing Native Pi skill, extension, theme, prompt, settings, SDK, or coding-agent-local boundary before a core agent-loop change is considered.
+8. A new package or `packages/agent` change requires evidence that Pi's public boundaries cannot satisfy the requirement cleanly.
+9. Optional behavior must have no prompt, process, or rendering cost while disabled.
+10. No performance, quality, latency, cost, model-reliability, or security claim is made without supporting evidence.
+11. No classifier model, skill tool, workflow engine, semantic retrieval layer, duplicate memory system, or evaluation platform is introduced.
 
 ## Documentation ownership
 
-- `architecture.md` owns stable package and runtime boundaries.
+- `architecture.md` owns stable package, runtime, compatibility, and subsystem ownership decisions.
 - `ui-ux.md` owns terminal presentation and interaction decisions.
-- `adaptive-capabilities.md` owns skill, tool, and workflow activation rules.
-- `implementation-roadmap.md` owns delivery order and implementation gates.
+- `adaptive-capabilities.md` owns coding-model profiles and skill, tool, and workflow activation rules.
+- `implementation-roadmap.md` owns the P0-P5 delivery order and implementation gates.
 
-Do not duplicate these decisions in new phase documents. Historical plans may remain for traceability, but this directory is the current source of truth.
+Do not duplicate these decisions in new phase documents. Historical plans may remain for traceability, but these four documents are the current source of truth.
