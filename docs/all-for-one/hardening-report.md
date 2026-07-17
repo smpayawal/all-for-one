@@ -28,6 +28,16 @@ The audit did not justify extracting a separate production subsystem from upstre
 
 The CI quality command is read-only. Because the existing build refreshes network-backed AI catalogs in tracked source files, the workflow first checks that only those known generated paths changed, restores them, and then runs a strict clean-worktree assertion; any other tracked change remains a failure.
 
+## Remaining audit hardening
+
+The focused implementation commit `74c6d0073f26563940a01a33890d453c47b37595` closes three remaining boundaries:
+
+- The generated-file check and CI restore now cover only the two root catalogs and direct `providers/*.models.ts` files. Handwritten provider modules, nested provider files, and unexpected untracked files are regression-tested as failures.
+- Multi-path scoped context updates commit scope replacement only after every target resolves inside the project. Partial batches preserve current valid scopes while retaining successfully discovered nested context.
+- `afterToolCall` results are normalized at the lifecycle boundary. Only `undefined` or non-array objects with array `content` and boolean `isError`/`terminate` fields are accepted; invalid returns become bounded error results before events, history, or provider conversion.
+
+The focused regressions, repository check, and read-only upstream relationship check passed. The aggregate test command remains limited by an existing reftable timing case and missing local `fd`; the build is blocked before compilation by unavailable model-catalog endpoints. No GitHub Actions run for this exact commit is available.
+
 ## Structural measurement
 
 The recorded structural comparison against the clean `allforone` HEAD snapshot measured five default tools instead of six after removing `changes`. The active tool schema decreased from 3,888 to 3,356 characters/bytes (532, about 13.7%); active prompt snippets decreased from 370 to 298 characters/bytes (72, about 19.5%). This is a structural reduction, not a model-quality benchmark.
@@ -38,6 +48,6 @@ The isolated history-preserving rehearsal is dated evidence from an earlier audi
 
 ## Evidence boundary
 
-The repository gate, focused tests, diagnostics, full test command, build, upstream verifier, and the committed-`allforone` remote GitHub Actions run are recorded with their actual exit status in [test-baseline.md](test-baseline.md). Local `HEAD` `3f48b29` still lacks a clean remote CI run. Environment-specific failures (for example local IPC restrictions, network, or user-state permissions) remain classified as limitations rather than hidden.
+The repository gate, focused tests, aggregate test command, build, upstream verifier, and exact-commit CI status are recorded with their actual exit status in [test-baseline.md](test-baseline.md). Environment-specific failures (for example local `fd`, network, or user-state permissions) remain classified as limitations rather than hidden.
 
 No live paired model evaluation was available during this pass. Therefore this report does not claim improved correctness, latency, cost, provider-token usage, or model quality.

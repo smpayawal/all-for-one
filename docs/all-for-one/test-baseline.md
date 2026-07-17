@@ -2,9 +2,34 @@
 
 Date: 2026-07-17
 
-Counts below are from commands actually run after the hardening changes. An environment or build-artifact limitation is reported as a limitation, not converted into a pass.
+The current remaining-hardening section is authoritative for the focused fix branch. Historical evidence from the preceding hardening pass follows and is not evidence for the current implementation commit. An environment or build-artifact limitation is reported as a limitation, not converted into a pass.
 
-## Branch relationship
+## Current remaining-hardening validation
+
+| Item | Result |
+| --- | --- |
+| working branch | `fix/remaining-audit-hardening` |
+| implementation commit | `74c6d0073f26563940a01a33890d453c47b37595` |
+| remote `allforone` head | `fc5533fc7a7d89f8cbde3d08bc66ceaf77c6e88d` |
+| remote `main` | `216e672e7c9fc65682553394b74e483c0c9e47f7` |
+| `main...implementation` | `0 46`; `main` is an ancestor |
+| exact-commit GitHub Actions run | none available; no green CI claim is made |
+
+| Command or suite | Result | Classification |
+| --- | --- | --- |
+| `node --test scripts/check-clean-worktree.test.mjs` | 4 passed | generated-path allowlist regression coverage |
+| `npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/scoped-context.test.ts` | 14 passed | scoped lookup regression coverage |
+| `npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/agent-loop.test.ts` | 40 passed | untrusted `afterToolCall` regression coverage |
+| `npm run check` | pass | repository gate |
+| `node --test scripts/check-upstream-relationship.test.mjs` | 3 passed | verifier regression coverage |
+| `node scripts/check-upstream-relationship.mjs --main origin/main --json` | pass; current `HEAD` is 46 commits ahead and 0 behind | read-only relationship check |
+| `npm test` with isolated temporary HOME/agent directory | exit 1; coding-agent workspace had 1,826 passed, 47 skipped, 3 failed | existing reftable timing case and two missing-`fd` cases; no changed-test failure |
+| `npm run build` | exit 1 before package compilation because model-catalog endpoints were unreachable | generated catalogs were restored; build remains network-blocked |
+| GitHub Actions status | unavailable from this environment; no run for `74c6d0073f26563940a01a33890d453c47b37595` | remote verification pending |
+
+The implementation commit was clean after generated catalog restoration. The historical remote run `29548893362` tested `allforone` commit `3258be547c5175043d9fabadace558e27c0f838a`, not the current remote head or `74c6d0073f26563940a01a33890d453c47b37595`.
+
+## Historical prior-hardening baseline
 
 | Check | Result |
 | --- | --- |
