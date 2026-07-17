@@ -47,61 +47,8 @@ jobs:
       - name: Verify generated build output
         run: node scripts/check-clean-worktree.mjs --allow-build-generated
 
-      - name: Restore generated catalogs after build
-        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
-
-      - name: Check startup UI formatting
-        run: npx biome check --error-on-warnings packages/coding-agent/src/cli/startup-ui.ts
-
-      - name: Check export branding formatting
-        run: npx biome check --error-on-warnings packages/coding-agent/src/core/export-html/branding.ts
-
-      - name: Check brand header formatting
-        run: npx biome check --error-on-warnings packages/coding-agent/src/modes/interactive/components/brand-header.ts
-
-      - name: Check first-time setup formatting
-        run: npx biome check --error-on-warnings packages/coding-agent/src/modes/interactive/components/first-time-setup.ts
-
-      - name: Check export branding test formatting
-        run: npx biome check --error-on-warnings packages/coding-agent/test/export-html-branding.test.ts
-
-      - name: Check first-time setup test formatting
-        run: npx biome check --error-on-warnings packages/coding-agent/test/first-time-setup.test.ts
-
-      - name: Check repository formatting and lint
-        run: npx biome check --error-on-warnings .
-
-      - name: Check pinned dependencies
-        run: npm run check:pinned-deps
-
-      - name: Check TypeScript import extensions
-        run: npm run check:ts-imports
-
-      - name: Check shrinkwrap
-        run: npm run check:shrinkwrap
-
-      - name: Check coding-agent install lock
-        run: npm run check:install-lock:coding-agent
-
-      - name: Capture typecheck
-        id: typecheck
-        continue-on-error: true
-        run: npx tsgo --noEmit --pretty false > typecheck.log 2>&1
-
-      - name: Upload typecheck diagnostics
-        if: steps.typecheck.outcome == 'failure'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: typecheck-diagnostics
-          path: typecheck.log
-          if-no-files-found: error
-
-      - name: Enforce typecheck
-        if: steps.typecheck.outcome == 'failure'
-        run: exit 1
-
-      - name: Browser smoke check
-        run: npm run check:browser-smoke
+      - name: Check
+        run: npm run check
 
       - name: Test
         run: npm test
@@ -146,6 +93,9 @@ jobs:
       - name: Upstream relationship
         run: node scripts/check-upstream-relationship.mjs --main origin/main --json
 
+      - name: Restore generated catalogs after validation
+        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
+
       - name: Verify clean worktree
         run: node scripts/check-clean-worktree.mjs
 
@@ -177,9 +127,6 @@ jobs:
       - name: Verify generated build output
         run: node scripts/check-clean-worktree.mjs --allow-build-generated
 
-      - name: Restore generated catalogs after build
-        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
-
       - name: Platform-sensitive focused tests
         run: >-
           npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
@@ -194,6 +141,9 @@ jobs:
           test/bash-close-hang-windows.test.ts
           test/suite/agent-session-bash-persistence.test.ts
           test/validation-commands.test.ts
+
+      - name: Restore generated catalogs after validation
+        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
 
       - name: Verify clean worktree
         run: node scripts/check-clean-worktree.mjs
