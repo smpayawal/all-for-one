@@ -50,20 +50,12 @@ jobs:
       - name: Check
         run: npm run check
 
-      - name: Native skill tests
-        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/native-skills.test.ts
-
-      - name: Resource loader tests
-        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/resource-loader.test.ts
-
-      - name: Skill tests
-        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/skills.test.ts
-
-      - name: Profile and tool-interface tests
+      - name: Focused coding-agent and All-For-One tests
         run: >-
           npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/coding-model-profile.test.ts
           test/sdk-tool-profile.test.ts
+          test/native-skills.test.ts
           test/safe-mode.test.ts
           test/code-intel.test.ts
           test/exec.test.ts
@@ -71,10 +63,7 @@ jobs:
           test/settings-manager.test.ts
           test/system-prompt.test.ts
           test/tool-registry.test.ts
-
-      - name: Runtime and context tests
-        run: >-
-          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
+          test/resource-loader.test.ts
           test/agent-session-concurrent.test.ts
           test/agent-session-runtime-events.test.ts
           test/apply-patch-tool.test.ts
@@ -85,25 +74,14 @@ jobs:
           test/compaction-validation.test.ts
           test/execution-integrity.test.ts
           test/suite/lax-message-content.test.ts
+          test/skills.test.ts
           test/memory.test.ts
-
-      - name: Interactive mode status test
-        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/interactive-mode-status.test.ts
-
-      - name: Session rail test
-        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/session-rail.test.ts
-
-      - name: Agent session runtime test
-        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/suite/agent-session-runtime.test.ts
-
-      - name: Agent session bash persistence test
-        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/suite/agent-session-bash-persistence.test.ts
-
-      - name: Extension allowlist regression test
-        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts
-
-      - name: Excluded tools regression test
-        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/suite/regressions/5109-exclude-tools.test.ts
+          test/interactive-mode-status.test.ts
+          test/session-rail.test.ts
+          test/suite/agent-session-runtime.test.ts
+          test/suite/agent-session-bash-persistence.test.ts
+          test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts
+          test/suite/regressions/5109-exclude-tools.test.ts
 
       - name: Focused agent runtime tests
         run: npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/execution-integrity.test.ts
