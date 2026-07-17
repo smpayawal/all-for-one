@@ -59,7 +59,7 @@ jobs:
       - name: Skill tests
         run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/skills.test.ts
 
-      - name: Remaining focused coding-agent and All-For-One tests
+      - name: Profile and tool-interface tests
         run: >-
           npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/coding-model-profile.test.ts
@@ -71,6 +71,10 @@ jobs:
           test/settings-manager.test.ts
           test/system-prompt.test.ts
           test/tool-registry.test.ts
+
+      - name: Runtime and context tests
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/agent-session-concurrent.test.ts
           test/agent-session-runtime-events.test.ts
           test/apply-patch-tool.test.ts
@@ -82,6 +86,10 @@ jobs:
           test/execution-integrity.test.ts
           test/suite/lax-message-content.test.ts
           test/memory.test.ts
+
+      - name: Interactive and session regression tests
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/interactive-mode-status.test.ts
           test/session-rail.test.ts
           test/suite/agent-session-runtime.test.ts
