@@ -2,65 +2,190 @@
 
 ## Goal
 
-Improve All-For-One as a fast, robust, cost-conscious Native Pi coding harness by prioritizing terminal UI/UX, then refining adaptive skill and tool use, then adding focused optional capability packages through Pi's existing architecture.
+Improve All-For-One as a lightweight, production-ready Native Pi coding harness while preserving the approved P0-P5 architecture plan.
 
-## Architecture
+The adjustments are:
 
-The implementation preserves Native Pi's provider abstraction, agent runtime, TUI, session model, SDK, RPC mode, print mode, extension runner, package manager, and Agent Skills support.
+- UI/UX is the first runtime implementation priority.
+- P1 retains the centralized coding-model profile and adaptive mutation interface.
+- P2 uses Native Pi skills adaptively instead of requiring manual selection by default.
+- Validation is embedded in every phase; there is no dedicated evaluation-platform phase.
+- Optional capabilities remain isolated from the main loop and cost-free while disabled.
 
-UI work remains inside the interactive coding-agent layer. Adaptive behavior uses concise skill metadata, precise tool definitions, existing runtime context, and the primary model's normal reasoning. Optional capabilities ship as Pi packages or extensions. No classifier model, workflow engine, semantic retrieval layer, or permanent multi-agent hierarchy is added.
+## Delivery order
 
-## Technology
+```text
+P0  Consolidate and freeze architecture
+    + complete the UI/UX foundation as the first runtime workstream
+P1  Make the tool interface adaptive and unambiguous
+P2  Add the essential adaptive skill package
+P3  Clarify knowledge ownership
+P4  Ship optional robustness packages
+P5  Reduce downstream maintenance cost
+```
 
-- TypeScript and Node.js
-- `@earendil-works/pi-ai`
-- `@earendil-works/pi-agent-core`
-- `@earendil-works/pi-tui`
-- Native Pi extensions, packages, themes, prompts, and skills
-- TypeBox schemas
-- Vitest focused tests
-- tmux-based interactive smoke checks
+P0's ownership freeze must be established before broad code changes. The UI/UX workstream is the first product implementation and must complete before P1 changes the model-facing tool interface.
 
 ## Global constraints
 
-1. Create focused implementation branches from `allforone`; target pull requests to `allforone`.
+1. Create focused branches from `allforone` and target pull requests to `allforone`.
 2. Never add All-For-One changes to `main` or merge `allforone` into `main`.
-3. Preserve the `pi` command, `.pi`, `PI_*`, `@earendil-works/pi-*` identifiers, session formats, extension interfaces, SDK exports, print mode, and RPC behavior.
+3. Preserve `pi`, `.pi`, `PI_*`, `@earendil-works/pi-*`, sessions, extension APIs, SDK exports, print mode, and RPC behavior.
 4. Retain the adaptive single-agent runtime as the default path.
-5. Prefer skills, themes, extensions, packages, and coding-agent-local composition before modifying `packages/agent`.
-6. Add no runtime dependency unless existing Pi and Node capabilities cannot satisfy a verified requirement.
-7. Keep optional behavior free of prompt and process cost in normal sessions while disabled.
-8. Do not auto-install packages, launch subagents, publish externally, or run discovered commands without the existing explicit control boundary.
-9. Do not make quality, latency, token, cost, security, or performance claims without evidence.
-10. Keep changes small enough to review and synchronize with upstream Pi.
+5. Add no request-classifier model, workflow engine, skill tool, semantic retrieval layer, or permanent agent hierarchy.
+6. Prefer Native Pi themes, skills, prompts, extensions, packages, settings, and coding-agent-local modules before changing `packages/agent`.
+7. Add no runtime dependency unless current Pi and Node capabilities cannot satisfy a verified requirement.
+8. Keep optional behavior free of prompt, process, and rendering cost while disabled.
+9. Do not auto-install packages, publish externally, launch subagents, or run discovered commands merely because they exist.
+10. Make no quality, latency, cost, token, security, or performance claim without evidence.
+11. Validate each phase proportionally; do not create a separate evaluation platform.
+12. Review every final diff against both `allforone` and `main` for unnecessary edits to upstream-hot files.
 
 ## Current state
 
-All-For-One already provides:
+The current `allforone` branch already provides:
 
-- five compatible built-in tools: `read`, `bash`, `edit`, `write`, and `apply_patch`;
-- bounded path-scoped instructions and skill metadata;
-- on-demand skill loading and manual-only skills;
-- dynamic extension tools;
-- native theme discovery and hot reload;
+- the five compatible built-in tools: `read`, `bash`, `edit`, `write`, and `apply_patch`;
+- Native Pi theme loading, terminal background detection, and hot reload;
 - a branded interactive header;
 - a responsive session rail;
-- settings and selectors for current UI and resource controls;
-- context, execution-integrity, compaction, memory, and tool-output diagnostics.
+- settings and selectors for UI and resource controls;
+- progressive-disclosure skills with bounded metadata;
+- dynamic extension tools;
+- path-scoped project instructions;
+- bounded local memory;
+- compaction integrity and telemetry;
+- execution-integrity modes;
+- offline baseline, doctor, evaluator, and upstream relationship commands.
 
-The roadmap refines these capabilities. It does not replace them.
+The roadmap consolidates and refines these capabilities. It does not replace them.
 
 ---
 
-# Phase 1 — Terminal UI/UX foundation
+# P0 — Consolidate and freeze the architecture
 
 ## Objective
 
-Make interactive mode cleaner, more modern, easier to scan, and more responsive without changing the core runtime or adding a new UI framework.
+Establish one authoritative owner for every existing subsystem, freeze compatibility contracts, isolate optional behavior, and deliver the UI/UX foundation as the first runtime improvement.
 
-## Task 1.1 — Establish visual baselines
+## P0.1 — Document ownership
 
-**Inspect in full:**
+### Required ownership decisions
+
+Document the authoritative owner for:
+
+- provider and model APIs;
+- coding-model behavior profiles;
+- built-in tool definitions and defaults;
+- project and scoped context;
+- skills and workflows;
+- extensions and optional tools;
+- local memory;
+- compaction;
+- execution-integrity evidence;
+- interactive presentation;
+- validation and CI;
+- strong isolation.
+
+### Files
+
+- Update: `docs/all-for-one/architecture.md`
+- Update: `docs/all-for-one/README.md`
+- Update only where terminology conflicts: `docs/all-for-one/context-and-capabilities.md`
+- Update only where terminology conflicts: `docs/all-for-one/known-limitations.md`
+
+### Required rule
+
+No new package or `packages/agent` change is approved unless Pi's public extension, skill, prompt, theme, settings, SDK, or coding-agent boundaries cannot support the verified requirement cleanly.
+
+A new package must solve a distinct optional capability. It must not exist merely to reorganize current code.
+
+## P0.2 — Freeze the canonical tool registry
+
+The canonical built-in registry remains exactly:
+
+```ts
+export const DEFAULT_ACTIVE_TOOL_NAMES = [
+  "read",
+  "bash",
+  "edit",
+  "write",
+  "apply_patch",
+] as const;
+```
+
+### Requirements
+
+- One registry remains authoritative.
+- No sixth default tool is introduced.
+- No dedicated planning, testing, linting, git, TODO, repository-map, skill, or review tool is added.
+- Extension tools remain separate from built-in defaults.
+- Manual allowlists and denylists continue to work.
+- P1 may select a primary mutation tool without deleting the compatible five-tool registry.
+
+### Files to verify
+
+- `packages/coding-agent/src/core/tools/index.ts`
+- `packages/coding-agent/src/core/agent-session.ts`
+- CLI and SDK default tool configuration
+- baseline and doctor commands
+- related tests and documentation
+
+## P0.3 — Identify isolated optional features
+
+Classify current and proposed behavior as either core-compatible or optional.
+
+### Must remain optional
+
+- safe-mode authorization;
+- language-server code intelligence;
+- sandbox launchers;
+- MCP adapters;
+- browser and external-service tools;
+- worktree automation;
+- delegation or subagents;
+- additional theme collections;
+- specialized domain workflows.
+
+### Isolation standard
+
+An optional feature must:
+
+- register through Native Pi extensions or packages;
+- add no model-visible schema while disabled;
+- start no watcher, service, socket, or helper process while disabled;
+- avoid changing the generic agent loop;
+- clean up session-owned resources;
+- remain removable without migrating session formats.
+
+## P0.4 — Preserve Pi compatibility
+
+Verify and document preservation of:
+
+- `pi` command behavior;
+- `.pi` configuration paths;
+- `PI_*` environment variables;
+- `@earendil-works/pi-*` package identities;
+- session formats;
+- extension events and interfaces;
+- SDK exports;
+- RPC protocol behavior;
+- print-mode behavior;
+- package, skill, prompt, and theme discovery.
+
+User-facing identity remains All-For-One. Technical compatibility identifiers remain Pi-compatible.
+
+## P0.5 — UI/UX foundation: first runtime workstream
+
+### Objective
+
+Modernize the terminal experience before changing the model-facing tool and skill interface.
+
+The work remains inside Native Pi's interactive architecture and adds no model calls, repository scans, background services, desktop shell, or web UI.
+
+### Step A — Capture current visual baselines
+
+Inspect in full:
 
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
 - `packages/coding-agent/src/modes/interactive/components/brand-header.ts`
@@ -71,694 +196,675 @@ Make interactive mode cleaner, more modern, easier to scan, and more responsive 
 - `packages/coding-agent/src/modes/interactive/components/bash-execution.ts`
 - `packages/coding-agent/src/modes/interactive/theme/theme.ts`
 - `packages/coding-agent/src/modes/interactive/theme/theme-controller.ts`
-- `packages/coding-agent/src/modes/interactive/theme/dark.json`
-- `packages/coding-agent/src/modes/interactive/theme/light.json`
 - `packages/coding-agent/src/core/settings-manager.ts`
 - `packages/coding-agent/src/modes/interactive/components/settings-selector.ts`
 
-**Deliverable:**
+Capture controlled tmux states at:
 
-Record terminal captures of the current branch at:
+- 80 by 24;
+- 120 by 30;
+- 160 by 40;
+- image and text-only terminals;
+- dark and light backgrounds.
 
-- 80 by 24 — narrow baseline;
-- 120 by 30 — medium baseline;
-- 160 by 40 — wide baseline with rail;
-- dark and light terminal backgrounds where available;
-- inline images enabled and disabled.
+Include startup, restored session, response streaming, successful and failed tools, truncation, skill invocation, retry, compaction, and narrow-terminal fallback.
 
-Capture:
+### Step B — Add the All-For-One theme pair
 
-- first startup;
-- restored non-empty session;
-- first user message;
-- active model response;
-- successful tool call;
-- failed tool call;
-- long truncated output;
-- skill invocation;
-- retry;
-- compaction;
-- narrow-terminal fallback.
+Create:
 
-Do not commit machine-specific screenshots unless they are deliberately selected as review artifacts. The permanent output is an acceptance matrix attached to the pull request and focused component fixtures in tests.
+- `packages/coding-agent/src/modes/interactive/theme/all-for-one-dark.json`
+- `packages/coding-agent/src/modes/interactive/theme/all-for-one-light.json`
+- `packages/coding-agent/test/all-for-one-theme.test.ts`
 
-**Validation:**
+Modify only as required:
 
-Use the tmux workflow documented in `AGENTS.md`. This task records current behavior and makes no visual quality claim.
+- first-run theme selection;
+- existing theme loader or controller;
+- `packages/coding-agent/docs/themes.md`.
 
-## Task 1.2 — Add the All-For-One theme pair
+Requirements:
 
-**Files:**
+- use the existing complete theme schema;
+- preserve Native Pi `dark` and `light` unchanged;
+- use existing terminal-background detection for a new installation with no saved theme;
+- never overwrite an explicit saved theme;
+- distribute no font files;
+- require no Nerd Font or private-use glyph;
+- add no dependency;
+- keep state distinguishable through text or symbols as well as color;
+- verify truecolor and 256-color fallback;
+- add no third built-in All-For-One aesthetic theme in P0.
 
-- Create: `packages/coding-agent/src/modes/interactive/theme/all-for-one-dark.json`
-- Create: `packages/coding-agent/src/modes/interactive/theme/all-for-one-light.json`
-- Modify: `packages/coding-agent/src/modes/interactive/components/first-time-setup.ts`
-- Modify only when native discovery cannot load the JSON files unchanged: `packages/coding-agent/src/modes/interactive/theme/theme.ts`
-- Modify only when selection behavior requires it: `packages/coding-agent/src/modes/interactive/theme/theme-controller.ts`
-- Create: `packages/coding-agent/test/all-for-one-theme.test.ts`
-- Modify: `packages/coding-agent/docs/themes.md`
+### Step C — Refine welcome and working header states
 
-**Decision:**
+Modify:
 
-A new All-For-One installation with no saved theme resolves terminal background in the existing first-run path and selects `all-for-one-dark` or `all-for-one-light`. Existing explicit theme settings remain unchanged. Native Pi's `dark` and `light` remain available through `/settings`, settings files, and CLI theme loading.
+- `packages/coding-agent/src/modes/interactive/components/brand-header.ts`
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+- focused header and interactive lifecycle tests.
 
-**Requirements:**
-
-- Use the existing complete theme schema.
-- Preserve `dark` and `light` unchanged.
-- Add no dependency.
-- Use terminal default foreground where it improves compatibility.
-- Reserve accent colors for selection, hierarchy, and state.
-- Keep message and tool backgrounds restrained.
-- Ensure pending, success, warning, and error remain distinguishable through text or symbols in addition to color.
-- Verify truecolor and 256-color fallback.
-- Add no third bundled All-For-One aesthetic theme in this phase.
-
-**Focused test cases in `all-for-one-theme.test.ts`:**
-
-- both theme files validate against the existing schema;
-- every required token resolves;
-- dark and light names are unique;
-- first-run dark background selects `all-for-one-dark`;
-- first-run light background selects `all-for-one-light`;
-- an explicit saved theme is not replaced;
-- Native Pi `dark` and `light` remain discoverable;
-- project and user theme precedence remains unchanged.
-
-**Validation commands:**
-
-Run the new focused test from `packages/coding-agent`, then run `npm run check` from the repository root.
-
-## Task 1.3 — Convert the header into welcome and working states
-
-**Files:**
-
-- Modify: `packages/coding-agent/src/modes/interactive/components/brand-header.ts`
-- Modify: `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
-- Modify: `packages/coding-agent/test/brand-header.test.ts`
-- Modify: `packages/coding-agent/test/interactive-mode-status.test.ts`
-
-**Interface:**
+Introduce a presentation-only state such as:
 
 ```ts
 export type BrandHeaderState = "welcome" | "working";
 ```
 
-`BrandHeaderComponent` receives resolved presentation data. It does not receive `AgentSession` or query provider state itself.
+Requirements:
 
-**Behavior:**
+- show the optional cached product mark only for an empty welcome state with sufficient terminal capability and height;
+- include concise product, version, model, and help information;
+- use text fallback everywhere;
+- start restored non-empty sessions compact;
+- transition once after the first accepted user message;
+- preserve extension-provided custom headers;
+- never append branding to session history;
+- add no animation or background loader.
 
-- `welcome` appears only for an empty interactive session;
-- it shows the optional cached product image when supported and enough height exists;
-- it shows product title, version, selected model, and one concise help hint;
-- it has a text fallback;
-- `working` uses a compact one-line title or removes the built-in header when the footer already communicates durable state;
-- restored non-empty sessions start in `working`;
-- the first accepted user message performs one state transition;
-- custom extension headers remain authoritative;
-- no branded block is appended to session history;
-- no animation or background resource is introduced.
+### Step D — Refine the session rail
 
-**Focused validation:**
+Modify:
 
-- image-capable welcome state;
-- text-only welcome state;
-- constrained-height welcome state;
-- restored session starts compact;
-- first message transitions once;
-- custom header remains authoritative;
-- print, RPC, and SDK modes remain unaffected.
+- `packages/coding-agent/src/modes/interactive/components/session-rail.ts`
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+- `packages/coding-agent/src/core/settings-manager.ts`
+- `packages/coding-agent/src/modes/interactive/components/settings-selector.ts`
+- focused rail and settings tests.
 
-## Task 1.4 — Refine the contextual session rail
-
-**Files:**
-
-- Modify: `packages/coding-agent/src/modes/interactive/components/session-rail.ts`
-- Modify: `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
-- Modify: `packages/coding-agent/src/core/settings-manager.ts`
-- Modify: `packages/coding-agent/src/modes/interactive/components/settings-selector.ts`
-- Modify: `packages/coding-agent/test/session-rail.test.ts`
-- Modify: `packages/coding-agent/test/settings-manager.test.ts`
-- Create: `packages/coding-agent/test/session-rail-settings.test.ts`
-
-**Interface:**
+Add one setting:
 
 ```ts
 export type SessionRailMode = "auto" | "on" | "off";
 ```
 
-Add to settings:
+Sections:
 
-```ts
-sessionRailMode?: SessionRailMode;
-```
+- `STATUS` — lifecycle and progress;
+- `ACTIVITY` — active and recent tool outcomes;
+- `CONTEXT` — active instruction resources and warning count;
+- `CAPABILITIES` — skills actually loaded and relevant enabled optional tools.
 
-Default to `auto`.
+Requirements:
 
-**Sections:**
-
-- `STATUS`: lifecycle, progress, and completed or failed count.
-- `ACTIVITY`: active tools and recent outcomes.
-- `CONTEXT`: active project instructions plus warning count.
-- `CAPABILITIES`: skills loaded for the current task and relevant enabled optional capabilities.
-
-**Behavior:**
-
-- `auto`: show only when terminal width permits and useful content exists;
-- `on`: show whenever width permits;
-- `off`: do not register passive rail overlays;
+- `auto` displays only when terminal width permits and useful content exists;
+- `on` displays whenever width permits;
+- `off` registers no passive rail overlays;
 - hide empty sections in `auto`;
 - replace `CONTEXT / AGENTS` with `CONTEXT`;
-- use existing session and extension events only;
-- do not scan files, classify the request, or invoke a model to populate the rail;
-- preserve current width bounds unless the Phase 1 baseline demonstrates a concrete readability failure;
-- show shortcuts only when vertical space permits;
-- keep the main transcript usable with no rail.
+- use existing events only;
+- perform no classification, repository scan, or model call for the rail;
+- preserve the main transcript when the rail is absent.
 
-**Focused test cases:**
+### Step E — Standardize transcript and tool presentation
 
-- width below, at, and above threshold;
-- minimum and maximum rail width;
-- `auto`, `on`, and `off`;
-- no useful content in `auto`;
-- each section independently populated;
-- empty sections omitted;
-- sanitized extension status text;
-- setting persistence and project override;
-- no overlay registration in `off` mode.
+Refine narrowly:
 
-## Task 1.5 — Standardize transcript and tool presentation
+- tool execution;
+- bash execution;
+- assistant and user message presentation;
+- footer;
+- status indicator;
+- corresponding focused tests.
 
-**Files:**
+Presentation contract:
 
-- Modify narrowly: `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`
-- Modify narrowly: `packages/coding-agent/src/modes/interactive/components/bash-execution.ts`
-- Modify narrowly: `packages/coding-agent/src/modes/interactive/components/assistant-message.ts`
-- Modify narrowly: `packages/coding-agent/src/modes/interactive/components/user-message.ts`
-- Modify narrowly: `packages/coding-agent/src/modes/interactive/components/footer.ts`
-- Modify narrowly: `packages/coding-agent/src/modes/interactive/components/status-indicator.ts`
-- Modify: `packages/coding-agent/test/interactive-mode-status.test.ts`
-- Create: `packages/coding-agent/test/interactive-presentation.test.ts`
+- collapsed successful tool calls normally occupy one concise row;
+- failed tools expose a short actionable error before expansion;
+- pending, success, cancellation, warning, and failure use text or symbols plus color;
+- shell failures show exit status when available;
+- truncation states what was omitted and how to continue;
+- expansion and extension renderers remain compatible;
+- header, rail, status, and footer do not repeat the same information;
+- diagnostic information needed for investigation remains accessible.
 
-**Presentation contract:**
+## P0 validation
 
-- a collapsed successful tool call normally occupies one concise row;
-- a failed tool call exposes a short actionable error without expansion;
-- pending, success, cancelled, and failed states use text or symbols plus color;
-- shell failures display exit status when available;
-- truncated output states what was omitted and how to continue;
-- model, directory, and lifecycle metadata are not repeated in several persistent surfaces;
-- tool expansion and extension renderers remain compatible;
-- diagnostic information is not hidden.
+Run only the checks justified by the changed files:
 
-**Focused test cases:**
+1. Every modified or created focused test.
+2. `npm run check` after runtime or checked JSON changes.
+3. tmux smoke checks at the three target terminal sizes.
+4. Theme selection, text fallback, and image-capable paths.
+5. Extension header, footer, widget, overlay, command, and editor compatibility.
+6. Diff review against `allforone` and `main`.
 
-- pending, success, cancelled, and failed rows;
-- shell exit status;
-- truncated read and shell output;
-- expansion behavior;
-- long path truncation;
-- narrow width;
-- extension renderer unchanged;
-- footer and status do not duplicate the same transient state.
+### P0 completion criteria
 
-Split implementation commits by presentation contract when the affected components can be reviewed independently.
-
-## Task 1.6 — UI/UX integration gate
-
-**Documentation:**
-
-- Update: `docs/all-for-one/ui-ux.md`
-- Update: `packages/coding-agent/docs/themes.md`
-- Update when user-visible behavior changed: `packages/coding-agent/README.md`
-- Add a concise entry under the existing `[Unreleased]` section in `packages/coding-agent/CHANGELOG.md`
-
-**Validation:**
-
-1. Run each modified or created focused test.
-2. Run `npm run check` from the repository root.
-3. Run tmux smoke checks at 80 by 24, 120 by 30, and 160 by 40.
-4. Exercise both bundled All-For-One themes and Native Pi theme selection.
-5. Exercise image and text-only header paths.
-6. Confirm extension header, footer, widget, overlay, command, and editor compatibility.
-7. Review the diff against `main` and `allforone` for unnecessary edits to upstream-hot files.
-
-**Phase completion criteria:**
-
-- the transcript is cleaner at all target sizes;
-- the welcome mark does not permanently consume height;
-- the rail is useful, optional, and responsive;
-- all essential states remain understandable without color;
-- no model call, repository scan, dependency, or non-interactive layout behavior was added.
+- Ownership and compatibility contracts are authoritative.
+- The five-tool registry is frozen.
+- Optional behavior is clearly isolated.
+- The first runtime delivery is the completed UI/UX foundation.
+- The transcript is cleaner at narrow, medium, and wide sizes.
+- The welcome mark no longer permanently consumes height.
+- The rail is responsive and optional.
+- No core agent-loop change, model call, repository scan, or new dependency was added for presentation.
 
 ---
 
-# Phase 2 — Adaptive skill and tool selection
+# P1 — Make the tool interface adaptive and unambiguous
 
 ## Objective
 
-Let the primary agent choose the smallest useful capability from precise metadata and current context while preserving explicit overrides and the Native Pi single-agent loop.
+Create the highest-value harness improvement: one centralized coding-model profile that selects a primary existing-file mutation interface and presents strict, non-overlapping tool responsibilities.
 
-## Task 2.1 — Tighten built-in tool contracts
+## P1.1 — Add the centralized coding-model profile
 
-**Files:**
+### Proposed owner
 
-- Modify: `packages/coding-agent/src/core/tools/read.ts`
-- Modify: `packages/coding-agent/src/core/tools/bash.ts`
-- Modify: `packages/coding-agent/src/core/tools/edit.ts`
-- Modify: `packages/coding-agent/src/core/tools/write.ts`
-- Modify: `packages/coding-agent/src/core/tools/apply-patch.ts`
-- Modify only for shared definitions: `packages/coding-agent/src/core/tools/index.ts`
-- Modify: `packages/coding-agent/test/tools.test.ts`
-- Modify: `packages/coding-agent/test/tool-registry.test.ts`
-- Modify: `packages/coding-agent/test/apply-patch-tool.test.ts`
-- Modify: `packages/coding-agent/test/system-prompt.test.ts`
+Create one coding-agent-local module, for example:
 
-**Contracts:**
+```text
+packages/coding-agent/src/core/coding-model-profile.ts
+```
 
-- `read`: bounded file inspection;
-- `bash`: commands, search, builds, tests, linting, and repository operations;
-- `edit`: exact localized replacement in one existing file;
-- `write`: file creation or intentional complete replacement;
-- `apply_patch`: structured multi-hunk or multi-file mutation.
+Use existing Native Pi model identity. Do not add another model registry.
 
-**Requirements:**
-
-- preserve all names, public definitions, SDK behavior, and extension events;
-- keep descriptions concise;
-- remove overlapping wording;
-- provide corrective guidance only when the mismatch can be identified deterministically;
-- do not parse user prompts with keyword rules;
-- do not silently remove tools for unknown models;
-- preserve allowlist and denylist behavior;
-- preserve the five-tool compatibility profile.
-
-**Focused validation:**
-
-- tool schemas and snippets remain present and bounded;
-- each tool description states one primary responsibility;
-- system-prompt guidelines contain no duplicates;
-- tool registry order and source metadata remain deterministic;
-- existing patch safety and mutation queue tests continue to pass.
-
-## Task 2.2 — Refine skill activation guidance
-
-**Files:**
-
-- Modify narrowly: `packages/coding-agent/src/core/skills.ts`
-- Modify narrowly: `packages/coding-agent/src/core/system-prompt.ts`
-- Modify: `packages/coding-agent/test/skills.test.ts`
-- Modify: `packages/coding-agent/test/system-prompt.test.ts`
-- Modify: `packages/coding-agent/docs/skills.md`
-- Update: `docs/all-for-one/adaptive-capabilities.md`
-
-**Requirements:**
-
-- retain progressive disclosure and the existing metadata budget;
-- retain `disable-model-invocation` and `/skill:<name>`;
-- retain deterministic precedence and duplicate handling;
-- tell the model to load a skill only when its description clearly matches and materially improves the task;
-- prefer no skill over several ambiguous generic skills;
-- do not require a universal bootstrap or router skill;
-- do not add embeddings, semantic indexing, or a classifier turn;
-- keep the full skill body outside the prompt until invocation;
-- keep manual-only skills absent from model-visible metadata.
-
-**Focused validation:**
-
-- visible skill metadata remains within configured budget;
-- manual-only skills remain invokable explicitly;
-- empty skill sets do not add unnecessary prompt sections;
-- duplicate names and paths remain diagnostic;
-- project-local skills continue to override package skills;
-- custom system prompts retain compatible skill behavior.
-
-## Task 2.3 — Represent actual capability use in session state
-
-**Files:**
-
-- Modify narrowly: `packages/coding-agent/src/core/agent-session.ts`
-- Modify narrowly: `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
-- Modify: `packages/coding-agent/src/modes/interactive/components/session-rail.ts`
-- Modify: `packages/coding-agent/test/agent-session-dynamic-tools.test.ts`
-- Modify: `packages/coding-agent/test/session-rail.test.ts`
-- Modify: `packages/coding-agent/test/interactive-mode-status.test.ts`
-
-**Interface requirement:**
-
-Expose actual session capability state through a coding-agent-local read model. Reuse existing skill invocation parsing, registered tool metadata, and session events. Do not add generic capability state to `packages/agent`.
-
-The read model contains only state already known by the session:
+### Minimum profile
 
 ```ts
-interface ActiveCapabilityState {
-  loadedSkills: readonly string[];
-  explicitSkills: readonly string[];
-  optionalTools: readonly string[];
+export interface CodingModelProfile {
+  existingFileMutation: "edit" | "apply_patch";
+  supportsParallelTools?: boolean;
+  recommendedThinkingLevel?: ThinkingLevel;
 }
 ```
 
-The exact type name may follow existing coding-agent naming, but ownership and fields must remain as defined above.
+Only fields with a demonstrated current need are permitted.
 
-**Behavior:**
+### Requirements
 
-- record skills whose bodies were actually loaded or explicitly invoked;
-- do not list every discovered skill in the rail;
-- derive optional tools from registered non-built-in tool definitions;
-- clear or recompute state correctly when the session is replaced or resources reload;
-- expose the detailed full inventory through `/context`;
-- do not persist a hidden task classification;
-- do not create an additional telemetry store.
+- one module owns all model-specific coding preferences;
+- no provider-specific checks in `packages/agent`;
+- no duplicated model-name checks across tools or prompts;
+- unknown models use a documented safe fallback;
+- the selected profile appears in diagnostics;
+- configuration can override the profile;
+- no unsupported performance or quality claim is attached to a profile.
 
-## Task 2.4 — Preserve explicit manual control
+## P1.2 — Select the primary existing-file mutation tool
 
-**Files:**
+For automatic/default model behavior, select either:
 
-- Modify when needed: `packages/coding-agent/docs/skills.md`
-- Modify when needed: `packages/coding-agent/docs/packages.md`
-- Modify when needed: `packages/coding-agent/docs/sdk.md`
-- Update: `docs/all-for-one/adaptive-capabilities.md`
+- `edit`, or
+- `apply_patch`.
 
-**Document and preserve:**
+`write` remains reserved for file creation and intentional full replacement.
 
-- `/skill:<name>`;
-- `disable-model-invocation`;
-- `--no-skills` and explicit `--skill` paths;
-- package resource filters;
-- extension enable and disable configuration;
-- built-in and extension tool allowlists or denylists;
-- SDK active-tool options;
-- project instructions;
-- absence of automatic package installation.
+### Compatibility behavior
 
-## Task 2.5 — Adaptive behavior integration gate
+- preserve the canonical five-tool registry;
+- allow users, CLI callers, and SDK callers to expose the full set;
+- do not rename or change public tool schemas;
+- keep a documented fallback for unknown models or operations the primary tool cannot express;
+- do not silently remove explicitly configured tools.
 
-Use deterministic tests and controlled faux-provider sessions. A paid live-model benchmark is not a completion requirement.
+## P1.3 — Rewrite tool descriptions and guidance
 
-**Validation:**
+Inspect and refine:
 
-1. Run all modified skill, system-prompt, dynamic-tool, session-rail, and tool-registry tests.
-2. Run `npm run check`.
-3. Run a faux-provider session where a visible skill is loaded on demand.
-4. Run a manual-only skill invocation.
-5. Run a simple file task and confirm no workflow skill is required.
-6. Run a dynamic extension tool registration and confirm it appears only after registration.
-7. Confirm disabled optional tools add no schema or rail state.
-8. Inspect `/context` output for visible skills, manual-only skills, active tools, origins, and metadata cost.
+- `packages/coding-agent/src/core/tools/read.ts`
+- `packages/coding-agent/src/core/tools/bash.ts`
+- `packages/coding-agent/src/core/tools/edit.ts`
+- `packages/coding-agent/src/core/tools/write.ts`
+- `packages/coding-agent/src/core/tools/apply-patch.ts`
+- shared registry and system-prompt construction only where necessary.
 
-**Phase completion criteria:**
+Responsibilities:
 
-- clearly matching visible skills can be loaded on demand;
-- simple tasks remain direct;
-- manual-only skills remain explicit;
-- all five built-in tools remain compatible and better differentiated;
-- actual capability use is visible without invented agents or classifications;
-- no classifier turn, workflow engine, embedding system, or new provider call exists;
-- optional capabilities remain absent from prompt and process state while disabled.
+- `read`: bounded inspection;
+- `bash`: commands, search, repository operations, build, test, and lint;
+- `edit`: exact localized replacement in one existing file;
+- `write`: creation or intentional complete replacement;
+- `apply_patch`: structured multi-hunk or multi-file mutation.
+
+Descriptions must remain correct when the full set is enabled manually.
+
+## P1.4 — Standardize tool interface behavior
+
+Across built-in tools, standardize:
+
+- concise descriptions and prompt snippets;
+- bounded output;
+- explicit continuation after truncation;
+- actionable schema and precondition errors;
+- cancellation semantics;
+- shell exit status and relevant stderr;
+- path and operation summaries;
+- deterministic source metadata;
+- no repeated system-prompt guidance.
+
+Do not add a keyword router. Deterministic validation may reject invalid calls, but semantic selection remains the primary model's responsibility.
+
+## P1 tests and validation
+
+Add or update focused coverage for:
+
+- coding-model profile resolution;
+- known and unknown model fallback;
+- manual profile override;
+- primary mutation exposure or ordering;
+- complete five-tool manual configuration;
+- tool schema compatibility;
+- strict description ownership;
+- prompt and schema size diagnostics;
+- patch safety and mutation queue behavior;
+- cancellation, truncation, and shell exit information;
+- CLI and SDK compatibility.
+
+Run focused tests, `npm run check`, and controlled faux-provider sessions. Live provider comparisons are optional evidence for profile decisions, not a separate platform or phase.
+
+### P1 completion criteria
+
+- one module owns coding-model behavior;
+- a profiled model has one primary existing-file mutation interface;
+- `write` is unambiguously creation/full replacement;
+- the complete five-tool set remains manually available;
+- tool descriptions and outputs are concise and non-overlapping;
+- unknown models preserve safe Pi-compatible behavior;
+- no new mutation tool, provider abstraction, agent-loop branch, or evaluation platform exists.
 
 ---
 
-# Phase 3 — First-party skills and optional robustness
+# P2 — Add the essential adaptive skill package
 
 ## Objective
 
-Add specialized capability through Native Pi packages without expanding the default core tool surface.
+Implement only the five approved engineering skills through Native Pi's skill system and let the primary agent decide when they materially improve the task.
 
-Each package is a separate focused branch and pull request. None is required to merge Phase 2.
+## P2.1 — Create the package
 
-## Task 3.1 — Create the first-party engineering skills package
+Suggested package location:
 
-**Files:**
+```text
+packages/all-for-one-skills/
+```
 
-- Create: `packages/all-for-one-skills/package.json`
-- Create: `packages/all-for-one-skills/skills/repository-orientation/SKILL.md`
-- Create: `packages/all-for-one-skills/skills/systematic-debugging/SKILL.md`
-- Create: `packages/all-for-one-skills/skills/verify-before-completion/SKILL.md`
-- Create: `packages/all-for-one-skills/skills/plan-complex-change/SKILL.md`
-- Create: `packages/all-for-one-skills/skills/review-diff/SKILL.md`
-- Create references only where the main skill would otherwise become long
-- Create: `packages/coding-agent/test/all-for-one-skills-package.test.ts`
-- Update root workspace and release metadata only as required by the existing monorepo package conventions
-- Update: `docs/all-for-one/adaptive-capabilities.md`
+Create only:
 
-**Package boundary:**
+```text
+skills/repository-orientation/SKILL.md
+skills/systematic-debugging/SKILL.md
+skills/plan-complex-change/SKILL.md
+skills/verify-before-completion/SKILL.md
+skills/review-diff/SKILL.md
+```
 
-The package contains Markdown skills and optional deterministic helper scripts. It does not depend on a model SDK, agent runtime, database, or orchestration library. It declares the skills through Native Pi package metadata or the conventional `skills/` directory.
+Use Native Pi package metadata or conventional `skills/` discovery.
 
-**Invocation policy:**
+The package contains Markdown skills and optional deterministic helper scripts only. It does not depend on a model SDK, agent runtime, database, vector store, or orchestration library.
 
-| Skill | Invocation |
+## P2.2 — Make selection adaptive
+
+All five skills are model-visible by default with precise trigger and exclusion language.
+
+| Skill | Trigger |
 |---|---|
-| `repository-orientation` | Model-visible |
-| `systematic-debugging` | Model-visible |
-| `verify-before-completion` | Model-visible |
-| `plan-complex-change` | Manual-only |
-| `review-diff` | Manual-only |
+| `repository-orientation` | Unfamiliar repository, broad architecture task, cross-package work, or execution-path tracing |
+| `systematic-debugging` | Failing tests, crashes, regressions, unexpected behavior, or performance faults |
+| `plan-complex-change` | Multi-module feature, architecture change, migration, compatibility-sensitive refactor, or staged implementation |
+| `verify-before-completion` | Before claiming implemented work is fixed, passing, secure, compatible, or complete |
+| `review-diff` | Requested review, high-risk or broad mutation, or final scope and regression review |
 
-**Requirements:**
+Each description must also state when not to use the skill so simple work remains direct.
 
-- distill principles rather than copying a third-party repository wholesale;
-- preserve license and attribution for any reused material;
-- keep descriptions specific and non-overlapping;
-- keep `SKILL.md` concise;
-- use one-level references;
-- do not require subagents;
-- do not force every task through planning, TDD, worktrees, or review;
-- include no universal router skill;
-- do not enable or install the package silently for existing users.
+## P2.3 — Preserve manual overrides
 
-**Focused validation:**
+Maintain:
 
-- package discovery through the Native Pi package loader;
-- three visible and two manual-only skills;
+- `/skill:<name>` for direct invocation;
+- `disable-model-invocation` for project or user manual-only policy;
+- package resource filtering;
+- `--no-skills` and explicit skill paths;
+- project-local overrides and current precedence;
+- bounded metadata and duplicate diagnostics.
+
+Adaptive default behavior must not remove manual control.
+
+## P2.4 — Prevent workflow bloat
+
+A workflow is a procedure inside a skill followed by the same primary agent.
+
+Do not add:
+
+- a skill tool;
+- a universal router skill;
+- a workflow state machine;
+- a scheduler;
+- subagents;
+- mandatory planning, TDD, review, or verification for trivial tasks;
+- automatic package installation;
+- another context or memory layer.
+
+Skills may be composed only when responsibilities are distinct and necessary.
+
+## P2.5 — Skill quality rules
+
+- Keep each `SKILL.md` concise and procedural.
+- Put detailed references one level below only when necessary.
+- Avoid copying third-party repositories wholesale.
+- Preserve required attribution and license notices for reused material.
+- Do not repeat base system instructions or repository policy.
+- Do not require another skill to interpret the current skill.
+- Stop when the task's evidence requirement is satisfied.
+
+## P2 tests and validation
+
+Verify:
+
+- package discovery through Native Pi;
+- all five skills are model-visible by default;
 - explicit invocation of every skill;
-- no full skill body in the prompt before invocation;
-- project-local override of a package skill;
-- duplicate diagnostics;
-- resource filtering can disable individual skills.
+- project or user manual-only override;
+- full skill bodies remain outside the prompt before invocation;
+- metadata remains within budget;
+- project-local duplicate precedence;
+- resource filters can disable individual skills;
+- simple tasks do not require a skill;
+- a controlled faux-provider can load a matching skill;
+- no new tool schema or workflow runtime appears.
 
-## Task 3.2 — Safe-mode extension
+### P2 completion criteria
 
-Create a separate Native Pi extension package that can:
+- only the five approved skills are included;
+- the primary model can select them from task context;
+- manual invocation and manual-only policy remain supported;
+- descriptions are specific and non-overlapping;
+- skill bodies load progressively;
+- no skill tool, workflow engine, subagent requirement, or semantic retrieval system exists.
 
-- allow, ask, or deny selected shell and file mutations;
-- protect configured paths such as credentials and generated dependency directories;
-- warn on destructive commands;
-- preserve project trust behavior;
-- provide concise blocking reasons.
+---
 
-It must not claim OS isolation, replace containers, attempt complete shell-language parsing, or modify the core agent loop.
+# P3 — Clarify knowledge ownership
 
-## Task 3.3 — Read-only code-intelligence extension
+## Objective
 
-Expose one optional namespaced tool with a small operation enum:
+Make project knowledge discoverable and durable without duplicating scoped context, compaction, source, tests, or local memory.
+
+## P3.1 — Standardize optional `CONTEXT.md`
+
+Define `CONTEXT.md` as optional project documentation for:
+
+- stable terminology;
+- domain facts;
+- important system boundaries;
+- external-system names;
+- durable constraints not better represented in code or ADRs.
+
+It must not duplicate:
+
+- `AGENTS.md` behavioral instructions;
+- source code;
+- complete architecture documentation;
+- transient task notes;
+- secrets;
+- generated inventories.
+
+Discovery should use current resource-loading boundaries where possible. Do not add a semantic index.
+
+## P3.2 — Standardize ADR discovery
+
+Document supported ADR locations and naming conventions, then expose bounded metadata or direct references through existing project context mechanisms.
+
+Requirements:
+
+- ADRs remain version-controlled Markdown;
+- only relevant decisions are read when needed;
+- no database or embedding index;
+- no duplicate architectural summary in local memory;
+- source and tests remain executable truth.
+
+## P3.3 — Restrict local memory
+
+Local memory is limited to explicit:
+
+- user preferences;
+- corrections;
+- stable conventions not appropriate for the repository;
+- recurring tool or environment quirks.
+
+Do not automatically extract every conversation. Do not store repository architecture, full code summaries, secrets, or transient task progress.
+
+Preserve existing bounds, atomic updates, and best-effort secret checks.
+
+## P3.4 — Preserve scoped-context behavior
+
+Retain:
+
+- parent-to-child instruction ordering;
+- path-scoped activation;
+- bounded active scopes and characters;
+- deterministic replacement of stale sibling context;
+- the first-mutation scoped-instruction barrier;
+- diagnostics for omitted, oversized, conflicting, or replaced scopes.
+
+Do not add semantic conflict resolution or shell-directory inference.
+
+## P3.5 — Refine compaction continuity
+
+Using the existing compaction owner, retain:
+
+- active goal and constraints;
+- decisions and rationale;
+- files inspected and modified;
+- unresolved blockers and risks;
+- commands run and results observed;
+- next required validation.
+
+Do not add another memory layer or exact transcript archive.
+
+## P3 validation
+
+- focused context, memory, and compaction tests;
+- bounded prompt and metadata diagnostics;
+- compaction structural validation and repair behavior;
+- no duplicate instruction or knowledge injection;
+- compatibility with session persistence and restoration;
+- documentation examples for `CONTEXT.md` and ADRs.
+
+### P3 completion criteria
+
+- each type of knowledge has one owner;
+- optional `CONTEXT.md` and ADRs are documented and bounded;
+- local memory remains narrow and explicit;
+- scoped context remains compatible;
+- compaction preserves continuation evidence without becoming a second knowledge base.
+
+---
+
+# P4 — Ship optional robustness packages
+
+## Objective
+
+Deliver robustness capabilities outside the default core with zero normal-session cost while disabled.
+
+Each capability is a separate focused branch and pull request.
+
+## P4.1 — Safe-mode extension
+
+Provide optional allow, ask, or deny policy for selected shell and file mutations.
+
+Requirements:
+
+- protect configured paths;
+- warn or block clearly dangerous actions;
+- preserve project trust;
+- provide concise reasons;
+- avoid pretending to parse every shell construct;
+- do not claim OS isolation;
+- do not modify the generic agent loop.
+
+## P4.2 — Read-only code-intelligence extension
+
+Expose one optional namespaced tool with a small operation enum, initially limited to:
 
 ```text
 diagnostics
 definition
 references
-symbols
 ```
 
 Requirements:
 
-- use a project-installed language server where possible;
-- start lazily;
-- bundle no language servers initially;
-- return bounded results;
-- support cancellation and clean shutdown;
-- remain disabled by default;
-- avoid duplicating repository search available through `bash`.
+- use project-installed language servers where practical;
+- bundle no language-server ecosystem by default;
+- start services lazily;
+- remain read-only initially;
+- bound results and timeouts;
+- shut down processes cleanly;
+- feed diagnostics into existing evidence surfaces rather than create a validator agent.
 
-## Task 3.4 — External sandbox launch guidance
+## P4.3 — External sandbox/container templates
 
-Improve container and sandbox documentation and optional wrapper scripts without embedding a cross-platform sandbox in the agent runtime.
+Provide documentation and launch templates for supported container or sandbox approaches.
 
-Security documentation must continue to state that approval prompts are authorization, not isolation.
+Requirements:
 
-## Task 3.5 — Narrow MCP adapter guidance
+- remain external to the agent loop;
+- distinguish real isolation from approval prompts;
+- document workspace, network, credential, process, and cleanup behavior;
+- make no cross-platform guarantee without testing;
+- do not force sandboxing for ordinary installations.
 
-Prefer an existing maintained Pi package when it satisfies the need.
+## P4.4 — Documented MCP adapter configuration
 
-Any first-party adapter must use:
+Prefer documented configuration or an existing maintained Pi package before writing a new adapter.
 
-- explicit server configuration;
-- tool allowlists;
-- bounded descriptions and results;
-- lazy connection;
-- timeout and cancellation;
-- visible provenance;
-- clean shutdown.
+If an adapter is required:
 
-## Task 3.6 — Keep delegation deferred and explicit
+- explicit server and tool allowlists;
+- lazy startup;
+- bounded descriptions and schemas;
+- timeouts and cleanup;
+- provenance in diagnostics;
+- no automatic discovery of every server or tool;
+- no default-core dependency.
 
-Do not add a permanent agent fleet.
+## P4 validation
 
-A future single `subtask` capability may be considered only for user-selected independent work. It must be bounded, isolated, structured, optional, and absent from normal sessions while disabled.
+For every optional package:
+
+- disabled-state prompt and process cost is zero;
+- enable, invoke, failure, timeout, cancellation, and shutdown are tested;
+- removal leaves base sessions unaffected;
+- package filtering and trust behavior work;
+- security limitations are explicit;
+- no core agent-loop change is required unless separately justified.
+
+### P4 completion criteria
+
+- safe mode, code intelligence, sandbox templates, and MCP guidance are independently optional;
+- no optional tool schema appears when disabled;
+- no background process starts when disabled;
+- failure of an optional capability cannot break the base coding session.
 
 ---
 
-# Phase 4 — Upstream maintainability and consolidation
+# P5 — Reduce downstream maintenance cost
 
 ## Objective
 
-Reduce future merge cost after UI and adaptive behavior are implemented.
+Minimize the long-term cost of keeping All-For-One synchronized with Native Pi.
 
-## Task 4.1 — Review upstream-hot files
+## P5.1 — Review against `main`
 
-Compare `main...allforone` and classify changes in:
+For every retained divergence:
 
-- `packages/agent/src/agent-loop.ts`
-- `packages/agent/src/agent.ts`
-- `packages/coding-agent/src/core/agent-session.ts`
-- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
-- compaction, resource-loading, skills, system-prompt, and tool-composition files.
+- identify the owner and purpose;
+- identify the upstream file touched;
+- determine whether a native hook can replace the edit;
+- record compatibility and rollback impact;
+- remove obsolete changes.
 
-For each divergence, record:
+## P5.2 — Move optional behavior out of upstream-hot files
 
-- the requirement it satisfies;
-- why a skill, extension, theme, package, or coding-agent-local module is insufficient;
-- compatibility effect;
-- likely upstream conflict frequency;
-- rollback path.
+Prefer extensions, packages, themes, skills, and focused coding-agent modules when Native Pi hooks support them.
 
-## Task 4.2 — Extract optional behavior from hot paths
+Do not move code merely to reduce line count. Extraction is justified only when it creates a stable boundary and reduces conflict risk.
 
-Move behavior only when the new boundary is smaller and clearer. Do not refactor for line count alone.
+## P5.3 — Remove duplication
 
-Candidates include:
+Audit and remove:
 
-- interactive presentation read models extracted from `interactive-mode.ts`;
-- optional capability packages instead of default registration;
-- coding-agent-local policies instead of agent-core hooks;
-- reusable TUI primitives only when they are generally useful beyond All-For-One.
+- repeated tool-name lists;
+- duplicate model-profile rules;
+- repeated skill policy text;
+- stale phase documents;
+- duplicate diagnostics;
+- helpers with the same ownership;
+- obsolete compatibility shims;
+- documentation that conflicts with the current source of truth.
 
-## Task 4.3 — Remove duplicated documentation and policy text
+## P5.4 — Preserve public compatibility
 
-Keep the ownership model from `docs/all-for-one/README.md`:
+Verify:
 
-- architecture boundaries in `architecture.md`;
-- visual and interaction behavior in `ui-ux.md`;
-- adaptive behavior in `adaptive-capabilities.md`;
-- delivery order in this roadmap.
+- package exports;
+- CLI flags and defaults;
+- settings parsing;
+- extension APIs and events;
+- SDK entry points;
+- RPC and print behavior;
+- session loading;
+- package and resource discovery.
 
-Historical plans remain dated evidence, not the current source of truth.
+## P5.5 — Document retained divergences
 
-## Task 4.4 — Rehearse upstream synchronization
+For each intentional difference from Native Pi, record:
 
-Before merging each implementation phase:
+- demonstrated problem;
+- selected approach;
+- why the native behavior or hook was insufficient;
+- files and public surfaces affected;
+- validation performed;
+- security and compatibility implications;
+- rollback path;
+- likely upstream merge-conflict area.
 
-1. confirm `main` reflects the intended upstream Pi revision;
-2. rehearse merging `main` in an isolated worktree when conflict risk is material;
-3. inspect conflicts in upstream-hot files;
-4. update the focused branch from `allforone` without rewriting published history;
-5. rerun focused validation after conflict resolution.
+## P5 validation
 
-Do not optimize for a zero-diff downstream. Optimize for intentional, well-owned divergences.
+- compare `main...allforone` and the focused branch;
+- run the smallest decisive focused tests;
+- run broader checks based on affected risk;
+- rehearse merging current `main` into a disposable focused branch or worktree when appropriate;
+- verify no generated or package metadata drift;
+- report unrun checks honestly.
+
+### P5 completion criteria
+
+- optional behavior uses native extension boundaries where practical;
+- upstream-hot edits are minimized and justified;
+- repeated helpers and policy text are removed;
+- public Pi-compatible APIs remain stable;
+- every retained divergence has evidence, ownership, and rollback documentation.
 
 ---
 
-# Implementation order
+# Cross-phase validation policy
 
-1. Visual baselines.
-2. All-For-One dark and light themes.
-3. Welcome and compact header states.
-4. Responsive rail modes and section cleanup.
-5. Transcript and tool presentation.
-6. Built-in tool contract refinement.
-7. Skill activation guidance.
-8. Capability session state and UI observability.
-9. Manual-control documentation.
-10. Optional first-party skills package.
-11. Separate safe-mode, code-intelligence, sandbox, and MCP work.
-12. Upstream-hot-file consolidation.
+There is no dedicated evaluation-platform phase.
 
-Do not implement Phase 2 in parallel with the first UI composition changes. Stabilize the presentation model first so adaptive capability state has one clear UI destination.
+Validation is performed where the behavior is introduced:
 
-# Validation strategy
+- focused unit and integration tests;
+- controlled faux-provider sessions;
+- prompt and schema size diagnostics;
+- tmux TUI smoke tests;
+- package discovery and disabled-state checks;
+- existing repository static checks and CI;
+- upstream comparison and merge rehearsal;
+- optional live-provider comparisons only when a concrete model-profile decision requires them.
 
-Validation is an implementation gate, not a new product subsystem.
+The existing baseline, doctor, evaluator, and execution-integrity capabilities may be extended narrowly. They must not become a new platform, service, database, dashboard, or mandatory agent review loop.
 
-## Documentation-only changes
+# Pull request strategy
 
-- Review links, paths, internal consistency, terminology, and branch targets.
-- No build or test claim is made when code did not change.
+Use separate focused pull requests:
 
-## Code changes
+1. P0 documentation and UI/UX foundation.
+2. P1 centralized coding-model profile and tool interface.
+3. P2 essential adaptive skills package.
+4. P3 knowledge ownership and compaction refinements.
+5. One pull request per P4 optional capability.
+6. P5 consolidation and upstream-maintenance cleanup.
 
-For each focused task:
-
-1. Write or update the focused regression test.
-2. Run that exact test and inspect full output.
-3. Implement the smallest cohesive change.
-4. Rerun the focused test.
-5. Run related component tests.
-6. Run `npm run check` after code changes, as required by repository rules.
-7. Use `./test.sh` only when risk and repository rules justify the broader non-e2e suite.
-8. Perform tmux smoke checks for interactive changes.
-9. Review the final diff against the task files and non-goals.
-
-Never claim a visual improvement solely from unit tests. Never claim correctness solely from a screenshot.
-
-# Rollback boundaries
-
-- Themes are removable JSON resources.
-- Header behavior is isolated to interactive presentation.
-- Rail mode defaults to `auto` and can be disabled.
-- Tool-contract changes preserve names and public APIs.
-- Skill activation guidance preserves explicit invocation.
-- First-party skills are an optional Pi package.
-- Safe mode, code intelligence, MCP, sandbox launchers, and delegation remain separate packages or documentation.
-- No phase requires a session-format migration or provider change.
-
-# Design decisions
-
-## UI/UX precedes adaptive capability work
-
-The harness already has substantial runtime hardening. A clearer interface improves daily usability and creates a stable destination for capability observability before adaptive behavior is expanded.
-
-## Terminal controls fonts
-
-Bundling or forcing fonts is incompatible with terminal rendering and adds distribution cost. All-For-One uses terminal-safe typography and documents optional font recommendations.
-
-## New installs use the All-For-One theme pair
-
-The product should have a coherent default identity. Existing explicit selections and Native Pi themes remain fully available.
-
-## The primary model selects capabilities
-
-A separate classifier duplicates reasoning and adds cost and latency. Precise metadata and progressive disclosure are the adaptive mechanism.
-
-## Workflows are skills, not an engine
-
-Procedures belong in concise skills over existing tools. High-cost or high-autonomy workflows remain manual-only.
-
-## Preserve the compatible built-in registry
-
-The five current tools remain available. Their responsibilities become clearer before any model-specific reduction is considered.
-
-## Optional ecosystem instead of core accumulation
-
-Specialized tools, integrations, and security policies ship through Native Pi packages and extensions. Disabled capabilities do not consume normal-session prompt or process resources.
-
-## Avoid `packages/agent` changes
-
-UI, capability policy, skills, and optional integrations belong in the coding-agent or extension layers. Agent-core changes require a proven limitation that cannot be solved at the narrower boundary.
-
-## No dedicated evaluation platform
-
-Focused tests, static checks, controlled faux-provider sessions, and interactive smoke checks are implementation gates. All-For-One does not become a benchmark framework.
-
-# Completion definition
-
-The roadmap is complete when:
-
-- interactive mode is cleaner, responsive, and accessible without a new UI framework;
-- UI state is confined to interactive mode;
-- skills and tools are selected adaptively through the primary model and precise metadata;
-- manual overrides remain complete and documented;
-- simple tasks do not incur planning or workflow overhead;
-- optional capabilities remain outside the default core;
-- no classifier model, workflow engine, semantic memory, embedding index, or permanent multi-agent hierarchy is present;
-- Pi compatibility and upstream synchronization remain first-class constraints;
-- every retained downstream change has a clear owner and rollback path.
+Do not combine unrelated phases into one implementation pull request. The current documentation pull request defines the approved plan and does not itself claim runtime validation.
