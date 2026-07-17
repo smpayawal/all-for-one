@@ -259,6 +259,28 @@
       max-width: 800px;
     }
 
+    .brand-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: calc(var(--line-height) / 2);
+      color: var(--text);
+    }
+
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      flex: 0 0 auto;
+      object-fit: cover;
+      border-radius: 4px;
+    }
+
+    .brand-name {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: bold;
+    }
+
     /* Help bar */
     .help-bar {
       font-size: 11px;

@@ -153,7 +153,7 @@ function createFakeBunScript(bunBin: string): string {
 
 describe("product identity", () => {
 	test("uses All-For-One for display while preserving Pi runtime compatibility", () => {
-		expect(APP_TITLE).toBe("ALL-FOR-ONE");
+		expect(APP_TITLE).toBe("All-For-One");
 		expect(APP_NAME).toBe("pi");
 		expect(CONFIG_DIR_NAME).toBe(".pi");
 		expect(ENV_AGENT_DIR).toBe("PI_CODING_AGENT_DIR");

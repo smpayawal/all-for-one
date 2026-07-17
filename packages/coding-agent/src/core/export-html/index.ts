@@ -7,6 +7,7 @@ import { normalizePath, resolvePath } from "../../utils/paths.ts";
 import type { ToolDefinition } from "../extensions/types.ts";
 import type { SessionEntry } from "../session-manager.ts";
 import { SessionManager } from "../session-manager.ts";
+import { applyExportBranding } from "./branding.ts";
 
 /**
  * Interface for rendering custom tools to HTML.
@@ -166,7 +167,7 @@ function generateHtml(sessionData: SessionData, themeName?: string): string {
 		.replace("{{CONTAINER_BG}}", containerBg)
 		.replace("{{INFO_BG}}", infoBg);
 
-	return template
+	return applyExportBranding(template)
 		.replace("{{CSS}}", css)
 		.replace("{{JS}}", templateJs)
 		.replace("{{SESSION_DATA}}", sessionDataBase64)

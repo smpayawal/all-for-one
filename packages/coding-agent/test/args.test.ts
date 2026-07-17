@@ -1,7 +1,23 @@
-import { describe, expect, test } from "vitest";
-import { parseArgs } from "../src/cli/args.ts";
+import { describe, expect, test, vi } from "vitest";
+import { parseArgs, printHelp } from "../src/cli/args.ts";
+import { APP_NAME, APP_TITLE } from "../src/config.ts";
 
 describe("parseArgs", () => {
+	describe("help output", () => {
+		test("leads with the product title while retaining the pi command", () => {
+			const log = vi.spyOn(console, "log").mockImplementation(() => {});
+			try {
+				printHelp();
+				const output = String(log.mock.calls[0]?.[0] ?? "");
+				expect(output).toMatch(new RegExp(`^${APP_TITLE}\\n`));
+				expect(output).toContain(`  ${APP_NAME} [options] [@files...] [messages...]`);
+				expect(output).not.toContain(`  ${APP_TITLE} [options]`);
+			} finally {
+				log.mockRestore();
+			}
+		});
+	});
+
 	describe("--version flag", () => {
 		test("parses --version flag", () => {
 			const result = parseArgs(["--version"]);

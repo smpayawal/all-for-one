@@ -4,7 +4,7 @@
 	"description": "Coding agent CLI with read, bash, edit, write, and apply_patch tools and session management",
 	"type": "module",
 	"piConfig": {
-		"displayName": "ALL-FOR-ONE",
+		"displayName": "All-For-One",
 		"configDir": ".pi"
 	},
 	"bin": {
