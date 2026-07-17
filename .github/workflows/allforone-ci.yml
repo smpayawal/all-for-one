@@ -95,8 +95,26 @@ jobs:
       - name: Agent core tests
         run: npm --workspace @earendil-works/pi-agent-core test
 
-      - name: Coding agent tests
-        run: npm --workspace @earendil-works/pi-coding-agent test
+      - name: Capture coding agent test result
+        run: |
+          set +e
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run --reporter=json --outputFile="$RUNNER_TEMP/coding-agent-results.json"
+          status=$?
+          printf '%s\n' "$status" > "$RUNNER_TEMP/coding-agent-status.txt"
+          exit 0
+
+      - name: Upload coding agent test result
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coding-agent-test-result
+          path: |
+            ${{ runner.temp }}/coding-agent-results.json
+            ${{ runner.temp }}/coding-agent-status.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Enforce coding agent test result
+        run: test "$(cat "$RUNNER_TEMP/coding-agent-status.txt")" -eq 0
 
       - name: Offline diagnostics
         run: |
