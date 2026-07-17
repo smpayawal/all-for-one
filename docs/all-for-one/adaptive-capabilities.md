@@ -2,183 +2,156 @@
 
 ## Purpose
 
-Make All-For-One select the smallest useful skill, tool, or workflow from the current task and context without introducing a second orchestrator, request-classifier model, workflow engine, skill tool, or hidden autonomous control plane.
+Make All-For-One expose the smallest useful capability set for the current coding task without adding a request-classifier model, workflow engine, skill tool, hidden router, permanent subagent hierarchy, or extra reasoning turn.
 
-The primary model remains responsible for task reasoning. All-For-One improves that decision through:
+The primary model remains the semantic selector. The harness provides clear tool profiles, bounded skill metadata, deterministic availability rules, and explicit manual control.
 
-- the P1 centralized coding-model profile;
-- precise and non-overlapping built-in tool contracts;
-- the P2 essential Native Pi skill package;
-- existing extension and package registration;
-- deterministic safety, trust, and eligibility boundaries;
-- explicit manual overrides.
+## Design principles
 
-## Current foundations
+### One primary agent
 
-All-For-One already has the required primitives:
-
-- a small canonical built-in tool registry;
-- dynamic extension tool registration;
-- active-tool allowlists and denylists;
-- bounded model-visible skill metadata;
-- on-demand skill-body loading with `read`;
-- `/skill:<name>` manual invocation;
-- `disable-model-invocation` for manual-only project or user policy;
-- deterministic skill precedence and duplicate handling;
-- package filtering and project/global overrides;
-- context diagnostics for active and inactive tools, visible skills, manual-only skills, origins, and prompt cost.
-
-The implementation refines these capabilities rather than replacing them.
-
-## Selection principles
-
-### Primary model as selector
-
-Do not add another LLM call before the main agent turn. The primary model already has the request, active project instructions, conversation state, tool definitions, and skill descriptions.
-
-A separate classifier would add latency, cost, duplicated reasoning, and new failure modes while seeing less context than the primary agent.
+The primary model already receives the request, project instructions, session state, tool definitions, and skill descriptions. A separate classifier would duplicate reasoning while adding latency, token cost, coordination risk, and a new failure mode.
 
 ### Minimum sufficient capability
 
-Use the least complex capability that can complete the task safely and correctly:
+Use the least complex path that can complete the task safely:
 
-1. Answer directly when no repository interaction is needed.
-2. Use the narrowest relevant built-in tool.
-3. Load one clearly matching essential skill when procedural guidance materially improves the task.
-4. Combine skills only when their responsibilities are distinct and both are required.
-5. Use an optional extension tool only when it is installed, enabled, and relevant.
-6. Stop the workflow when the task's success condition is satisfied.
-
-Do not activate a skill or workflow merely because it exists.
+1. answer directly when tools are unnecessary;
+2. use the smallest active tool profile;
+3. load one clearly matching skill when procedural guidance materially helps;
+4. combine skills only when responsibilities are distinct;
+5. use an optional extension only when explicitly enabled and relevant;
+6. stop when the task's evidence requirement is satisfied.
 
 ### Progressive disclosure
 
-Keep only concise names and descriptions in the normal model context. Load full skill instructions, references, or helper scripts only after a skill is selected.
+Keep only concise names and trigger descriptions in normal context. Load full skill bodies and references only after selection. Optional tool schemas appear only when their extension is enabled.
 
-Optional tool schemas are exposed only when their owning extension or package is enabled.
+### Manual control remains authoritative
 
-### Manual override remains authoritative
+Users, projects, CLI callers, and SDK callers retain control through:
 
-Automatic selection is a default convenience, not a removal of control.
-
-Users and projects retain control through:
-
+- active-tool configuration, allowlists, and denylists;
+- mutation-profile override;
 - `/skill:<name>`;
 - `disable-model-invocation`;
-- `--no-skills` and explicit `--skill` paths;
+- `--no-skills` and explicit skill paths;
 - package and resource filters;
-- extension enable and disable settings;
-- tool allowlists and denylists;
-- CLI and SDK active-tool configuration;
-- coding-model profile overrides;
+- extension enable/disable settings;
 - project instructions.
 
-An explicit user choice wins unless it violates an existing safety or trust boundary or the capability is unavailable.
+Explicit configuration wins unless it violates an existing trust or safety boundary or names an unavailable capability.
 
-## P1 — Centralized coding-model profile
+## Tool inventory and active profiles
 
-### Purpose
+### Compatible inventory
 
-Different coding models may perform more reliably with different existing mutation interfaces. This behavior must be centralized instead of being scattered across tool descriptions, provider adapters, prompts, or model-name checks.
-
-### Ownership
-
-Create one coding-agent-local profile module, for example:
-
-```text
-packages/coding-agent/src/core/coding-model-profile.ts
-```
-
-The exact filename may follow repository conventions, but there must be one owner.
-
-The profile must not create a second model registry. It consumes Native Pi's existing resolved model identity.
-
-### Minimum profile
-
-The initial profile remains small:
-
-```ts
-export interface CodingModelProfile {
-  existingFileMutation: "edit" | "apply_patch";
-  supportsParallelTools?: boolean;
-  recommendedThinkingLevel?: ThinkingLevel;
-}
-```
-
-Only fields supported by a verified use case are added. The profile is not a general provider configuration object.
-
-### Mutation selection
-
-For normal automatic operation:
-
-- select either `edit` or `apply_patch` as the primary existing-file mutation interface;
-- keep `write` for file creation and intentional complete replacement;
-- keep `read` for inspection;
-- keep `bash` for shell, repository, search, build, test, and lint operations;
-- preserve manual configuration for all five tools;
-- retain a safe fallback for unknown or unprofiled models.
-
-The profile may influence default exposure, ordering, and prompt guidance. It must not rename tools or change their public schemas.
-
-### Profile rules
-
-- No provider-specific conditionals in `packages/agent`.
-- No model-name checks duplicated across tool files.
-- Unknown models fall back to documented Native Pi-compatible behavior.
-- A user override may select `edit`, `apply_patch`, or the complete five-tool set.
-- The selected profile is visible in `/context` or equivalent diagnostics.
-- Profiles are not marketed as quality improvements until measured.
-- Adding a profile entry requires a reproducible reason and focused compatibility tests.
-
-## P1 — Built-in tool contracts
-
-The canonical registry remains:
+The compatible built-in inventory remains:
 
 ```text
 read
 bash
 edit
 write
+grep
+find
+ls
 apply_patch
 ```
 
-### Non-overlapping responsibilities
+This inventory protects existing Pi CLI, SDK, extension, read-only, allowlist, denylist, and custom-runtime behavior. It is not the same as the normal active coding profile.
 
-| Tool | Primary responsibility | Do not use when |
+### Supported coding profiles
+
+```text
+edit profile:
+read + bash + edit + write
+
+patch profile:
+read + bash + apply_patch + write
+
+full profile:
+read + bash + edit + write + apply_patch
+
+read-only profile:
+read + grep + find + ls
+```
+
+The recommended initial normal profile is the edit profile. The patch profile is available when structured multi-file mutation is preferred. The full profile remains an explicit compatibility and troubleshooting option.
+
+### Tool responsibilities
+
+| Tool | Primary responsibility | Exclusion |
 |---|---|---|
-| `read` | Inspect text or image files with bounded output and continuation support | A shell command or file mutation is required |
-| `bash` | Run shell commands, repository search, builds, tests, linters, and version-control inspection | A dedicated file tool expresses the operation more safely and clearly |
-| `edit` | Perform an exact localized replacement in one existing file | Creating a file, replacing a complete file, or applying a multi-file patch |
-| `write` | Create a file or intentionally replace its complete contents | A localized edit or structured patch is sufficient |
-| `apply_patch` | Apply structured multi-hunk or multi-file mutations | One exact localized replacement is sufficient |
+| `read` | Bounded text or image inspection with continuation guidance | Do not use when a shell operation or mutation is required |
+| `bash` | Shell commands, search, repository operations, builds, tests, and lint | Prefer a dedicated file tool for mutations it expresses more safely |
+| `edit` | Exact localized replacement in one existing file | Do not create files, replace whole files, or coordinate multi-file patches |
+| `write` | Create a file or intentionally replace its complete contents | Do not use when a localized edit is sufficient |
+| `apply_patch` | Coherent structured multi-hunk or multi-file mutation | Do not use for a single simple exact replacement |
+| `grep`, `find`, `ls` | Compatible read-only discovery utilities | Not part of the recommended normal coding profile |
 
-The model profile determines the primary existing-file mutation tool. Tool descriptions still remain correct when users expose the complete set manually.
+Tool descriptions must remain correct when any compatible profile is selected.
 
-### Tool interface standard
+## P1 — Minimal coding-model profile
 
-All built-in tools follow the same interface quality rules:
+### Owner
 
-- concise names and descriptions;
-- one clearly stated responsibility;
+Create one coding-agent-local module, for example:
+
+```text
+packages/coding-agent/src/core/coding-model-profile.ts
+```
+
+It consumes existing resolved Pi model identity and does not create another model registry.
+
+### Initial contract
+
+```ts
+export interface CodingModelProfile {
+  existingFileMutation: "edit" | "apply_patch";
+}
+```
+
+No thinking-level, parallelism, retry, provider-policy, context-window, or token-budget field is included initially. Those concerns already have owners and require separate evidence before being added.
+
+### Resolution rules
+
+- `auto` resolves to `edit` initially.
+- Unknown or unprofiled models resolve to `edit`.
+- Explicit configuration may select `edit`, `apply_patch`, or the full profile.
+- Explicitly configured tools are not silently removed.
+- The effective profile is visible through `/context` or equivalent diagnostics.
+- Model-specific exceptions require a reproducible failure or controlled comparison.
+- No profile is described as faster, cheaper, or more accurate without evidence.
+- No provider-specific branch is added to `packages/agent`.
+
+A minimal settings-facing shape may be:
+
+```ts
+export type MutationProfile = "auto" | "edit" | "apply_patch" | "full";
+```
+
+The public tool names and schemas remain unchanged.
+
+## Tool-interface quality standard
+
+Every active built-in tool should provide:
+
+- a concise single responsibility;
 - bounded output;
 - explicit truncation and continuation guidance;
 - actionable schema and precondition errors;
 - consistent cancellation behavior;
-- shell exit information when available;
+- shell exit status and relevant stderr where available;
+- concise changed-path or operation summaries;
 - deterministic source and active-state diagnostics;
-- no duplicate prompt guidance.
+- no repeated policy text in both tool descriptions and the system prompt.
 
-### No hidden router
+The harness may enforce deterministic eligibility, schema, workspace, trust, and scoped-instruction rules. It must not use expanding keyword or regular-expression routing to infer which tool or skill the user intended.
 
-The harness may enforce deterministic conditions such as disabled tools, invalid schemas, workspace boundaries, project trust, and scoped-instruction preflight.
+## P2 — Essential Native Pi skill package
 
-It must not parse user prompts with an expanding set of keyword or regular-expression rules to choose tools. Selection remains semantic reasoning by the primary model.
-
-## P2 — Essential adaptive skill package
-
-### Approved scope
-
-Implement only these five first-party skills:
+Implement exactly:
 
 1. `repository-orientation`
 2. `systematic-debugging`
@@ -186,62 +159,46 @@ Implement only these five first-party skills:
 4. `verify-before-completion`
 5. `review-diff`
 
-Use Native Pi's skill loader and the Agent Skills format. Do not add a `skill` tool, router skill, workflow runtime, scheduler, or agent hierarchy.
+Use Native Pi's existing skill loader and Agent Skills format. Do not add a `skill` tool, universal router skill, workflow runtime, scheduler, agent team, or mandatory pipeline.
 
-### Default invocation policy
-
-All five skills are model-visible by default with precise descriptions and exclusions. The agent decides when they improve the current task.
-
-Manual invocation remains available for every skill. A project or user may set a skill to manual-only through existing `disable-model-invocation` metadata or resource filtering.
+### Trigger contract
 
 | Skill | Automatic trigger | Important exclusions |
 |---|---|---|
-| `repository-orientation` | Unfamiliar repository, broad architecture task, cross-package change, or execution-path tracing | Trivial single-file edit with sufficient existing context |
-| `systematic-debugging` | Reproducible bug, failing test, crash, regression, unexpected behavior, or performance fault | New feature planning without a failure to diagnose |
-| `plan-complex-change` | Multi-module feature, architectural change, migration, compatibility-sensitive refactor, or work needing staged implementation | Small isolated edit with an obvious implementation path |
-| `verify-before-completion` | Before claiming a code change is complete, fixed, passing, secure, or compatible | Pure explanation or brainstorming with no implementation claim |
-| `review-diff` | Requested code review, high-risk change, broad mutation, or final scope and regression review | Ordinary read-only explanation without a change set |
+| `repository-orientation` | Unfamiliar repository, broad architecture task, cross-package change, or execution-path tracing | Trivial isolated edit with sufficient context |
+| `systematic-debugging` | Failing test, crash, regression, unexpected behavior, or performance fault | New feature design without a failure to diagnose |
+| `plan-complex-change` | Multi-module feature, migration, architecture change, compatibility-sensitive refactor, or staged implementation | Small obvious edit |
+| `verify-before-completion` | Before claiming implemented work is fixed, passing, secure, compatible, or complete | Pure explanation or planning with no implementation claim |
+| `review-diff` | Requested review, broad or high-risk mutation, or final scope/regression inspection | Read-only explanation without a change set |
 
-### Description contract
+Each description states what the skill does, when it should trigger, and when it should not trigger. Avoid universal language that causes every task to load the skill.
 
-Each skill description states:
+### Skill-body rules
 
-1. what the skill does;
-2. the concrete situations that should trigger it;
-3. when not to use it.
-
-Example:
-
-```yaml
-description: Trace reproducible bugs, failing tests, crashes, regressions, and unexplained behavior before proposing the smallest fix. Do not use for feature planning without a failure to diagnose.
-```
-
-Avoid generic descriptions such as `Helps with engineering` or universal claims that cause every task to load the skill.
-
-### Skill-body constraints
-
-- Keep `SKILL.md` concise and procedural.
-- Put detailed references one level below the skill only when needed.
+- Keep each `SKILL.md` concise and procedural.
+- Put detailed references one level below only when necessary.
 - Include helper scripts only for repeated deterministic operations.
-- Do not repeat the base system prompt, repository instructions, or another skill.
-- Do not require one skill merely to understand another.
+- Do not repeat the base prompt, repository instructions, or another skill.
+- Do not require one skill to understand another.
 - Do not launch subagents.
-- Do not force planning, TDD, review, or broad validation on trivial tasks.
+- Do not force planning, TDD, review, or broad validation on trivial work.
 - Stop once sufficient evidence exists.
 
-### Skill composition
+### Composition
 
-The agent may combine skills when their responsibilities are distinct. Examples:
+Skills may compose when responsibilities are distinct, for example:
 
-- `repository-orientation` followed by `plan-complex-change` for an unfamiliar multi-package refactor;
-- `systematic-debugging` followed by `verify-before-completion` for a bug fix;
-- `plan-complex-change` followed by `review-diff` for a compatibility-sensitive implementation.
+```text
+repository-orientation -> plan-complex-change
+systematic-debugging -> verify-before-completion
+plan-complex-change -> review-diff
+```
 
-The harness does not create a fixed pipeline. The primary model loads only what the task requires.
+This is not a fixed pipeline. Normally one skill is sufficient.
 
-### Collision and precedence
+### Precedence and manual override
 
-Retain the existing precedence order:
+Retain current deterministic precedence:
 
 1. explicit temporary invocation;
 2. project-local skill;
@@ -249,139 +206,126 @@ Retain the existing precedence order:
 4. package-provided skill;
 5. remaining sources.
 
-A lower-priority duplicate is omitted and reported through diagnostics. Skill bodies are never merged automatically.
+Lower-priority duplicates are omitted and reported. Skill bodies are never merged automatically. `/skill:<name>`, manual-only metadata, package filters, and `--no-skills` remain supported.
 
 ## Workflow interpretation
 
-A workflow is a procedure described by a skill and carried out by the same primary agent using existing tools.
+A workflow is a procedure described by a skill and executed by the same primary agent using existing tools.
 
 It is not:
 
-- a new execution engine;
-- a persisted workflow graph;
-- a subagent team;
-- a mandatory sequence for every task;
-- a second task planner.
+- a persisted graph;
+- a scheduler;
+- a second task planner;
+- an agent team;
+- a mandatory sequence for every request.
 
-The primary model may follow a skill workflow automatically when:
+The primary model may follow a skill procedure automatically when the description matches, all steps are necessary, no extra model is required, existing approval boundaries are respected, and the workflow can stop as soon as evidence is sufficient.
 
-- the description clearly matches;
-- the workflow stays in the current agent session;
-- steps are necessary rather than ceremonial;
-- no external publication, credential change, or destructive operation occurs without the existing control boundary;
-- no additional model is required;
-- the workflow can terminate as soon as sufficient evidence exists.
+## Knowledge-aware selection
 
-Explicit user confirmation remains required where existing repository or product policy requires it, including publication, releases, credentials, destructive operations, and material scope expansion.
+Adaptive selection may use active project instructions, optional `CONTEXT.md`, relevant ADR references, current session state, and bounded skill descriptions.
 
-## P3 — Knowledge-aware capability use
-
-Adaptive selection may use current project instructions, optional `CONTEXT.md`, ADR summaries, session state, and bounded skill descriptions.
-
-It must not add embeddings, semantic retrieval, automatic memory extraction, or a second context manager.
+It must not add embeddings, semantic retrieval, automatic memory extraction, repository-wide summaries, or another context manager.
 
 Knowledge ownership remains:
 
 - scoped project instructions for behavior;
-- `CONTEXT.md` for stable shared terminology and domain facts;
+- `CONTEXT.md` for stable terminology and domain facts;
 - ADRs for architectural decisions;
 - source and tests for executable truth;
-- local memory for explicit preferences, corrections, and tool quirks;
-- compaction for current-session continuity.
+- explicit local memory for preferences, corrections, and tool/environment quirks;
+- compaction for active-session continuity.
 
-## P4 — Optional tools and extensions
+## Optional capability activation
 
-Optional capabilities remain outside the default core:
+Optional capabilities remain outside the default profile:
 
-- safe-mode extension;
-- read-only code-intelligence extension;
+- safe-mode policy extension;
+- read-only code intelligence;
 - external sandbox or container launch templates;
-- documented MCP adapter configuration.
+- explicit MCP configuration.
 
-### Activation rules
+Rules:
 
-- Never install an optional package automatically.
-- Never expose every installed external tool by default.
-- Respect project trust and package filters.
-- Register tools only when the owning extension is enabled.
-- Prefer one namespaced tool with a small operation enum over many overlapping tools.
-- Start language servers, sockets, watchers, or helper processes only when invoked.
-- Dispose session-owned resources on shutdown.
-- Keep descriptions, schemas, and output bounded.
-- Add no prompt or process cost while disabled.
+- never auto-install a package;
+- never expose every installed external tool by default;
+- register schemas only when enabled;
+- start language servers, MCP servers, sockets, watchers, or helpers only when invoked;
+- dispose session-owned resources on shutdown;
+- keep schemas, descriptions, timeouts, and output bounded;
+- fail without breaking the base coding session;
+- add no disabled-state prompt or process cost.
 
-### Capability policy
+## Passive evidence, not a validator agent
 
-| Capability | Default | Activation |
-|---|---|---|
-| Canonical built-in tools | Enabled according to model profile and manual configuration | Session, CLI, and SDK configuration |
-| Essential skill package | Discoverable | Primary model or `/skill:<name>` |
-| Safe mode | Disabled optional extension | User or project package configuration |
-| Read-only code intelligence | Disabled optional extension | Enabled package; service starts lazily |
-| Sandbox/container templates | Documentation and templates | User-selected launch environment |
-| MCP adapter | Disabled optional configuration | Explicit server and tool allowlist |
+The default core may record:
 
-## Observable adaptive state
+- modified files;
+- commands run;
+- exit status;
+- bounded output or a full-output reference;
+- whether the evidence followed the latest mutation.
 
-The system may expose a small coding-agent-local read model for capability use:
+The `verify-before-completion` skill decides which focused checks are appropriate. The harness does not claim that a passing command proves correctness and should not automatically continue the agent merely to satisfy a broad validation policy unless an explicit optional mode is enabled.
+
+## Observable state
+
+Diagnostics may report:
 
 ```ts
 interface ActiveCapabilityState {
-  codingModelProfile: string;
-  primaryMutationTool: "edit" | "apply_patch";
+  mutationProfile: "edit" | "apply_patch" | "full";
+  activeTools: readonly string[];
   loadedSkills: readonly string[];
   explicitSkills: readonly string[];
-  optionalTools: readonly string[];
+  enabledOptionalTools: readonly string[];
 }
 ```
 
-The exact type follows repository conventions.
-
 Requirements:
 
-- report actual loaded or invoked skills, not every discovered skill;
-- distinguish explicit invocation only where useful;
-- derive optional tools from registered non-built-in definitions;
-- do not persist a hidden task classification;
-- reuse existing session events and diagnostics;
+- report actual active or invoked capabilities, not inferred task labels;
+- reuse existing diagnostics and events;
 - do not create another telemetry store;
-- keep the rail concise and `/context` detailed.
+- keep interactive summaries concise and `/context` detailed;
+- persist no hidden classification.
 
-## Failure and fallback behavior
+## Failure and fallback
 
-- Missing or invalid skill content produces a bounded diagnostic and normal model fallback.
-- Ambiguous skill descriptions cause no automatic skill selection rather than several speculative loads.
-- An unknown model uses the documented default coding profile.
-- If the primary mutation tool cannot express a valid operation, the model may use an explicitly available fallback or provide corrective guidance.
+- Invalid or unavailable skill content produces a bounded diagnostic and normal-model fallback.
+- Ambiguous skill descriptions should result in no speculative skill load rather than several loads.
+- Unknown models use the edit profile.
+- If the active mutation tool cannot express the operation, the model may use an explicitly available fallback or explain the required profile change.
 - Disabled optional capabilities are not represented as available.
-- A failed optional service must not break the base five-tool coding session.
+- Optional-service failure cannot terminate the base coding session unless the user explicitly made that service required.
 
 ## Validation strategy
 
-There is no dedicated evaluation-platform phase.
+There is no dedicated evaluation platform.
 
-Each implementation phase validates its own claims through:
+Validate each change through the smallest decisive evidence:
 
 - focused unit and integration tests;
-- faux-provider sessions where model behavior must be controlled;
+- controlled faux-provider sessions for profile or skill behavior;
 - prompt and schema size diagnostics;
-- tmux interactive smoke checks where UI state is involved;
-- existing repository checks and CI;
-- optional recorded live-provider comparisons only when credentials and a concrete decision justify them.
+- CLI, SDK, extension, print, and RPC compatibility checks where affected;
+- optional recorded live-provider comparisons only for a concrete profile decision;
+- comparison with both `allforone` and `main`.
 
-No quality, latency, token, cost, or model-reliability claim is made without recorded evidence.
+Do not grow a workload registry, treatment framework, evaluator agent, database, dashboard, or mandatory live-model suite.
 
 ## Acceptance criteria
 
 Adaptive capability work is complete when:
 
-1. One centralized coding-model profile owns mutation preference.
-2. `edit` and `apply_patch` no longer compete as equal automatic defaults for a profiled model.
-3. The complete five-tool set remains manually available and Pi-compatible.
-4. Tool descriptions and outputs have strict, non-overlapping contracts.
-5. The five approved skills use Native Pi's skill system and are adaptively discoverable by default.
-6. Manual skill invocation and manual-only project policy remain supported.
-7. Simple tasks do not load unnecessary skills or workflows.
-8. Optional tools add no prompt or process cost while disabled.
-9. Actual capability use is observable without invented agents or task classifications.
-10. No classifier model, skill tool, workflow engine, semantic retrieval layer, or evaluation platform is added.
+1. Compatible tool inventory is preserved while normal active profiles are smaller and explicit.
+2. The initial normal profile exposes `read`, `bash`, `edit`, and `write`.
+3. The patch and full profiles remain explicitly available.
+4. One coding-agent-local field owns mutation preference.
+5. Tool contracts and output behavior are concise and non-overlapping.
+6. Exactly five approved skills use Native Pi progressive disclosure.
+7. Manual skill and tool controls remain compatible.
+8. Simple tasks do not load unnecessary skills or optional capabilities.
+9. Disabled optional features perform no discovery, process startup, model request, or persistent mutation.
+10. No classifier model, workflow engine, skill tool, semantic retrieval layer, permanent agent hierarchy, or evaluation platform is added.
