@@ -10,40 +10,40 @@ import { buildSystemPrompt } from "../packages/coding-agent/src/core/system-prom
 import { createAllToolDefinitions, createCodingToolDefinitions } from "../packages/coding-agent/src/core/tools/index.ts";
 
 /**
- * External Codex reference value used for comparison only. P4.0 does not
+ * External Codex reference value used for comparison only. All-For-One baseline does not
  * enforce this value or make any claim that it is optimal for All-For-One.
  */
 export const CODEX_REFERENCE_METADATA_BUDGET_PERCENT = 2;
 
-export interface Phase4ReferenceBudget {
+export interface AllForOneReferenceBudget {
 	contextWindow: number;
 	referenceBudgetPercent: number;
 	referenceTokenBudget: number;
 	fits: boolean;
 }
 
-export interface Phase4SkillCollectionMeasurement {
+export interface AllForOneSkillCollectionMeasurement {
 	skillCount: number;
 	metadataChars: number;
 	metadataBytes: number;
 	metadataTokensEstimate: number;
-	referenceBudgets: Phase4ReferenceBudget[];
+	referenceBudgets: AllForOneReferenceBudget[];
 	omittedSkills: string[];
 	budgetApplied: false;
 }
 
-export const DEFAULT_PHASE4_CONTEXT_WINDOWS = [8_192, 16_384, 32_768, 128_000, 1_000_000];
-export const DEFAULT_PHASE4_SYNTHETIC_SKILL_COUNTS = [0, 2, 10, 50, 100, 500];
+export const DEFAULT_ALLFORONE_CONTEXT_WINDOWS = [8_192, 16_384, 32_768, 128_000, 1_000_000];
+export const DEFAULT_ALLFORONE_SYNTHETIC_SKILL_COUNTS = [0, 2, 10, 50, 100, 500];
 const UNBOUNDED_BASELINE_SKILL_METADATA_CHARS = Number.MAX_SAFE_INTEGER;
 
-export interface Phase4BaselineTaskCategory {
+export interface AllForOneBaselineTaskCategory {
 	id: string;
 	description: string;
 	requiredMetrics: string[];
 	executionStatus: "deferred-live-evaluation";
 }
 
-export const PHASE4_BASELINE_TASK_CATEGORIES: ReadonlyArray<Phase4BaselineTaskCategory> = [
+export const ALLFORONE_BASELINE_TASK_CATEGORIES: ReadonlyArray<AllForOneBaselineTaskCategory> = [
 	{
 		id: "small-bug-fix",
 		description: "A localized defect with a focused regression test.",
@@ -100,7 +100,7 @@ export const PHASE4_BASELINE_TASK_CATEGORIES: ReadonlyArray<Phase4BaselineTaskCa
 	},
 ];
 
-export interface Phase4BaselineOptions {
+export interface AllForOneBaselineOptions {
 	cwd: string;
 	agentDir: string;
 	additionalSkillPaths?: string[];
@@ -111,16 +111,16 @@ export interface Phase4BaselineOptions {
 	syntheticSkillCounts?: number[];
 }
 
-export interface Phase4ContextFileMeasurement {
+export interface AllForOneContextFileMeasurement {
 	path: string;
 	chars: number;
 	bytes: number;
 	tokensEstimate: number;
 }
 
-export interface Phase4BaselineReport {
+export interface AllForOneBaselineReport {
 	schemaVersion: 1;
-	evaluationPlan: Phase4BaselineTaskCategory[];
+	evaluationPlan: AllForOneBaselineTaskCategory[];
 	environment: {
 		cwd: string;
 		agentDir: string;
@@ -143,7 +143,7 @@ export interface Phase4BaselineReport {
 			totalChars: number;
 			totalBytes: number;
 			totalTokensEstimate: number;
-			files: Phase4ContextFileMeasurement[];
+			files: AllForOneContextFileMeasurement[];
 		};
 		tools: {
 			allNames: string[];
@@ -163,7 +163,7 @@ export interface Phase4BaselineReport {
 			tokensEstimate: number;
 		};
 	};
-	skillCollections: Phase4SkillCollectionMeasurement[];
+	skillCollections: AllForOneSkillCollectionMeasurement[];
 	limitations: string[];
 }
 
@@ -223,15 +223,15 @@ async function reloadOffline(loader: DefaultResourceLoader): Promise<void> {
 export function createSyntheticSkillCollection(count: number): Skill[] {
 	const normalizedCount = normalizeSkillCount(count);
 	return Array.from({ length: normalizedCount }, (_, index) => {
-		const skillDir = `/phase4-baseline/synthetic/skill-${String(index).padStart(4, "0")}`;
+		const skillDir = `/allforone-baseline/synthetic/skill-${String(index).padStart(4, "0")}`;
 		const filePath = `${skillDir}/SKILL.md`;
 		return {
 			name: `synthetic-skill-${String(index).padStart(4, "0")}`,
-			description: "Synthetic Phase 4 baseline metadata entry.",
+			description: "Synthetic All-For-One baseline metadata entry.",
 			filePath,
 			baseDir: skillDir,
 			sourceInfo: createSyntheticSourceInfo(filePath, {
-				source: "phase4-baseline",
+				source: "allforone-baseline",
 				baseDir: skillDir,
 			}),
 			disableModelInvocation: false,
@@ -243,7 +243,7 @@ export function createSyntheticSkillCollection(count: number): Skill[] {
 export function measureSkillCollection(
 	skills: readonly Skill[],
 	contextWindows: readonly number[],
-): Phase4SkillCollectionMeasurement {
+): AllForOneSkillCollectionMeasurement {
 	const metadata = formatSkillsForPrompt(Array.from(skills), {
 		maxChars: UNBOUNDED_BASELINE_SKILL_METADATA_CHARS,
 	});
@@ -272,13 +272,13 @@ export function measureSkillCollection(
 }
 
 /** Collect the current built-in resource and prompt composition without changing runtime behavior. */
-export async function collectPhase4Baseline(options: Phase4BaselineOptions): Promise<Phase4BaselineReport> {
+export async function collectAllForOneBaseline(options: AllForOneBaselineOptions): Promise<AllForOneBaselineReport> {
 	const cwd = resolve(options.cwd);
 	const agentDir = resolve(options.agentDir);
 	const projectTrusted = options.projectTrusted ?? true;
-	const contextWindows = normalizeContextWindows(options.contextWindows ?? DEFAULT_PHASE4_CONTEXT_WINDOWS);
+	const contextWindows = normalizeContextWindows(options.contextWindows ?? DEFAULT_ALLFORONE_CONTEXT_WINDOWS);
 	const syntheticSkillCounts = normalizeSkillCounts(
-		options.syntheticSkillCounts ?? DEFAULT_PHASE4_SYNTHETIC_SKILL_COUNTS,
+		options.syntheticSkillCounts ?? DEFAULT_ALLFORONE_SYNTHETIC_SKILL_COUNTS,
 	);
 	const includeSkills = options.includeSkills ?? true;
 	const includeContextFiles = options.includeContextFiles ?? true;
@@ -349,7 +349,7 @@ export async function collectPhase4Baseline(options: Phase4BaselineOptions): Pro
 
 	return {
 		schemaVersion: 1,
-		evaluationPlan: PHASE4_BASELINE_TASK_CATEGORIES.map((task) => ({
+		evaluationPlan: ALLFORONE_BASELINE_TASK_CATEGORIES.map((task) => ({
 			...task,
 			requiredMetrics: [...task.requiredMetrics],
 		})),
@@ -403,17 +403,17 @@ export async function collectPhase4Baseline(options: Phase4BaselineOptions): Pro
 			"This baseline does not run live model tasks or measure correctness, latency, cost, compaction, or retry outcomes.",
 			"This baseline command does not execute a live session, so tool-result raw bytes, repeated reads, follow-up retrieval, and truncation telemetry are outside its scope; the runtime exposes those measurements through AgentSession and /context.",
 			"Extensions are not loaded or executed; the tool surface measures built-in tools only.",
-			"No skill metadata budget is applied, so omittedSkills is always empty in P4.0.",
+			"No skill metadata budget is applied, so omittedSkills is always empty in All-For-One baseline.",
 		],
 	};
 }
 
-interface Phase4CliOptions extends Phase4BaselineOptions {
+interface AllForOneCliOptions extends AllForOneBaselineOptions {
 	json: boolean;
 	help: boolean;
 }
 
-const PHASE4_USAGE = `Usage: npm run baseline:phase4 -- [options]
+const ALLFORONE_USAGE = `Usage: npm run baseline:allforone -- [options]
 
 Options:
   --cwd <path>                 Working directory for project resources (default: current directory)
@@ -426,8 +426,8 @@ Options:
   --json                       Print machine-readable JSON
   --help                       Show this help
 
-Default context windows: ${DEFAULT_PHASE4_CONTEXT_WINDOWS.join(", ")}
-Default synthetic skill counts: ${DEFAULT_PHASE4_SYNTHETIC_SKILL_COUNTS.join(", ")}
+Default context windows: ${DEFAULT_ALLFORONE_CONTEXT_WINDOWS.join(", ")}
+Default synthetic skill counts: ${DEFAULT_ALLFORONE_SYNTHETIC_SKILL_COUNTS.join(", ")}
 `;
 
 function parseIntegerOption(value: string | undefined, flag: string, allowZero: boolean): number {
@@ -442,7 +442,7 @@ function parseIntegerOption(value: string | undefined, flag: string, allowZero: 
 	return parsed;
 }
 
-function parsePhase4CliArgs(argv: readonly string[]): Phase4CliOptions {
+function parseAllForOneCliArgs(argv: readonly string[]): AllForOneCliOptions {
 	let cwd = process.cwd();
 	let agentDir = getAgentDir();
 	let json = false;
@@ -510,9 +510,9 @@ function formatBytes(bytes: number): string {
 }
 
 /** Format a compact human-readable baseline without exposing resource contents. */
-export function formatPhase4BaselineText(report: Phase4BaselineReport): string {
+export function formatAllForOneBaselineText(report: AllForOneBaselineReport): string {
 	const lines = [
-		"Phase 4.0 baseline (offline, read-only)",
+		"All-For-One baseline (offline, read-only)",
 		"",
 		"Environment:",
 		`  cwd: ${report.environment.cwd}`,
@@ -560,22 +560,22 @@ export function formatPhase4BaselineText(report: Phase4BaselineReport): string {
 	return `${lines.join("\n")}\n`;
 }
 
-export async function runPhase4BaselineCli(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
-	const options = parsePhase4CliArgs(argv);
+export async function runAllForOneBaselineCli(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
+	const options = parseAllForOneCliArgs(argv);
 	if (options.help) {
-		process.stdout.write(PHASE4_USAGE);
+		process.stdout.write(ALLFORONE_USAGE);
 		return;
 	}
 
-	const report = await collectPhase4Baseline(options);
-	process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : formatPhase4BaselineText(report));
+	const report = await collectAllForOneBaseline(options);
+	process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : formatAllForOneBaselineText(report));
 }
 
 const isMainModule = process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isMainModule) {
-	runPhase4BaselineCli().catch((error: unknown) => {
+	runAllForOneBaselineCli().catch((error: unknown) => {
 		const message = error instanceof Error ? error.message : String(error);
-		console.error(`phase4-baseline: ${message}`);
+		console.error(`allforone-baseline: ${message}`);
 		process.exitCode = 1;
 	});
 }

@@ -34,7 +34,7 @@ export const MAX_EXECUTION_INTEGRITY_DIAGNOSTIC_CHARS = 512;
 const MAX_EXECUTION_INTEGRITY_DISCOVERED_COMMANDS = 32;
 const MAX_EXECUTION_INTEGRITY_LIMITATIONS = 16;
 const ARBITRARY_BASH_LIMITATION =
-	"Arbitrary bash commands may mutate the workspace and are not fully classified by Phase 6.";
+	"Arbitrary bash commands may mutate the workspace and are not fully classified by the execution-integrity boundary.";
 
 export type ValidationEvidenceStatus = "passed" | "failed" | "unverified" | "concurrent-with-mutation";
 
@@ -399,7 +399,7 @@ export class ExecutionIntegrityTracker {
 		if (this.settings.mode === "off") return this.setDecision({ action: "allow", reason: "mode-off" });
 		if (this.mutationCount === 0) return this.setDecision({ action: "allow", reason: "no-known-mutation" });
 		if (this.discovery.commands.length === 0) {
-			this.addLimitation("No validation command was discovered; completion is not blocked by Phase 6.");
+			this.addLimitation("No validation command was discovered; completion is not blocked by this boundary.");
 			return this.setDecision({ action: "observe", reason: "no-validation-command" });
 		}
 

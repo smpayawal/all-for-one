@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	collectPhase5EvaluationRunFromSession,
-	comparePhase5EvaluationRuns,
-	type Phase5EvaluationRun,
-	type Phase5SessionRunMetadata,
-	parsePhase5EvaluationInput,
-} from "../../../scripts/phase5-evaluation.ts";
+	type ContextEvaluationRun,
+	type ContextSessionRunMetadata,
+	collectContextEvaluationRunFromSession,
+	compareContextEvaluationRuns,
+	parseContextEvaluationInput,
+} from "../../../scripts/context-evaluation.ts";
 
-function createRun(overrides: Partial<Phase5EvaluationRun> = {}): Phase5EvaluationRun {
+function createRun(overrides: Partial<ContextEvaluationRun> = {}): ContextEvaluationRun {
 	return {
 		workloadId: "small-bug-fix",
 		providerModel: "provider/model",
@@ -74,23 +74,23 @@ function createAssistantEntry(
 	};
 }
 
-describe("Phase 5 live-evaluation report", () => {
+describe("Context live-evaluation report", () => {
 	it("rejects a run input with the wrong variant", () => {
 		expect(() =>
-			parsePhase5EvaluationInput({
+			parseContextEvaluationInput({
 				schemaVersion: 2,
-				phase: "P5-live-evaluation",
-				variant: "phase4",
+				phase: "context-live-evaluation",
+				variant: "allforone",
 				runs: [createRun()],
 			}),
-		).toThrow("variant must be baseline or phase5");
+		).toThrow("variant must be baseline or context");
 	});
 
 	it("rejects a non-positive context window", () => {
 		expect(() =>
-			parsePhase5EvaluationInput({
+			parseContextEvaluationInput({
 				schemaVersion: 2,
-				phase: "P5-live-evaluation",
+				phase: "context-live-evaluation",
 				variant: "baseline",
 				runs: [createRun({ contextWindow: 0 })],
 			}),
@@ -99,20 +99,20 @@ describe("Phase 5 live-evaluation report", () => {
 
 	it("rejects fractional discrete metrics", () => {
 		expect(() =>
-			parsePhase5EvaluationInput({
+			parseContextEvaluationInput({
 				schemaVersion: 2,
-				phase: "P5-live-evaluation",
+				phase: "context-live-evaluation",
 				variant: "baseline",
 				runs: [createRun({ metrics: { ...createRun().metrics, turns: 1.5 } })],
 			}),
 		).toThrow("runs[0].metrics.turns must be a non-negative integer");
 	});
 
-	it("blocks a paired evaluation when Phase 5 regresses correctness", () => {
+	it("blocks a paired evaluation when Context regresses correctness", () => {
 		const baseline = createRun();
-		const phase5 = createRun({ metrics: { ...baseline.metrics, outcome: "fail" } });
+		const context = createRun({ metrics: { ...baseline.metrics, outcome: "fail" } });
 
-		const report = comparePhase5EvaluationRuns([baseline], [phase5]);
+		const report = compareContextEvaluationRuns([baseline], [context]);
 
 		expect(report.decision).toBe("blocked");
 		expect(report.pairs[0]?.status).toBe("blocked");
@@ -121,9 +121,9 @@ describe("Phase 5 live-evaluation report", () => {
 
 	it("marks a pair inconclusive when the outcome cannot establish correctness", () => {
 		const baseline = createRun({ metrics: { ...createRun().metrics, outcome: "unknown" } });
-		const phase5 = createRun({ metrics: { ...baseline.metrics, outcome: "unknown" } });
+		const context = createRun({ metrics: { ...baseline.metrics, outcome: "unknown" } });
 
-		const report = comparePhase5EvaluationRuns([baseline], [phase5]);
+		const report = compareContextEvaluationRuns([baseline], [context]);
 
 		expect(report.decision).toBe("inconclusive");
 		expect(report.pairs[0]?.status).toBe("inconclusive");
@@ -132,9 +132,9 @@ describe("Phase 5 live-evaluation report", () => {
 
 	it("does not pass a pair with unresolved measurement limitations", () => {
 		const baseline = createRun({ limitations: ["correctness annotation missing"] });
-		const phase5 = createRun({ limitations: ["correctness annotation missing"] });
+		const context = createRun({ limitations: ["correctness annotation missing"] });
 
-		const report = comparePhase5EvaluationRuns([baseline], [phase5]);
+		const report = compareContextEvaluationRuns([baseline], [context]);
 
 		expect(report.decision).toBe("inconclusive");
 		expect(report.pairs[0]?.status).toBe("inconclusive");
@@ -142,7 +142,7 @@ describe("Phase 5 live-evaluation report", () => {
 
 	it("reports efficiency deltas without turning them into a quality claim", () => {
 		const baseline = createRun();
-		const phase5 = createRun({
+		const context = createRun({
 			metrics: {
 				...baseline.metrics,
 				turns: 3,
@@ -151,7 +151,7 @@ describe("Phase 5 live-evaluation report", () => {
 			},
 		});
 
-		const report = comparePhase5EvaluationRuns([baseline], [phase5]);
+		const report = compareContextEvaluationRuns([baseline], [context]);
 
 		expect(report.decision).toBe("pass");
 		expect(report.efficiencyClaim).toBe("not-established");
@@ -160,7 +160,7 @@ describe("Phase 5 live-evaluation report", () => {
 
 	it("reports compaction token, latency, and cost deltas", () => {
 		const baseline = createRun();
-		const phase5 = createRun({
+		const context = createRun({
 			metrics: {
 				...baseline.metrics,
 				tokensBefore: [100, 180],
@@ -171,7 +171,7 @@ describe("Phase 5 live-evaluation report", () => {
 			},
 		});
 
-		const report = comparePhase5EvaluationRuns([baseline], [phase5]);
+		const report = compareContextEvaluationRuns([baseline], [context]);
 
 		expect(report.pairs[0]?.deltas).toMatchObject({
 			lastTokensBefore: -20,
@@ -184,34 +184,34 @@ describe("Phase 5 live-evaluation report", () => {
 
 	it("allows treatment configuration to differ while controlled configuration stays paired", () => {
 		const baseline = createRun({ treatmentConfig: { retainRecentUserMessages: 0 } });
-		const phase5 = createRun({ treatmentConfig: { retainRecentUserMessages: 3 } });
+		const context = createRun({ treatmentConfig: { retainRecentUserMessages: 3 } });
 
-		const report = comparePhase5EvaluationRuns([baseline], [phase5]);
+		const report = compareContextEvaluationRuns([baseline], [context]);
 
 		expect(report.decision).toBe("pass");
 	});
 
 	it("rejects pairs that do not use the same model and task context", () => {
 		const baseline = createRun();
-		const phase5 = createRun({ providerModel: "provider/other-model" });
+		const context = createRun({ providerModel: "provider/other-model" });
 
-		expect(() => comparePhase5EvaluationRuns([baseline], [phase5])).toThrow(
-			"provider/model differs between baseline and phase5",
+		expect(() => compareContextEvaluationRuns([baseline], [context])).toThrow(
+			"provider/model differs between baseline and context",
 		);
 	});
 
 	it("rejects pairs that do not use the same initial context", () => {
 		const baseline = createRun();
-		const phase5 = createRun({ initialContextHash: "different-context-hash" });
+		const context = createRun({ initialContextHash: "different-context-hash" });
 
-		expect(() => comparePhase5EvaluationRuns([baseline], [phase5])).toThrow(
-			"initialContextHash differs between baseline and phase5",
+		expect(() => compareContextEvaluationRuns([baseline], [context])).toThrow(
+			"initialContextHash differs between baseline and context",
 		);
 	});
 
 	it("derives measurable session fields without fabricating correctness or compaction cost", () => {
 		const entries: unknown[] = [
-			{ type: "session", cwd: "/tmp/phase5-session", timestamp: "2026-07-15T00:00:00.000Z" },
+			{ type: "session", cwd: "/tmp/context-session", timestamp: "2026-07-15T00:00:00.000Z" },
 			{
 				type: "message",
 				timestamp: "2026-07-15T00:00:00.000Z",
@@ -229,7 +229,7 @@ describe("Phase 5 live-evaluation report", () => {
 				{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "src/example.ts" } },
 			]),
 		];
-		const metadata: Phase5SessionRunMetadata = {
+		const metadata: ContextSessionRunMetadata = {
 			workloadId: "long-session",
 			contextWindow: 128_000,
 			taskInputHash: "task-hash",
@@ -237,7 +237,7 @@ describe("Phase 5 live-evaluation report", () => {
 			controlledConfigHash: "config-hash",
 		};
 
-		const run = collectPhase5EvaluationRunFromSession(entries, metadata);
+		const run = collectContextEvaluationRunFromSession(entries, metadata);
 
 		expect(run.providerModel).toBe("provider/model");
 		expect(run.metrics.tokensBefore).toEqual([500]);
@@ -256,7 +256,7 @@ describe("Phase 5 live-evaluation report", () => {
 
 	it("requires integer session annotations", () => {
 		expect(() =>
-			collectPhase5EvaluationRunFromSession([], {
+			collectContextEvaluationRunFromSession([], {
 				workloadId: "annotated-session",
 				providerModel: "provider/model",
 				contextWindow: 128_000,
@@ -270,7 +270,7 @@ describe("Phase 5 live-evaluation report", () => {
 
 	it("rejects invalid session correctness annotations", () => {
 		expect(() =>
-			collectPhase5EvaluationRunFromSession([], {
+			collectContextEvaluationRunFromSession([], {
 				workloadId: "annotated-session",
 				providerModel: "provider/model",
 				contextWindow: 128_000,
@@ -289,7 +289,7 @@ describe("Phase 5 live-evaluation report", () => {
 			[
 				"--tsconfig",
 				resolve(repoRoot, "tsconfig.json"),
-				resolve(repoRoot, "scripts/phase5-evaluation.ts"),
+				resolve(repoRoot, "scripts/context-evaluation.ts"),
 				"--help",
 			],
 			{ cwd: repoRoot, encoding: "utf8" },
@@ -301,7 +301,7 @@ describe("Phase 5 live-evaluation report", () => {
 	});
 
 	it("passes JSON annotations through the session-recording CLI", () => {
-		const root = mkdtempSync(join(tmpdir(), "pi-phase5-evaluation-"));
+		const root = mkdtempSync(join(tmpdir(), "pi-context-evaluation-"));
 		try {
 			const sessionPath = join(root, "session.jsonl");
 			const annotationsPath = join(root, "annotations.json");
@@ -317,7 +317,7 @@ describe("Phase 5 live-evaluation report", () => {
 				[
 					"--tsconfig",
 					resolve(repoRoot, "tsconfig.json"),
-					resolve(repoRoot, "scripts/phase5-evaluation.ts"),
+					resolve(repoRoot, "scripts/context-evaluation.ts"),
 					"--session",
 					sessionPath,
 					"--variant",

@@ -91,4 +91,13 @@ describe("regression #2835: tool allowlists filter extension tools", () => {
 		expect(session.systemPrompt).not.toContain("dynamic_tool");
 		session.dispose();
 	});
+
+	it("ignores the removed changes name in an allowlist", async () => {
+		const session = await createSession(["read", "changes"]);
+
+		expect(session.getAllTools().map((tool) => tool.name)).toEqual(["read"]);
+		expect(session.getActiveToolNames()).toEqual(["read"]);
+		expect(session.systemPrompt).not.toContain("- changes:");
+		session.dispose();
+	});
 });

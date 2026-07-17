@@ -282,7 +282,7 @@ pi --model sonnet:high "Solve this complex problem"
 pi --models "claude-*,gpt-4o"
 
 # Read-only mode
-pi --tools read,changes,grep,find,ls -p "Review the code"
+pi --tools read,grep,find,ls -p "Review the code"
 
 # Disable one extension or built-in tool while keeping the rest available
 pi --exclude-tools ask_question

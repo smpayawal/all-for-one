@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	collectPhase4Baseline,
+	ALLFORONE_BASELINE_TASK_CATEGORIES,
+	collectAllForOneBaseline,
 	createSyntheticSkillCollection,
 	measureSkillCollection,
-	PHASE4_BASELINE_TASK_CATEGORIES,
-} from "../../../scripts/phase4-baseline.ts";
+} from "../../../scripts/allforone-baseline.ts";
 
-describe("Phase 4.0 baseline measurements", () => {
+describe("All-For-One baseline measurements", () => {
 	it("reports empty metadata without applying a budget", () => {
 		const result = measureSkillCollection([], [16_384, 8_192, 16_384]);
 
@@ -22,7 +22,7 @@ describe("Phase 4.0 baseline measurements", () => {
 	});
 
 	it("defines representative workload categories without executing model tasks", () => {
-		expect(PHASE4_BASELINE_TASK_CATEGORIES.map((task) => task.id)).toEqual([
+		expect(ALLFORONE_BASELINE_TASK_CATEGORIES.map((task) => task.id)).toEqual([
 			"small-bug-fix",
 			"multi-file-feature",
 			"refactor",
@@ -33,9 +33,9 @@ describe("Phase 4.0 baseline measurements", () => {
 			"documentation-task",
 			"high-risk-architecture-change",
 		]);
-		expect(PHASE4_BASELINE_TASK_CATEGORIES.every((task) => task.executionStatus === "deferred-live-evaluation")).toBe(
-			true,
-		);
+		expect(
+			ALLFORONE_BASELINE_TASK_CATEGORIES.every((task) => task.executionStatus === "deferred-live-evaluation"),
+		).toBe(true);
 	});
 
 	it("measures visible metadata against representative context windows", () => {
@@ -61,7 +61,7 @@ describe("Phase 4.0 baseline measurements", () => {
 	});
 
 	it("collects resource, prompt, tool, and synthetic baseline measurements", async () => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-phase4-baseline-"));
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-allforone-baseline-"));
 		const cwd = join(tempDir, "project");
 		const agentDir = join(tempDir, "agent");
 		const skillDir = join(cwd, ".pi", "skills", "baseline-skill");
@@ -79,7 +79,7 @@ Skill content should not appear in the report.
 		writeFileSync(join(cwd, "AGENTS.md"), "Do not print this project instruction.\n");
 
 		try {
-			const report = await collectPhase4Baseline({
+			const report = await collectAllForOneBaseline({
 				cwd,
 				agentDir,
 				contextWindows: [8_192],
@@ -90,7 +90,7 @@ Skill content should not appear in the report.
 			expect(report.current.contextFiles.count).toBe(1);
 			expect(report.current.contextFiles.totalBytes).toBeGreaterThan(0);
 			expect(report.current.systemPrompt.tokensEstimate).toBeGreaterThan(0);
-			expect(report.current.tools.activeNames).toEqual(["read", "bash", "edit", "write", "apply_patch", "changes"]);
+			expect(report.current.tools.activeNames).toEqual(["read", "bash", "edit", "write", "apply_patch"]);
 			expect(report.skillCollections.map((collection) => collection.skillCount)).toEqual([0, 2]);
 			expect(JSON.stringify(report)).not.toContain("Do not print this project instruction");
 			expect(JSON.stringify(report)).not.toContain("Skill content should not appear");
@@ -100,14 +100,14 @@ Skill content should not appear in the report.
 	});
 
 	it("exposes a read-only JSON CLI report and help text", () => {
-		const scriptPath = resolve(__dirname, "../../../scripts/phase4-baseline.ts");
+		const scriptPath = resolve(__dirname, "../../../scripts/allforone-baseline.ts");
 		const tsconfigPath = resolve(__dirname, "../../../tsconfig.json");
 		const repoRoot = resolve(__dirname, "../../..");
 		const tsxBin = resolve(
 			repoRoot,
 			process.platform === "win32" ? "node_modules/.bin/tsx.cmd" : "node_modules/.bin/tsx",
 		);
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-phase4-cli-"));
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-allforone-cli-"));
 		const cwd = join(tempDir, "project");
 		const agentDir = join(tempDir, "agent");
 		mkdirSync(cwd, { recursive: true });
@@ -118,7 +118,7 @@ Skill content should not appear in the report.
 				cwd: repoRoot,
 				encoding: "utf8",
 			});
-			expect(help).toContain("baseline:phase4");
+			expect(help).toContain("baseline:allforone");
 			expect(help).toContain("--json");
 
 			const output = execFileSync(

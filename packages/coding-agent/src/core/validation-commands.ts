@@ -5,6 +5,7 @@ export type ValidationCommandKind = "check" | "typecheck" | "lint" | "test" | "b
 export type ValidationCommandConfidence = "verified" | "inferred";
 export type NodePackageManager = "npm" | "pnpm" | "bun" | "yarn";
 export type ValidationExecutionKind = "local" | "custom" | "remote";
+export type ValidationGuidanceMode = "off" | "observe" | "enforce";
 
 export interface ValidationExecutionProvenance {
 	requestedCommand: string;
@@ -58,6 +59,8 @@ export const VALIDATION_DISCOVERY_INPUT_FILES = [
 ] as const;
 
 const PACKAGE_MANAGER_ORDER: NodePackageManager[] = ["npm", "pnpm", "bun", "yarn"];
+export const MAX_VALIDATION_PROMPT_COMMANDS = 4;
+export const MAX_VALIDATION_PROMPT_CHARS = 800;
 
 const NODE_SCRIPT_KINDS: Array<{ kind: ValidationCommandKind; names: string[] }> = [
 	{ kind: "check", names: ["check"] },
@@ -299,13 +302,18 @@ export function fingerprintValidationCommandDiscovery(discovery: ValidationComma
 export function getProjectValidationPromptGuideline(
 	cwd: string,
 	toolNames: string[],
+	mode: ValidationGuidanceMode = "off",
 	discovery = discoverValidationCommands(cwd),
 ): string | undefined {
-	if (!toolNames.includes("bash")) return undefined;
+	if (!toolNames.includes("bash") || mode === "off") return undefined;
 	const commands = discovery.commands;
 	if (commands.length === 0) return undefined;
-	const rendered = commands.map((command) =>
-		command.confidence === "inferred" ? `${command.command} (inferred)` : command.command,
-	);
-	return `Project validation commands detected from repository files: ${rendered.join(", ")}. These are repository-provided suggestions, not safety-approved commands; existing command policy still applies.`;
+	const rendered = commands
+		.slice(0, MAX_VALIDATION_PROMPT_COMMANDS)
+		.map((command) => (command.confidence === "inferred" ? `${command.command} (inferred)` : command.command));
+	const guideline =
+		mode === "observe"
+			? `Validation hint: if you run one project check, prefer ${rendered[0]}. Repository discovery is advisory only.`
+			: `Project validation commands detected from repository files (up to ${MAX_VALIDATION_PROMPT_COMMANDS} grounded entries): ${rendered.join(", ")}. These are repository-provided suggestions, not safety-approved commands; existing command policy still applies.`;
+	return guideline.slice(0, MAX_VALIDATION_PROMPT_CHARS);
 }

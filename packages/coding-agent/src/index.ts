@@ -96,8 +96,6 @@ export type {
 	BeforeProviderRequestEvent,
 	BeforeProviderRequestEventResult,
 	BuildSystemPromptOptions,
-	ChangesToolCallEvent,
-	ChangesToolResultEvent,
 	CompactOptions,
 	ContextEvent,
 	ContextUsage,
@@ -181,7 +179,6 @@ export {
 	ExtensionRunner,
 	isApplyPatchToolResult,
 	isBashToolResult,
-	isChangesToolResult,
 	isEditToolResult,
 	isFindToolResult,
 	isGrepToolResult,
@@ -247,6 +244,13 @@ export type {
 	ResourceLoader,
 } from "./core/resource-loader.ts";
 export { DefaultResourceLoader, loadProjectContextFiles } from "./core/resource-loader.ts";
+export {
+	DEFAULT_MAX_ACTIVE_SCOPES,
+	DEFAULT_MAX_SCOPED_CONTEXT_CHARS,
+	type ScopedContextDiagnostics,
+	type ScopedContextLoadResult,
+	type ScopedContextTrackerOptions,
+} from "./core/scoped-context.ts";
 // SDK for programmatic usage
 export {
 	AgentSessionRuntime,
@@ -265,7 +269,6 @@ export {
 	createAgentSessionServices,
 	createApplyPatchTool,
 	createBashTool,
-	createChangesTool,
 	// Tool factories (for custom cwd)
 	createCodingTools,
 	createEditTool,
@@ -344,14 +347,8 @@ export {
 	type BashToolDetails,
 	type BashToolInput,
 	type BashToolOptions,
-	type ChangedFile,
-	type ChangeStatus,
-	type ChangesToolDetails,
-	type ChangesToolInput,
-	type ChangesToolOptions,
 	createApplyPatchToolDefinition,
 	createBashToolDefinition,
-	createChangesToolDefinition,
 	createEditToolDefinition,
 	createFindToolDefinition,
 	createGrepToolDefinition,
@@ -359,6 +356,7 @@ export {
 	createLsToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
+	DEFAULT_ACTIVE_TOOL_NAMES,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type EditOperations,

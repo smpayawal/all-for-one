@@ -158,6 +158,32 @@ Project skill`,
 			expect(theme?.sourcePath).toBe(projectThemePath);
 		});
 
+		it("should prefer explicitly supplied skills over project and user skills", async () => {
+			const userSkillDir = join(agentDir, "skills", "explicit-collision");
+			const projectSkillDir = join(cwd, ".pi", "skills", "explicit-collision");
+			const explicitSkillDir = join(tempDir, "explicit-skills", "explicit-collision");
+			for (const directory of [userSkillDir, projectSkillDir, explicitSkillDir]) {
+				mkdirSync(directory, { recursive: true });
+			}
+			for (const [directory, description] of [
+				[userSkillDir, "user"],
+				[projectSkillDir, "project"],
+				[explicitSkillDir, "explicit"],
+			] as const) {
+				writeFileSync(
+					join(directory, "SKILL.md"),
+					`---\nname: explicit-collision\ndescription: ${description}\n---\n${description}`,
+				);
+			}
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir, additionalSkillPaths: [explicitSkillDir] });
+			await loader.reload();
+
+			const skill = loader.getSkills().skills.find((candidate) => candidate.name === "explicit-collision");
+			expect(skill?.description).toBe("explicit");
+			expect(skill?.filePath).toBe(join(explicitSkillDir, "SKILL.md"));
+		});
+
 		it("should load symlinked user and project extensions once", async () => {
 			const sharedExtDir = join(tempDir, "shared-extensions");
 			mkdirSync(sharedExtDir, { recursive: true });

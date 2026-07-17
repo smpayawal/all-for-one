@@ -1473,7 +1473,7 @@ export class InteractiveMode {
 		this.sessionRailCompletedTools = 0;
 		this.sessionRailFailedTools = 0;
 		this.sessionRailLifecycle = { kind: "agent" };
-		this.updateSessionRail();
+		this.updateSessionRail?.();
 	}
 
 	private startSessionRailTool(toolCallId: string, toolName: string): void {
@@ -1541,7 +1541,7 @@ export class InteractiveMode {
 		const skillsResult = this.session.resourceLoader.getSkills();
 		const promptsResult = this.session.resourceLoader.getPrompts();
 		const themesResult = this.session.resourceLoader.getThemes();
-		this.updateSessionRail();
+		this.updateSessionRail?.();
 		const extensions =
 			options?.extensions ??
 			this.session.resourceLoader.getExtensions().extensions.map((extension) => ({
@@ -3087,7 +3087,7 @@ export class InteractiveMode {
 				break;
 
 			case "tool_execution_start": {
-				this.startSessionRailTool(event.toolCallId, event.toolName);
+				this.startSessionRailTool?.(event.toolCallId, event.toolName);
 				let component = this.pendingTools.get(event.toolCallId);
 				if (!component) {
 					component = new ToolExecutionComponent(
@@ -3127,13 +3127,13 @@ export class InteractiveMode {
 					this.pendingTools.delete(event.toolCallId);
 					this.ui.requestRender();
 				}
-				this.finishSessionRailTool(event.toolCallId, event.toolName, event.isError);
+				this.finishSessionRailTool?.(event.toolCallId, event.toolName, event.isError);
 				break;
 			}
 
 			case "agent_end":
-				this.sessionRailActiveTools.clear();
-				this.updateSessionRail({ kind: "idle" });
+				this.sessionRailActiveTools?.clear();
+				this.updateSessionRail?.({ kind: "idle" });
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(false);
 				}
@@ -3153,7 +3153,7 @@ export class InteractiveMode {
 				break;
 
 			case "compaction_start": {
-				this.updateSessionRail({ kind: "compaction" });
+				this.updateSessionRail?.({ kind: "compaction" });
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -3168,7 +3168,7 @@ export class InteractiveMode {
 			}
 
 			case "compaction_end": {
-				this.updateSessionRail({ kind: "idle" });
+				this.updateSessionRail?.({ kind: "idle" });
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(false);
 				}
@@ -3208,7 +3208,7 @@ export class InteractiveMode {
 			}
 
 			case "auto_retry_start": {
-				this.updateSessionRail({ kind: "retry", attempt: event.attempt, maxAttempts: event.maxAttempts });
+				this.updateSessionRail?.({ kind: "retry", attempt: event.attempt, maxAttempts: event.maxAttempts });
 				// Set up escape to abort retry
 				this.retryEscapeHandler = this.defaultEditor.onEscape;
 				this.defaultEditor.onEscape = () => {
@@ -3222,7 +3222,7 @@ export class InteractiveMode {
 			}
 
 			case "auto_retry_end": {
-				this.updateSessionRail(this.session.isStreaming ? { kind: "agent" } : { kind: "idle" });
+				this.updateSessionRail?.(this.session.isStreaming ? { kind: "agent" } : { kind: "idle" });
 				// Restore escape handler
 				if (this.retryEscapeHandler) {
 					this.defaultEditor.onEscape = this.retryEscapeHandler;
@@ -5799,6 +5799,18 @@ export class InteractiveMode {
 		const compactionHealth = info.compactionHealth;
 		output += `\n${theme.bold("Compaction health")}\n`;
 		output += `  Compactions: ${compactionHealth.count}\n`;
+		const compactionTelemetry = compactionHealth.telemetry;
+		output += `  Telemetry runs: ${compactionTelemetry.compactionCount}; structural failures: ${compactionTelemetry.structuralValidationFailureCount}; repairs: ${compactionTelemetry.repairSuccessCount}/${compactionTelemetry.repairAttemptCount} succeeded\n`;
+		output += `  Duration: ${compactionTelemetry.totalDurationMs.toLocaleString()} ms; estimated tokens: ${compactionTelemetry.estimatedTokensBefore.toLocaleString()} -> ${compactionTelemetry.estimatedTokensAfter.toLocaleString()}\n`;
+		if (compactionTelemetry.repairFailureCount > 0) {
+			output += `  Repair failures: ${compactionTelemetry.repairFailureCount}\n`;
+		}
+		if (compactionTelemetry.providerUsage || compactionTelemetry.providerCost !== undefined) {
+			output += "  Provider measurements: available\n";
+		}
+		if (compactionTelemetry.limitations.length > 0) {
+			output += `  Measurement limitations: ${compactionTelemetry.limitations.join("; ")}\n`;
+		}
 		if (compactionHealth.latest) {
 			const latest = compactionHealth.latest;
 			output += `  Latest boundary: ${latest.tokensBefore.toLocaleString()} -> ${latest.tokensAfter.toLocaleString()} tokens (${latest.reductionPercent.toFixed(1)}% reduction)\n`;

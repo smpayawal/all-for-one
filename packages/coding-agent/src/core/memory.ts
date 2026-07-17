@@ -1,5 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import lockfile from "proper-lockfile";
 import { canonicalizePath, resolvePath } from "../utils/paths.ts";
@@ -29,6 +38,11 @@ export interface MemoryEditResult {
 }
 
 const MEMORY_FILE_NAME = "memory.jsonl";
+export const MAX_MEMORY_ENTRY_TEXT_CHARS = 8_000;
+export const MAX_MEMORY_ENTRIES = 256;
+export const MAX_MEMORY_FILE_BYTES = 1_048_576;
+export const MEMORY_SECRET_DETECTION_WARNING =
+	"Secret detection is best-effort; do not store credentials or other sensitive values in local memory.";
 
 const SECRET_PATTERNS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
 	{ label: "private key", pattern: /-----BEGIN [^-]*PRIVATE KEY-----/i },
@@ -76,11 +90,24 @@ function parseMemoryLine(line: string, lineNumber: number): { entry?: MemoryEntr
 		) {
 			throw new Error("entry has an invalid shape");
 		}
+		if (candidate.text.length > MAX_MEMORY_ENTRY_TEXT_CHARS) {
+			return {
+				warning: `Ignored oversized memory entry on line ${lineNumber}; text exceeds ${MAX_MEMORY_ENTRY_TEXT_CHARS} characters.`,
+			};
+		}
 		return { entry: candidate as MemoryEntry };
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		return { warning: `Ignored malformed memory entry on line ${lineNumber}: ${message}.` };
+	} catch {
+		return { warning: `Ignored malformed memory entry on line ${lineNumber}.` };
 	}
+}
+
+function normalizeMemoryText(text: string): string {
+	const normalizedText = text.trim();
+	if (normalizedText.length === 0) throw new Error("Memory text cannot be empty.");
+	if (normalizedText.length > MAX_MEMORY_ENTRY_TEXT_CHARS) {
+		throw new Error(`Memory text exceeds the ${MAX_MEMORY_ENTRY_TEXT_CHARS}-character limit.`);
+	}
+	return normalizedText;
 }
 
 export class ProjectMemoryStore {
@@ -92,6 +119,18 @@ export class ProjectMemoryStore {
 
 	read(): MemoryReadResult {
 		if (!existsSync(this.filePath)) return { entries: [], warnings: [] };
+
+		try {
+			if (statSync(this.filePath).size > MAX_MEMORY_FILE_BYTES) {
+				return {
+					entries: [],
+					warnings: [`Local memory file exceeds the ${MAX_MEMORY_FILE_BYTES}-byte limit; no entries were loaded.`],
+				};
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			return { entries: [], warnings: [`Could not inspect local memory: ${message}.`] };
+		}
 
 		let content: string;
 		try {
@@ -105,6 +144,10 @@ export class ProjectMemoryStore {
 		const warnings: string[] = [];
 		for (const [index, line] of content.split("\n").entries()) {
 			if (line.trim().length === 0) continue;
+			if (entries.length >= MAX_MEMORY_ENTRIES) {
+				warnings.push(`Ignored memory entries after the ${MAX_MEMORY_ENTRIES}-entry limit.`);
+				break;
+			}
 			const parsed = parseMemoryLine(line, index + 1);
 			if (parsed.entry) entries.push(parsed.entry);
 			if (parsed.warning) warnings.push(parsed.warning);
@@ -113,16 +156,20 @@ export class ProjectMemoryStore {
 	}
 
 	add(text: string, category: MemoryCategory = "note"): MemoryAddResult {
-		const normalizedText = text.trim();
-		if (normalizedText.length === 0) throw new Error("Memory text cannot be empty.");
+		const normalizedText = normalizeMemoryText(text);
 		const secrets = scanMemoryText(normalizedText);
 		if (secrets.length > 0) {
-			throw new Error(`Memory was not saved because it matched a possible ${secrets.join(", ")} pattern.`);
+			throw new Error(
+				`Memory was not saved because it matched a possible ${secrets.join(", ")} pattern. ${MEMORY_SECRET_DETECTION_WARNING}`,
+			);
 		}
 
 		return this.withMutationLock((current) => {
 			const duplicate = current.find((entry) => entry.category === category && entry.text === normalizedText);
 			if (duplicate) return { entry: duplicate, created: false };
+			if (current.length >= MAX_MEMORY_ENTRIES) {
+				throw new Error(`Memory already contains the maximum of ${MAX_MEMORY_ENTRIES} entries.`);
+			}
 
 			const entry: MemoryEntry = {
 				id: `mem_${randomUUID()}`,
@@ -137,12 +184,13 @@ export class ProjectMemoryStore {
 
 	edit(id: string, text: string, category?: MemoryCategory): MemoryEditResult | undefined {
 		const normalizedId = id.trim();
-		const normalizedText = text.trim();
 		if (!normalizedId) throw new Error("A memory id is required.");
-		if (!normalizedText) throw new Error("Memory text cannot be empty.");
+		const normalizedText = normalizeMemoryText(text);
 		const secrets = scanMemoryText(normalizedText);
 		if (secrets.length > 0) {
-			throw new Error(`Memory was not saved because it matched a possible ${secrets.join(", ")} pattern.`);
+			throw new Error(
+				`Memory was not saved because it matched a possible ${secrets.join(", ")} pattern. ${MEMORY_SECRET_DETECTION_WARNING}`,
+			);
 		}
 
 		return this.withMutationLock((current) => {
@@ -241,7 +289,13 @@ export class ProjectMemoryStore {
 
 	private write(entries: MemoryEntry[]): void {
 		this.ensureStorage();
+		if (entries.length > MAX_MEMORY_ENTRIES) {
+			throw new Error(`Memory already contains the maximum of ${MAX_MEMORY_ENTRIES} entries.`);
+		}
 		const content = entries.length > 0 ? `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n` : "";
+		if (Buffer.byteLength(content, "utf8") > MAX_MEMORY_FILE_BYTES) {
+			throw new Error(`Memory file exceeds the ${MAX_MEMORY_FILE_BYTES}-byte limit.`);
+		}
 		const temporaryPath = `${this.filePath}.${process.pid}.${randomUUID()}.tmp`;
 		try {
 			writeFileSync(temporaryPath, content, { encoding: "utf8", mode: 0o600 });

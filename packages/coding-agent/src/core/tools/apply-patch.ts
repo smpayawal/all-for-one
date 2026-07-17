@@ -1,5 +1,6 @@
-import { lstat, mkdir, readFile, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, relative, resolve, sep, win32 } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { chmod, mkdir, open, readFile, realpath, rename, rm, stat, unlink } from "node:fs/promises";
+import { basename, dirname, isAbsolute, relative, resolve, sep, win32 } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../extensions/types.ts";
@@ -49,10 +50,49 @@ type ResolvedPatchOperation = PatchOperation & {
 	absolutePath: string;
 };
 
+interface FileState {
+	exists: boolean;
+	contentHash: string | null;
+	mode: number | undefined;
+}
+
 type PlannedPatchOperation = ResolvedPatchOperation & {
 	original: Buffer | null;
+	preflight: FileState;
 	nextContent?: string;
 };
+
+function getContentHash(content: Buffer): string {
+	return createHash("sha256").update(content).digest("hex");
+}
+
+function getFileMode(mode: number): number | undefined {
+	return process.platform === "win32" ? undefined : mode & 0o7777;
+}
+
+async function readFileState(path: string): Promise<{ state: FileState; content: Buffer | null }> {
+	try {
+		const fileStats = await stat(path);
+		const content = await readFile(path);
+		return {
+			state: {
+				exists: true,
+				contentHash: getContentHash(content),
+				mode: getFileMode(fileStats.mode),
+			},
+			content,
+		};
+	} catch (error) {
+		if (!isMissingPathError(error)) throw error;
+		return { state: { exists: false, contentHash: null, mode: undefined }, content: null };
+	}
+}
+
+function statesMatch(expected: FileState, actual: FileState): boolean {
+	return (
+		expected.exists === actual.exists && expected.contentHash === actual.contentHash && expected.mode === actual.mode
+	);
+}
 
 function isMissingPathError(error: unknown): boolean {
 	return (
@@ -257,48 +297,46 @@ async function planPatchOperations(
 		throwIfAborted();
 
 		if (operation.type === "add") {
-			try {
-				await lstat(operation.absolutePath);
+			const current = await readFileState(operation.absolutePath);
+			if (current.state.exists) {
 				throw new Error(`Cannot add ${operation.path}: file already exists.`);
-			} catch (error) {
-				if (!isMissingPathError(error)) throw error;
 			}
-			planned.push({ ...operation, original: null, nextContent: operation.content });
+			planned.push({
+				...operation,
+				original: null,
+				preflight: current.state,
+				nextContent: operation.content,
+			});
 			continue;
 		}
 
-		let original: Buffer;
-		try {
-			const fileStats = await stat(operation.absolutePath);
-			if (fileStats.size > maxPreflightBytes - preflightBytes) {
-				throw new Error(`Patch preflight exceeds the ${maxPreflightBytes} byte limit at ${operation.path}.`);
-			}
-			original = await readFile(operation.absolutePath);
-		} catch (error) {
-			if (isMissingPathError(error)) {
-				throw new Error(`Cannot ${operation.type} ${operation.path}: file does not exist.`);
-			}
-			throw error;
+		const current = await readFileState(operation.absolutePath);
+		if (!current.state.exists || current.content === null) {
+			throw new Error(`Cannot ${operation.type} ${operation.path}: file does not exist.`);
 		}
-		preflightBytes += original.byteLength;
+		if (current.content.byteLength > maxPreflightBytes - preflightBytes) {
+			throw new Error(`Patch preflight exceeds the ${maxPreflightBytes} byte limit at ${operation.path}.`);
+		}
+		preflightBytes += current.content.byteLength;
 		if (preflightBytes > maxPreflightBytes) {
 			throw new Error(`Patch preflight exceeds the ${maxPreflightBytes} byte limit at ${operation.path}.`);
 		}
 		throwIfAborted();
 
 		if (operation.type === "delete") {
-			planned.push({ ...operation, original });
+			planned.push({ ...operation, original: current.content, preflight: current.state });
 			continue;
 		}
 
-		const rawContent = original.toString("utf-8");
+		const rawContent = current.content.toString("utf-8");
 		const { bom, text } = stripBom(rawContent);
 		const lineEnding = detectLineEnding(text);
 		const normalized = normalizeToLF(text);
 		const updated = applyHunks(normalized, operation.hunks, operation.path);
 		planned.push({
 			...operation,
-			original,
+			original: current.content,
+			preflight: current.state,
 			nextContent: bom + restoreLineEndings(updated, lineEnding),
 		});
 	}
@@ -306,15 +344,45 @@ async function planPatchOperations(
 	return planned;
 }
 
-async function commitPatchOperations(planned: PlannedPatchOperation[]): Promise<void> {
+async function writeAtomically(path: string, content: Buffer, mode: number | undefined): Promise<void> {
+	const temporaryPath = resolve(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
+	let fileHandle: Awaited<ReturnType<typeof open>> | undefined;
+	try {
+		fileHandle = await open(temporaryPath, "wx", mode ?? 0o666);
+		await fileHandle.writeFile(content);
+		await fileHandle.sync();
+		await fileHandle.close();
+		fileHandle = undefined;
+		if (mode !== undefined) await chmod(temporaryPath, mode);
+		await rename(temporaryPath, path);
+	} finally {
+		if (fileHandle) await fileHandle.close().catch(() => undefined);
+		await rm(temporaryPath, { force: true }).catch(() => undefined);
+	}
+}
+
+async function assertPreflightUnchanged(operation: PlannedPatchOperation): Promise<void> {
+	const current = await readFileState(operation.absolutePath);
+	if (!statesMatch(operation.preflight, current.state)) {
+		throw new Error(`Patch commit aborted because ${operation.path} changed after preflight.`);
+	}
+}
+
+async function commitPatchOperations(planned: PlannedPatchOperation[], cwd: string): Promise<void> {
 	const applied: PlannedPatchOperation[] = [];
 	try {
 		for (const operation of planned) {
+			await assertRealPathInsideWorkspace(operation.absolutePath, cwd);
+			await assertPreflightUnchanged(operation);
 			if (operation.type === "delete") {
 				await unlink(operation.absolutePath);
 			} else {
 				await mkdir(dirname(operation.absolutePath), { recursive: true });
-				await writeFile(operation.absolutePath, operation.nextContent ?? "", "utf-8");
+				await writeAtomically(
+					operation.absolutePath,
+					Buffer.from(operation.nextContent ?? "", "utf-8"),
+					operation.preflight.mode,
+				);
 			}
 			applied.push(operation);
 		}
@@ -326,7 +394,7 @@ async function commitPatchOperations(planned: PlannedPatchOperation[]): Promise<
 					await rm(operation.absolutePath, { force: true });
 				} else {
 					await mkdir(dirname(operation.absolutePath), { recursive: true });
-					await writeFile(operation.absolutePath, operation.original);
+					await writeAtomically(operation.absolutePath, operation.original, operation.preflight.mode);
 				}
 			} catch (rollbackError) {
 				rollbackErrors.push(
@@ -390,9 +458,10 @@ export function createApplyPatchToolDefinition(
 					canonicalTargets.add(targetKey);
 				}
 				const planned = await planPatchOperations(resolved, cwd, maxPreflightBytes, signal);
+				if (signal?.aborted) throw new Error("Operation aborted");
 				// Cancellation is honored through preflight. Once commit starts, finish or roll back
 				// so an abort cannot leave a silently partial multi-file patch.
-				await commitPatchOperations(planned);
+				await commitPatchOperations(planned, cwd);
 				const details: ApplyPatchToolDetails = {
 					changedFiles: parsed.map((operation) => operation.path),
 					addedFiles: parsed.filter((operation) => operation.type === "add").map((operation) => operation.path),

@@ -446,13 +446,19 @@ async function emitAgentEnd(
 }
 
 function terminationForAssistant(message: AssistantMessage): AgentRunTermination {
+	const errorMessage = message.errorMessage ? normalizeRuntimeError(message.errorMessage) : undefined;
 	if (message.stopReason === "aborted") {
-		return message.errorMessage ? { reason: "aborted", message: message.errorMessage } : { reason: "aborted" };
+		return errorMessage ? { reason: "aborted", message: errorMessage } : { reason: "aborted" };
 	}
 	if (message.stopReason === "error") {
-		return message.errorMessage ? { reason: "error", message: message.errorMessage } : { reason: "error" };
+		return errorMessage ? { reason: "error", message: errorMessage } : { reason: "error" };
 	}
 	return { reason: "completed" };
+}
+
+function normalizeAssistantFailure(message: AssistantMessage): AssistantMessage {
+	if ((message.stopReason !== "error" && message.stopReason !== "aborted") || !message.errorMessage) return message;
+	return { ...message, errorMessage: normalizeRuntimeError(message.errorMessage) };
 }
 
 /**
@@ -481,7 +487,7 @@ async function runLoop(
 
 		// Inner loop: process tool calls and steering messages
 		while (hasMoreToolCalls || pendingMessages.length > 0) {
-			if (signal?.aborted) {
+			if (signal?.aborted && pendingMessages.length === 0) {
 				const message = abortMessage(signal);
 				await emitAgentEnd(emit, newMessages, message ? { reason: "aborted", message } : { reason: "aborted" });
 				return;
@@ -567,12 +573,6 @@ async function runLoop(
 				return;
 			}
 
-			if (signal?.aborted) {
-				const message = abortMessage(signal);
-				await emitAgentEnd(emit, newMessages, message ? { reason: "aborted", message } : { reason: "aborted" });
-				return;
-			}
-
 			const nextTurnContext = {
 				message,
 				toolResults,
@@ -619,6 +619,12 @@ async function runLoop(
 
 		// No more messages, exit
 		break;
+	}
+
+	if (signal?.aborted) {
+		const message = abortMessage(signal);
+		await emitAgentEnd(emit, newMessages, message ? { reason: "aborted", message } : { reason: "aborted" });
+		return;
 	}
 
 	await emitAgentEnd(emit, newMessages, { reason: "completed" });
@@ -697,7 +703,7 @@ async function streamAssistantResponse(
 
 			case "done":
 			case "error": {
-				const finalMessage = await response.result();
+				const finalMessage = normalizeAssistantFailure(await response.result());
 				if (addedPartial) {
 					context.messages[context.messages.length - 1] = finalMessage;
 				} else {
@@ -712,7 +718,7 @@ async function streamAssistantResponse(
 		}
 	}
 
-	const finalMessage = await response.result();
+	const finalMessage = normalizeAssistantFailure(await response.result());
 	if (addedPartial) {
 		context.messages[context.messages.length - 1] = finalMessage;
 	} else {
@@ -1105,7 +1111,10 @@ async function finalizeExecutedToolCall(
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 ): Promise<FinalizedToolCallOutcome> {
-	let result = executed.result;
+	// JavaScript extensions can violate the typed AgentToolResult contract before
+	// the afterToolCall hook runs. Keep every downstream hook and event on the
+	// same normalized array boundary used by the final tool-result message.
+	let result = Array.isArray(executed.result.content) ? executed.result : { ...executed.result, content: [] };
 	let isError = executed.isError;
 
 	if (config.afterToolCall) {
@@ -1124,7 +1133,7 @@ async function finalizeExecutedToolCall(
 			if (afterResult) {
 				result = {
 					...result,
-					content: afterResult.content ?? result.content,
+					content: Array.isArray(afterResult.content) ? afterResult.content : result.content,
 					details: afterResult.details ?? result.details,
 					terminate: afterResult.terminate ?? result.terminate,
 				};

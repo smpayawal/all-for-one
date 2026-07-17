@@ -239,7 +239,7 @@ describe("context retention contract", () => {
 	it("carries explicit saved-output references through native compaction preparation", () => {
 		const entries: SessionEntry[] = [
 			createUserEntry("u1", "run the command", null),
-			createToolResultEntry("t1", "u1", "/tmp/pi-tool-output/phase5.log"),
+			createToolResultEntry("t1", "u1", "/tmp/pi-tool-output/context.log"),
 			createUserEntry("u2", "continue", "t1"),
 		];
 		const preparation = prepareCompaction(entries, {
@@ -248,7 +248,7 @@ describe("context retention contract", () => {
 		});
 
 		expect(preparation?.evidenceRefs).toEqual([
-			{ kind: "tool-output", label: "bash output", ref: "/tmp/pi-tool-output/phase5.log" },
+			{ kind: "tool-output", label: "bash output", ref: "/tmp/pi-tool-output/context.log" },
 		]);
 	});
 
@@ -330,17 +330,17 @@ src/old.ts
 				toolCallId: "tool-1",
 				toolName: "bash",
 				content: [{ type: "text", text: "partial output" }],
-				details: { fullOutputPath: "/tmp/pi-tool-output/phase5.log" },
+				details: { fullOutputPath: "/tmp/pi-tool-output/context.log" },
 				isError: false,
 				timestamp: Date.now(),
 			},
 		]);
 
 		expect(references).toEqual([
-			{ kind: "tool-output", label: "bash output", ref: "/tmp/pi-tool-output/phase5.log" },
+			{ kind: "tool-output", label: "bash output", ref: "/tmp/pi-tool-output/context.log" },
 		]);
 		expect(formatEvidenceReferences(references)).toContain("## Evidence References");
-		expect(formatEvidenceReferences(references)).toContain("/tmp/pi-tool-output/phase5.log");
+		expect(formatEvidenceReferences(references)).toContain("/tmp/pi-tool-output/context.log");
 	});
 
 	it("bounds the number of carried evidence references", () => {
@@ -477,14 +477,14 @@ src/old.ts
 			isSplitTurn: false,
 			tokensBefore: 100,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-			evidenceRefs: [{ kind: "tool-output", label: "bash output", ref: "/tmp/phase5.log" }],
+			evidenceRefs: [{ kind: "tool-output", label: "bash output", ref: "/tmp/context.log" }],
 			settings: { enabled: true, reserveTokens: 100, keepRecentTokens: 1 },
 		};
 
 		const result = await compact(preparation, createModel(), "test-key");
 
 		expect(result.summary).toContain("## Evidence References");
-		expect(result.summary).toContain("/tmp/phase5.log");
+		expect(result.summary).toContain("/tmp/context.log");
 		expect(result.details).toMatchObject({ evidenceRefs: preparation.evidenceRefs });
 	});
 });

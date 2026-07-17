@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { PHASE4_BASELINE_TASK_CATEGORIES } from "../../../scripts/phase4-baseline.ts";
-import { collectPhase5Baseline, PHASE5_SCENARIO_IDS } from "../../../scripts/phase5-baseline.ts";
+import { ALLFORONE_BASELINE_TASK_CATEGORIES } from "../../../scripts/allforone-baseline.ts";
+import { CONTEXT_SCENARIO_IDS, collectContextBaseline } from "../../../scripts/context-baseline.ts";
 
-describe("Phase 5.0 context-integrity baseline", () => {
+describe("Context context-integrity baseline", () => {
 	it("exposes the six approved deterministic scenarios", () => {
-		const report = collectPhase5Baseline({ cwd: process.cwd() });
+		const report = collectContextBaseline({ cwd: process.cwd() });
 
-		expect(PHASE5_SCENARIO_IDS).toEqual([
+		expect(CONTEXT_SCENARIO_IDS).toEqual([
 			"constraint-survival",
 			"superseded-decision",
 			"repeated-compaction",
@@ -15,14 +15,14 @@ describe("Phase 5.0 context-integrity baseline", () => {
 			"interrupted-continuation",
 		]);
 		expect(report.schemaVersion).toBe(1);
-		expect(report.phase).toBe("P5.0");
+		expect(report.phase).toBe("context");
 		expect(report.environment.resourceLoading).toBe("offline-read-only");
 		expect(report.environment.productionPolicyChanged).toBe(false);
-		expect(report.scenarios.map((scenario) => scenario.id)).toEqual(PHASE5_SCENARIO_IDS);
+		expect(report.scenarios.map((scenario) => scenario.id)).toEqual(CONTEXT_SCENARIO_IDS);
 	});
 
 	it("measures compaction boundaries and keeps constraint content in the summarized fixture", () => {
-		const scenario = collectPhase5Baseline({ cwd: process.cwd() }).scenarios.find(
+		const scenario = collectContextBaseline({ cwd: process.cwd() }).scenarios.find(
 			(item) => item.id === "constraint-survival",
 		);
 
@@ -31,23 +31,23 @@ describe("Phase 5.0 context-integrity baseline", () => {
 		expect(scenario?.tokensBefore[0]).toBeGreaterThan(scenario?.tokensAfter[0] ?? Number.MAX_SAFE_INTEGER);
 		expect(scenario?.criticalMarkers).toContainEqual(
 			expect.objectContaining({
-				marker: "constraint:phase5",
+				marker: "constraint:context",
 				disposition: "summarized",
 			}),
 		);
 	});
 
-	it("reuses the Phase 4 live-workload taxonomy", () => {
-		const report = collectPhase5Baseline({ cwd: process.cwd() });
+	it("reuses the All-For-One live-workload taxonomy", () => {
+		const report = collectContextBaseline({ cwd: process.cwd() });
 
 		expect(report.evaluationPlan.map((category) => category.id)).toEqual(
-			PHASE4_BASELINE_TASK_CATEGORIES.map((category) => category.id),
+			ALLFORONE_BASELINE_TASK_CATEGORIES.map((category) => category.id),
 		);
-		expect(report.evaluationPlan).toEqual(PHASE4_BASELINE_TASK_CATEGORIES);
+		expect(report.evaluationPlan).toEqual(ALLFORONE_BASELINE_TASK_CATEGORIES);
 	});
 
 	it("records correction supersession as old state summarized and new state recent-exact", () => {
-		const scenario = collectPhase5Baseline({ cwd: process.cwd() }).scenarios.find(
+		const scenario = collectContextBaseline({ cwd: process.cwd() }).scenarios.find(
 			(item) => item.id === "superseded-decision",
 		);
 
@@ -61,7 +61,7 @@ describe("Phase 5.0 context-integrity baseline", () => {
 	});
 
 	it("records three repeated compactions and prior-summary use", () => {
-		const scenario = collectPhase5Baseline({ cwd: process.cwd() }).scenarios.find(
+		const scenario = collectContextBaseline({ cwd: process.cwd() }).scenarios.find(
 			(item) => item.id === "repeated-compaction",
 		);
 
@@ -75,14 +75,16 @@ describe("Phase 5.0 context-integrity baseline", () => {
 	});
 
 	it("records split-turn handling without changing the native cut-point algorithm", () => {
-		const scenario = collectPhase5Baseline({ cwd: process.cwd() }).scenarios.find((item) => item.id === "split-turn");
+		const scenario = collectContextBaseline({ cwd: process.cwd() }).scenarios.find(
+			(item) => item.id === "split-turn",
+		);
 
 		expect(scenario?.splitTurnObserved).toBe(true);
 		expect(scenario?.compactionCount).toBe(1);
 	});
 
 	it("measures large evidence truncation and telemetry follow-up retrieval", () => {
-		const scenario = collectPhase5Baseline({ cwd: process.cwd() }).scenarios.find(
+		const scenario = collectContextBaseline({ cwd: process.cwd() }).scenarios.find(
 			(item) => item.id === "large-evidence",
 		);
 
@@ -94,7 +96,7 @@ describe("Phase 5.0 context-integrity baseline", () => {
 	});
 
 	it("records interrupted continuation with the resumed request in the exact suffix", () => {
-		const scenario = collectPhase5Baseline({ cwd: process.cwd() }).scenarios.find(
+		const scenario = collectContextBaseline({ cwd: process.cwd() }).scenarios.find(
 			(item) => item.id === "interrupted-continuation",
 		);
 

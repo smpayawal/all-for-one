@@ -2533,7 +2533,11 @@ export class DefaultPackageManager implements PackageManager {
 				enabled,
 				metadata,
 			}));
-			resolved.sort((a, b) => resourcePrecedenceRank(a.metadata) - resourcePrecedenceRank(b.metadata));
+			resolved.sort((left, right) => {
+				const precedenceOrder = resourcePrecedenceRank(left.metadata) - resourcePrecedenceRank(right.metadata);
+				if (precedenceOrder !== 0) return precedenceOrder;
+				return canonicalizePath(left.path).localeCompare(canonicalizePath(right.path));
+			});
 
 			const seen = new Set<string>();
 			return resolved.filter((entry) => {

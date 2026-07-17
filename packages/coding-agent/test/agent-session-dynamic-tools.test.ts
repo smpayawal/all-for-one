@@ -8,6 +8,7 @@ import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { canonicalizePath } from "../src/utils/paths.ts";
 
 describe("AgentSession dynamic tool registration", () => {
 	let tempDir: string;
@@ -341,8 +342,8 @@ Skill instructions.
 
 		expect(firstPatchResult).toMatchObject({ block: true });
 		expect(session.systemPrompt).toContain("Backend mutation instructions.");
-		expect(session.getContextInfo().warnings).toContainEqual(
-			expect.stringContaining("Multiple sibling scoped instruction directories"),
+		expect(session.getContextInfo().scopedContext.replacedScopes).toContain(
+			canonicalizePath(join(tempDir, "frontend")),
 		);
 
 		session.dispose();

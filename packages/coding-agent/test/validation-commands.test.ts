@@ -128,16 +128,88 @@ describe("validation command discovery", () => {
 		expect(discoverValidationCommands(cwd)).toEqual({ ecosystems: [], commands: [] });
 	});
 
-	it("adds concise prompt guidance only when bash is active", () => {
+	it("adds mode-aware prompt guidance only when bash is active", () => {
 		writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { check: "verify" } }));
 		writeFileSync(join(cwd, "package-lock.json"), "{}");
 
 		expect(getProjectValidationPromptGuideline(cwd, ["read"])).toBeUndefined();
-		expect(getProjectValidationPromptGuideline(cwd, ["read", "bash"])).toBe(
-			"Project validation commands detected from repository files: npm run check. These are repository-provided suggestions, not safety-approved commands; existing command policy still applies.",
+		expect(getProjectValidationPromptGuideline(cwd, ["read", "bash"], "off")).toBeUndefined();
+		expect(getProjectValidationPromptGuideline(cwd, ["read", "bash"], "observe")).toBe(
+			"Validation hint: if you run one project check, prefer npm run check. Repository discovery is advisory only.",
 		);
-		expect(createBashToolDefinition(cwd).promptGuidelines).toContain(
-			"Project validation commands detected from repository files: npm run check. These are repository-provided suggestions, not safety-approved commands; existing command policy still applies.",
+		expect(getProjectValidationPromptGuideline(cwd, ["read", "bash"])).toBe(undefined);
+		expect(getProjectValidationPromptGuideline(cwd, ["read", "bash"], "enforce")).toBe(
+			"Project validation commands detected from repository files (up to 4 grounded entries): npm run check. These are repository-provided suggestions, not safety-approved commands; existing command policy still applies.",
+		);
+		expect(createBashToolDefinition(cwd).promptGuidelines).toBeUndefined();
+		expect(createBashToolDefinition(cwd, { executionIntegrityMode: "observe" }).promptGuidelines).toEqual([
+			"Validation hint: if you run one project check, prefer npm run check. Repository discovery is advisory only.",
+		]);
+		expect(createBashToolDefinition(cwd, { executionIntegrityMode: "enforce" }).promptGuidelines).toEqual([
+			"Project validation commands detected from repository files (up to 4 grounded entries): npm run check. These are repository-provided suggestions, not safety-approved commands; existing command policy still applies.",
+		]);
+	});
+
+	it("bounds enforce guidance to a fixed number of grounded commands and characters", () => {
+		writeFileSync(
+			join(cwd, "package.json"),
+			JSON.stringify({
+				scripts: {
+					check: "check",
+					typecheck: "typecheck",
+					lint: "lint",
+					test: "test",
+					build: "build",
+				},
+			}),
+		);
+		writeFileSync(join(cwd, "package-lock.json"), "{}");
+
+		const guideline = getProjectValidationPromptGuideline(cwd, ["bash"], "enforce");
+		expect(guideline).toContain("up to 4 grounded entries");
+		expect(guideline).toContain("npm run check");
+		expect(guideline).toContain("npm test");
+		expect(guideline).not.toContain("npm run build");
+		expect(guideline?.length).toBeLessThanOrEqual(800);
+	});
+
+	it("does not expose validation guidance when discovery finds no commands", () => {
+		expect(getProjectValidationPromptGuideline(cwd, ["bash"], "observe")).toBeUndefined();
+		expect(createBashToolDefinition(cwd, { executionIntegrityMode: "enforce" }).promptGuidelines).toBeUndefined();
+	});
+
+	it("keeps validation guidance bounded when command names are long", () => {
+		writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { check: "x".repeat(2000) } }));
+		writeFileSync(join(cwd, "package-lock.json"), "{}");
+
+		const guideline = getProjectValidationPromptGuideline(cwd, ["bash"], "enforce");
+		expect(guideline?.length).toBeLessThanOrEqual(800);
+		expect(guideline).toContain("Project validation commands detected");
+	});
+
+	it("keeps execution provenance guidance independent from command execution", async () => {
+		const tool = createBashToolDefinition(cwd, {
+			executionIntegrityMode: "off",
+			operations: {
+				executionKind: "custom",
+				exec: async () => ({ exitCode: 0 }),
+			},
+		});
+
+		const result = await tool.execute("bash-2", { command: "npm test" }, undefined, undefined, {} as never);
+		expect(result.details).toMatchObject({
+			executionProvenance: {
+				requestedCommand: "npm test",
+				executionKind: "custom",
+			},
+		});
+	});
+
+	it("preserves the existing concise guidance contract for explicit observe mode", () => {
+		writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { check: "verify" } }));
+		writeFileSync(join(cwd, "package-lock.json"), "{}");
+		expect(createBashToolDefinition(cwd, { executionIntegrityMode: "observe" }).promptGuidelines).toContain(
+			"Validation hint: if you run one project check, prefer npm run check. Repository discovery is advisory only.",
 		);
 	});
 

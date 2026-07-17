@@ -1,24 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
-	collectPhase6Baseline,
-	PHASE6_SCENARIO_IDS,
-	type Phase6BaselineReport,
-} from "../../../scripts/phase6-baseline.ts";
+	collectExecutionBaseline,
+	EXECUTION_SCENARIO_IDS,
+	type ExecutionBaselineReport,
+} from "../../../scripts/execution-baseline.ts";
 
-describe("Phase 6 deterministic baseline", () => {
+describe("Execution deterministic baseline", () => {
 	it("emits the required offline scenarios and schema", () => {
-		const report: Phase6BaselineReport = collectPhase6Baseline({ cwd: process.cwd() });
+		const report: ExecutionBaselineReport = collectExecutionBaseline({ cwd: process.cwd() });
 
 		expect(report.schemaVersion).toBe(1);
-		expect(report.phase).toBe("P6.0");
+		expect(report.phase).toBe("execution");
 		expect(report.environment.resourceLoading).toBe("offline-deterministic-fixture");
 		expect(report.environment.productionPolicyChanged).toBe(false);
 		expect(report.settings).toEqual({ mode: "enforce", maxContinuationAttempts: 1 });
-		expect(report.scenarios.map((scenario) => scenario.id)).toEqual([...PHASE6_SCENARIO_IDS]);
+		expect(report.scenarios.map((scenario) => scenario.id)).toEqual([...EXECUTION_SCENARIO_IDS]);
 	});
 
 	it("records the completion policy scenarios", () => {
-		const report = collectPhase6Baseline({ cwd: process.cwd() });
+		const report = collectExecutionBaseline({ cwd: process.cwd() });
 		const scenarios = new Map(report.scenarios.map((scenario) => [scenario.id, scenario]));
 
 		expect(scenarios.get("read-only-completion")).toMatchObject({
@@ -61,7 +61,7 @@ describe("Phase 6 deterministic baseline", () => {
 	});
 
 	it("reports bounded paths and validation records", () => {
-		const report = collectPhase6Baseline({ cwd: process.cwd() });
+		const report = collectExecutionBaseline({ cwd: process.cwd() });
 		const scenario = report.scenarios.find((item) => item.id === "bounded-records");
 
 		expect(scenario).toBeDefined();

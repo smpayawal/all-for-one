@@ -489,20 +489,20 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 
 Specify which built-in tools to enable:
 
-- Built-in tool names: `read`, `bash`, `edit`, `write`, `apply_patch`, `changes`, `grep`, `find`, `ls`
-- Default built-ins: `read`, `bash`, `edit`, `write`, `apply_patch`, `changes`
+- Built-in tool names: `read`, `bash`, `edit`, `write`, `apply_patch`, `grep`, `find`, `ls`
+- Default built-ins: `read`, `bash`, `edit`, `write`, `apply_patch`
 - `noTools: "all"` disables all tools
 - `noTools: "builtin"` disables default built-ins while keeping extension and custom tools enabled
 - `excludeTools` disables specific built-in, extension, or custom tool names after any `tools` allowlist is applied
 
-The `edit` tool returns `details.diff` for Pi's TUI display and `details.patch` as a standard unified patch for SDK consumers. `apply_patch` preflights and commits a bounded multi-file patch, using best-effort rollback if a later write fails. Its `maxPreflightBytes` option bounds aggregate original-file data retained during preflight (64 MiB by default). `changes` provides bounded git summaries and diffs without invoking a shell.
+The `edit` tool returns `details.diff` for Pi's TUI display and `details.patch` as a standard unified patch for SDK consumers. `apply_patch` preflights and commits a bounded multi-file patch, using best-effort rollback if a later write fails. Its `maxPreflightBytes` option bounds aggregate original-file data retained during preflight (64 MiB by default).
 
 ```typescript
 import { createAgentSession } from "@earendil-works/pi-coding-agent";
 
 // Read-only mode
 const { session } = await createAgentSession({
-  tools: ["read", "changes", "grep", "find", "ls"],
+  tools: ["read", "grep", "find", "ls"],
 });
 
 // Pick specific tools

@@ -8,17 +8,17 @@ import {
 	type EvidenceReference,
 } from "../packages/coding-agent/src/core/compaction/retention.ts";
 
-export const PHASE5_EVALUATION_SCHEMA_VERSION = 2 as const;
-export const PHASE5_EVALUATION_PHASE = "P5-live-evaluation" as const;
+export const CONTEXT_EVALUATION_SCHEMA_VERSION = 2 as const;
+export const CONTEXT_EVALUATION_PHASE = "context-live-evaluation" as const;
 
-export type Phase5EvaluationVariant = "baseline" | "phase5";
-export type Phase5EvaluationOutcome = "pass" | "fail" | "unknown";
-export type Phase5EvaluationDecision = "pass" | "blocked" | "inconclusive";
-export type Phase5TreatmentValue = string | number | boolean | null;
-export type Phase5TreatmentConfig = Record<string, Phase5TreatmentValue>;
+export type ContextEvaluationVariant = "baseline" | "context";
+export type ContextEvaluationOutcome = "pass" | "fail" | "unknown";
+export type ContextEvaluationDecision = "pass" | "blocked" | "inconclusive";
+export type ContextTreatmentValue = string | number | boolean | null;
+export type ContextTreatmentConfig = Record<string, ContextTreatmentValue>;
 
-export interface Phase5EvaluationMetrics {
-	outcome: Phase5EvaluationOutcome;
+export interface ContextEvaluationMetrics {
+	outcome: ContextEvaluationOutcome;
 	tokensBefore: number[];
 	tokensAfter: number[];
 	summaryTokens: number;
@@ -43,26 +43,26 @@ export interface Phase5EvaluationMetrics {
 	evidenceReferencesMissing: number;
 }
 
-export interface Phase5EvaluationRun {
+export interface ContextEvaluationRun {
 	workloadId: string;
 	providerModel: string;
 	contextWindow: number;
 	taskInputHash: string;
 	initialContextHash: string;
 	controlledConfigHash: string;
-	treatmentConfig?: Phase5TreatmentConfig;
-	metrics: Phase5EvaluationMetrics;
+	treatmentConfig?: ContextTreatmentConfig;
+	metrics: ContextEvaluationMetrics;
 	limitations?: string[];
 }
 
-export interface Phase5EvaluationInput {
-	schemaVersion: typeof PHASE5_EVALUATION_SCHEMA_VERSION;
-	phase: typeof PHASE5_EVALUATION_PHASE;
-	variant: Phase5EvaluationVariant;
-	runs: Phase5EvaluationRun[];
+export interface ContextEvaluationInput {
+	schemaVersion: typeof CONTEXT_EVALUATION_SCHEMA_VERSION;
+	phase: typeof CONTEXT_EVALUATION_PHASE;
+	variant: ContextEvaluationVariant;
+	runs: ContextEvaluationRun[];
 }
 
-export interface Phase5EvaluationDeltas {
+export interface ContextEvaluationDeltas {
 	lastTokensBefore: number | null;
 	lastTokensAfter: number | null;
 	summaryTokens: number;
@@ -84,31 +84,31 @@ export interface Phase5EvaluationDeltas {
 	evidenceReferencesMissing: number;
 }
 
-export interface Phase5EvaluationPair {
+export interface ContextEvaluationPair {
 	workloadId: string;
-	baseline: Phase5EvaluationRun;
-	phase5: Phase5EvaluationRun;
+	baseline: ContextEvaluationRun;
+	context: ContextEvaluationRun;
 	correctnessRegression: boolean;
 	criticalConstraintRegression: boolean;
 	staleDecisionRegression: boolean;
-	status: Phase5EvaluationDecision;
-	deltas: Phase5EvaluationDeltas;
+	status: ContextEvaluationDecision;
+	deltas: ContextEvaluationDeltas;
 	limitations: string[];
 }
 
-export interface Phase5EvaluationReport {
-	schemaVersion: typeof PHASE5_EVALUATION_SCHEMA_VERSION;
-	phase: typeof PHASE5_EVALUATION_PHASE;
+export interface ContextEvaluationReport {
+	schemaVersion: typeof CONTEXT_EVALUATION_SCHEMA_VERSION;
+	phase: typeof CONTEXT_EVALUATION_PHASE;
 	baselineVariant: "baseline";
-	phase5Variant: "phase5";
-	pairs: Phase5EvaluationPair[];
-	decision: Phase5EvaluationDecision;
+	contextVariant: "context";
+	pairs: ContextEvaluationPair[];
+	decision: ContextEvaluationDecision;
 	efficiencyClaim: "not-established";
 	limitations: string[];
 }
 
-export interface Phase5SessionRunAnnotations {
-	outcome?: Phase5EvaluationOutcome;
+export interface ContextSessionRunAnnotations {
+	outcome?: ContextEvaluationOutcome;
 	criticalConstraintFailures?: number;
 	staleDecisionCount?: number;
 	rediscoveryCount?: number;
@@ -117,16 +117,16 @@ export interface Phase5SessionRunAnnotations {
 	repeatedReads?: number;
 }
 
-export interface Phase5SessionRunMetadata {
+export interface ContextSessionRunMetadata {
 	workloadId: string;
 	contextWindow: number;
 	taskInputHash: string;
 	initialContextHash: string;
 	controlledConfigHash: string;
-	treatmentConfig?: Phase5TreatmentConfig;
+	treatmentConfig?: ContextTreatmentConfig;
 	providerModel?: string;
 	cwd?: string;
-	annotations?: Phase5SessionRunAnnotations;
+	annotations?: ContextSessionRunAnnotations;
 }
 
 interface RecordValue {
@@ -150,7 +150,7 @@ const INTEGER_METRIC_KEYS = [
 	"cacheWriteTokens",
 	"evidenceReferencesResolved",
 	"evidenceReferencesMissing",
-] as const satisfies ReadonlyArray<keyof Omit<Phase5EvaluationMetrics, "outcome" | "compactionLatencyMs" | "compactionCost" | "wallClockSessionSpanMs" | "estimatedCost">>;
+] as const satisfies ReadonlyArray<keyof Omit<ContextEvaluationMetrics, "outcome" | "compactionLatencyMs" | "compactionCost" | "wallClockSessionSpanMs" | "estimatedCost">>;
 
 const DELTA_KEYS = [
 	"turns",
@@ -165,7 +165,7 @@ const DELTA_KEYS = [
 	"cacheWriteTokens",
 	"evidenceReferencesResolved",
 	"evidenceReferencesMissing",
-] as const satisfies ReadonlyArray<keyof Omit<Phase5EvaluationDeltas, "compactionLatencyMs" | "compactionCost" | "wallClockSessionSpanMs" | "estimatedCost">>;
+] as const satisfies ReadonlyArray<keyof Omit<ContextEvaluationDeltas, "compactionLatencyMs" | "compactionCost" | "wallClockSessionSpanMs" | "estimatedCost">>;
 
 function isRecord(value: unknown): value is RecordValue {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -233,11 +233,11 @@ function optionalLimitations(value: RecordValue, path: string): string[] | undef
 	return field;
 }
 
-function optionalTreatmentConfig(value: RecordValue, path: string): Phase5TreatmentConfig | undefined {
+function optionalTreatmentConfig(value: RecordValue, path: string): ContextTreatmentConfig | undefined {
 	const field = value.treatmentConfig;
 	if (field === undefined) return undefined;
 	if (!isRecord(field)) throw new Error(`${path}.treatmentConfig must be an object`);
-	const treatment: Phase5TreatmentConfig = {};
+	const treatment: ContextTreatmentConfig = {};
 	for (const [key, candidate] of Object.entries(field)) {
 		if (
 			typeof candidate !== "string" &&
@@ -255,7 +255,7 @@ function optionalTreatmentConfig(value: RecordValue, path: string): Phase5Treatm
 	return treatment;
 }
 
-function parseMetrics(value: unknown, path: string): Phase5EvaluationMetrics {
+function parseMetrics(value: unknown, path: string): ContextEvaluationMetrics {
 	if (!isRecord(value)) throw new Error(`${path} must be an object`);
 
 	const outcome = value.outcome;
@@ -292,7 +292,7 @@ function parseMetrics(value: unknown, path: string): Phase5EvaluationMetrics {
 		cacheWriteTokens: 0,
 		evidenceReferencesResolved: 0,
 		evidenceReferencesMissing: 0,
-	} satisfies Phase5EvaluationMetrics;
+	} satisfies ContextEvaluationMetrics;
 
 	for (const key of INTEGER_METRIC_KEYS) {
 		metrics[key] = requiredNonNegativeInteger(value, key, path);
@@ -300,7 +300,7 @@ function parseMetrics(value: unknown, path: string): Phase5EvaluationMetrics {
 	return metrics;
 }
 
-function parseRun(value: unknown, index: number): Phase5EvaluationRun {
+function parseRun(value: unknown, index: number): ContextEvaluationRun {
 	const path = `runs[${index}]`;
 	if (!isRecord(value)) throw new Error(`${path} must be an object`);
 
@@ -433,10 +433,10 @@ function annotationCount(
 }
 
 /** Derive a cautious evaluation run from a saved session JSONL value. */
-export function collectPhase5EvaluationRunFromSession(
+export function collectContextEvaluationRunFromSession(
 	entries: readonly unknown[],
-	metadata: Phase5SessionRunMetadata,
-): Phase5EvaluationRun {
+	metadata: ContextSessionRunMetadata,
+): ContextEvaluationRun {
 	if (!Number.isInteger(metadata.contextWindow) || metadata.contextWindow <= 0) {
 		throw new RangeError("contextWindow must be a positive integer.");
 	}
@@ -583,17 +583,17 @@ export function collectPhase5EvaluationRunFromSession(
 	};
 }
 
-/** Parse and validate a recorded baseline or Phase 5 evaluation input. */
-export function parsePhase5EvaluationInput(value: unknown): Phase5EvaluationInput {
+/** Parse and validate a recorded baseline or Context evaluation input. */
+export function parseContextEvaluationInput(value: unknown): ContextEvaluationInput {
 	if (!isRecord(value)) throw new Error("evaluation input must be an object");
-	if (value.schemaVersion !== PHASE5_EVALUATION_SCHEMA_VERSION) {
-		throw new Error(`schemaVersion must be ${PHASE5_EVALUATION_SCHEMA_VERSION}`);
+	if (value.schemaVersion !== CONTEXT_EVALUATION_SCHEMA_VERSION) {
+		throw new Error(`schemaVersion must be ${CONTEXT_EVALUATION_SCHEMA_VERSION}`);
 	}
-	if (value.phase !== PHASE5_EVALUATION_PHASE) {
-		throw new Error(`phase must be ${PHASE5_EVALUATION_PHASE}`);
+	if (value.phase !== CONTEXT_EVALUATION_PHASE) {
+		throw new Error(`phase must be ${CONTEXT_EVALUATION_PHASE}`);
 	}
-	if (value.variant !== "baseline" && value.variant !== "phase5") {
-		throw new Error("variant must be baseline or phase5");
+	if (value.variant !== "baseline" && value.variant !== "context") {
+		throw new Error("variant must be baseline or context");
 	}
 	if (!Array.isArray(value.runs) || value.runs.length === 0) {
 		throw new Error("runs must be a non-empty array");
@@ -607,15 +607,15 @@ export function parsePhase5EvaluationInput(value: unknown): Phase5EvaluationInpu
 	}
 
 	return {
-		schemaVersion: PHASE5_EVALUATION_SCHEMA_VERSION,
-		phase: PHASE5_EVALUATION_PHASE,
+		schemaVersion: CONTEXT_EVALUATION_SCHEMA_VERSION,
+		phase: CONTEXT_EVALUATION_PHASE,
 		variant: value.variant,
 		runs,
 	};
 }
 
-function indexRuns(runs: readonly Phase5EvaluationRun[], variant: Phase5EvaluationVariant): Map<string, Phase5EvaluationRun> {
-	const indexed = new Map<string, Phase5EvaluationRun>();
+function indexRuns(runs: readonly ContextEvaluationRun[], variant: ContextEvaluationVariant): Map<string, ContextEvaluationRun> {
+	const indexed = new Map<string, ContextEvaluationRun>();
 	for (const run of runs) {
 		if (indexed.has(run.workloadId)) throw new Error(`duplicate workloadId in ${variant}: ${run.workloadId}`);
 		indexed.set(run.workloadId, run);
@@ -623,36 +623,36 @@ function indexRuns(runs: readonly Phase5EvaluationRun[], variant: Phase5Evaluati
 	return indexed;
 }
 
-function requireSamePairContext(baseline: Phase5EvaluationRun, phase5: Phase5EvaluationRun): void {
+function requireSamePairContext(baseline: ContextEvaluationRun, context: ContextEvaluationRun): void {
 	const sharedFields = [
-		["provider/model", baseline.providerModel, phase5.providerModel],
-		["contextWindow", baseline.contextWindow, phase5.contextWindow],
-		["taskInputHash", baseline.taskInputHash, phase5.taskInputHash],
-		["initialContextHash", baseline.initialContextHash, phase5.initialContextHash],
-		["controlledConfigHash", baseline.controlledConfigHash, phase5.controlledConfigHash],
+		["provider/model", baseline.providerModel, context.providerModel],
+		["contextWindow", baseline.contextWindow, context.contextWindow],
+		["taskInputHash", baseline.taskInputHash, context.taskInputHash],
+		["initialContextHash", baseline.initialContextHash, context.initialContextHash],
+		["controlledConfigHash", baseline.controlledConfigHash, context.controlledConfigHash],
 	] as const;
-	for (const [name, baselineValue, phase5Value] of sharedFields) {
-		if (baselineValue !== phase5Value) {
-			throw new Error(`${name} differs between baseline and phase5 for ${baseline.workloadId}`);
+	for (const [name, baselineValue, contextValue] of sharedFields) {
+		if (baselineValue !== contextValue) {
+			throw new Error(`${name} differs between baseline and context for ${baseline.workloadId}`);
 		}
 	}
 }
 
-function metricDelta(phase5: number | null, baseline: number | null): number | null {
-	return phase5 === null || baseline === null ? null : phase5 - baseline;
+function metricDelta(context: number | null, baseline: number | null): number | null {
+	return context === null || baseline === null ? null : context - baseline;
 }
 
 function lastValue(values: readonly number[]): number | null {
 	return values.length === 0 ? null : (values[values.length - 1] ?? null);
 }
 
-function calculateDeltas(baseline: Phase5EvaluationMetrics, phase5: Phase5EvaluationMetrics): Phase5EvaluationDeltas {
+function calculateDeltas(baseline: ContextEvaluationMetrics, context: ContextEvaluationMetrics): ContextEvaluationDeltas {
 	const deltas = {
-		lastTokensBefore: metricDelta(lastValue(phase5.tokensBefore), lastValue(baseline.tokensBefore)),
-		lastTokensAfter: metricDelta(lastValue(phase5.tokensAfter), lastValue(baseline.tokensAfter)),
-		summaryTokens: phase5.summaryTokens - baseline.summaryTokens,
-		compactionLatencyMs: metricDelta(phase5.compactionLatencyMs, baseline.compactionLatencyMs),
-		compactionCost: metricDelta(phase5.compactionCost, baseline.compactionCost),
+		lastTokensBefore: metricDelta(lastValue(context.tokensBefore), lastValue(baseline.tokensBefore)),
+		lastTokensAfter: metricDelta(lastValue(context.tokensAfter), lastValue(baseline.tokensAfter)),
+		summaryTokens: context.summaryTokens - baseline.summaryTokens,
+		compactionLatencyMs: metricDelta(context.compactionLatencyMs, baseline.compactionLatencyMs),
+		compactionCost: metricDelta(context.compactionCost, baseline.compactionCost),
 		turns: 0,
 		toolCalls: 0,
 		peakPromptTokens: 0,
@@ -661,83 +661,83 @@ function calculateDeltas(baseline: Phase5EvaluationMetrics, phase5: Phase5Evalua
 		truncationCount: 0,
 		followUpRetrievals: 0,
 		repeatedReads: 0,
-		wallClockSessionSpanMs: metricDelta(phase5.wallClockSessionSpanMs, baseline.wallClockSessionSpanMs),
-		estimatedCost: metricDelta(phase5.estimatedCost, baseline.estimatedCost),
+		wallClockSessionSpanMs: metricDelta(context.wallClockSessionSpanMs, baseline.wallClockSessionSpanMs),
+		estimatedCost: metricDelta(context.estimatedCost, baseline.estimatedCost),
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
 		evidenceReferencesResolved: 0,
 		evidenceReferencesMissing: 0,
-	} satisfies Phase5EvaluationDeltas;
+	} satisfies ContextEvaluationDeltas;
 
-	for (const key of DELTA_KEYS) deltas[key] = phase5[key] - baseline[key];
+	for (const key of DELTA_KEYS) deltas[key] = context[key] - baseline[key];
 	return deltas;
 }
 
-function createPair(baseline: Phase5EvaluationRun, phase5: Phase5EvaluationRun): Phase5EvaluationPair {
-	requireSamePairContext(baseline, phase5);
-	const correctnessRegression = baseline.metrics.outcome === "pass" && phase5.metrics.outcome === "fail";
+function createPair(baseline: ContextEvaluationRun, context: ContextEvaluationRun): ContextEvaluationPair {
+	requireSamePairContext(baseline, context);
+	const correctnessRegression = baseline.metrics.outcome === "pass" && context.metrics.outcome === "fail";
 	const criticalConstraintRegression =
-		phase5.metrics.criticalConstraintFailures > baseline.metrics.criticalConstraintFailures;
-	const staleDecisionRegression = phase5.metrics.staleDecisionCount > baseline.metrics.staleDecisionCount;
-	const outcomeUnknown = baseline.metrics.outcome === "unknown" || phase5.metrics.outcome === "unknown";
-	const unresolvedLimitations = [...(baseline.limitations ?? []), ...(phase5.limitations ?? [])];
+		context.metrics.criticalConstraintFailures > baseline.metrics.criticalConstraintFailures;
+	const staleDecisionRegression = context.metrics.staleDecisionCount > baseline.metrics.staleDecisionCount;
+	const outcomeUnknown = baseline.metrics.outcome === "unknown" || context.metrics.outcome === "unknown";
+	const unresolvedLimitations = [...(baseline.limitations ?? []), ...(context.limitations ?? [])];
 	const blocked = correctnessRegression || criticalConstraintRegression || staleDecisionRegression;
-	const status: Phase5EvaluationDecision =
+	const status: ContextEvaluationDecision =
 		blocked || outcomeUnknown || unresolvedLimitations.length > 0 ? (blocked ? "blocked" : "inconclusive") : "pass";
 	const limitations = [
 		"Efficiency deltas are descriptive and do not establish an efficiency improvement.",
 		...unresolvedLimitations,
 	];
 	if (outcomeUnknown) limitations.push("At least one run has unknown correctness, so the pair cannot establish a quality result.");
-	if (staleDecisionRegression) limitations.push("The Phase 5 run produced more stale-decision observations than baseline.");
+	if (staleDecisionRegression) limitations.push("The Context run produced more stale-decision observations than baseline.");
 
 	return {
 		workloadId: baseline.workloadId,
 		baseline,
-		phase5,
+		context,
 		correctnessRegression,
 		criticalConstraintRegression,
 		staleDecisionRegression,
 		status,
-		deltas: calculateDeltas(baseline.metrics, phase5.metrics),
+		deltas: calculateDeltas(baseline.metrics, context.metrics),
 		limitations,
 	};
 }
 
 /** Compare paired recorded runs without executing a model or changing runtime policy. */
-export function comparePhase5EvaluationRuns(
-	baselineRuns: readonly Phase5EvaluationRun[],
-	phase5Runs: readonly Phase5EvaluationRun[],
-): Phase5EvaluationReport {
-	if (baselineRuns.length === 0 || phase5Runs.length === 0) {
-		throw new Error("baseline and phase5 runs must both be non-empty");
+export function compareContextEvaluationRuns(
+	baselineRuns: readonly ContextEvaluationRun[],
+	contextRuns: readonly ContextEvaluationRun[],
+): ContextEvaluationReport {
+	if (baselineRuns.length === 0 || contextRuns.length === 0) {
+		throw new Error("baseline and context runs must both be non-empty");
 	}
 
 	const baselineByWorkload = indexRuns(baselineRuns, "baseline");
-	const phase5ByWorkload = indexRuns(phase5Runs, "phase5");
+	const contextByWorkload = indexRuns(contextRuns, "context");
 	for (const workloadId of baselineByWorkload.keys()) {
-		if (!phase5ByWorkload.has(workloadId)) throw new Error(`missing phase5 run for ${workloadId}`);
+		if (!contextByWorkload.has(workloadId)) throw new Error(`missing context run for ${workloadId}`);
 	}
-	for (const workloadId of phase5ByWorkload.keys()) {
+	for (const workloadId of contextByWorkload.keys()) {
 		if (!baselineByWorkload.has(workloadId)) throw new Error(`missing baseline run for ${workloadId}`);
 	}
 
 	const pairs = Array.from(baselineByWorkload.values()).map((baseline) => {
-		const phase5 = phase5ByWorkload.get(baseline.workloadId);
-		if (!phase5) throw new Error(`missing phase5 run for ${baseline.workloadId}`);
-		return createPair(baseline, phase5);
+		const context = contextByWorkload.get(baseline.workloadId);
+		if (!context) throw new Error(`missing context run for ${baseline.workloadId}`);
+		return createPair(baseline, context);
 	});
-	const decision: Phase5EvaluationDecision = pairs.some((pair) => pair.status === "blocked")
+	const decision: ContextEvaluationDecision = pairs.some((pair) => pair.status === "blocked")
 		? "blocked"
 		: pairs.some((pair) => pair.status === "inconclusive")
 			? "inconclusive"
 			: "pass";
 
 	return {
-		schemaVersion: PHASE5_EVALUATION_SCHEMA_VERSION,
-		phase: PHASE5_EVALUATION_PHASE,
+		schemaVersion: CONTEXT_EVALUATION_SCHEMA_VERSION,
+		phase: CONTEXT_EVALUATION_PHASE,
 		baselineVariant: "baseline",
-		phase5Variant: "phase5",
+		contextVariant: "context",
 		pairs,
 		decision,
 		efficiencyClaim: "not-established",
@@ -751,9 +751,9 @@ export function comparePhase5EvaluationRuns(
 
 interface CliArguments {
 	baselinePath?: string;
-	phase5Path?: string;
+	contextPath?: string;
 	sessionPath?: string;
-	variant?: Phase5EvaluationVariant;
+	variant?: ContextEvaluationVariant;
 	workloadId?: string;
 	contextWindow?: number;
 	taskInputHash?: string;
@@ -781,7 +781,7 @@ function parseArguments(argv: string[]): CliArguments {
 		}
 		if (
 			argument === "--baseline" ||
-			argument === "--phase5" ||
+			argument === "--context" ||
 			argument === "--session" ||
 			argument === "--variant" ||
 			argument === "--workload-id" ||
@@ -800,14 +800,14 @@ function parseArguments(argv: string[]): CliArguments {
 				case "--baseline":
 					result.baselinePath = value;
 					break;
-				case "--phase5":
-					result.phase5Path = value;
+				case "--context":
+					result.contextPath = value;
 					break;
 				case "--session":
 					result.sessionPath = value;
 					break;
 				case "--variant":
-					if (value !== "baseline" && value !== "phase5") throw new Error("--variant must be baseline or phase5");
+					if (value !== "baseline" && value !== "context") throw new Error("--variant must be baseline or context");
 					result.variant = value;
 					break;
 				case "--workload-id":
@@ -851,7 +851,7 @@ function parseArguments(argv: string[]): CliArguments {
 	return result;
 }
 
-function loadInput(path: string): Phase5EvaluationInput {
+function loadInput(path: string): ContextEvaluationInput {
 	const contents = readFileSync(path, "utf8");
 	let value: unknown;
 	try {
@@ -859,7 +859,7 @@ function loadInput(path: string): Phase5EvaluationInput {
 	} catch (error) {
 		throw new Error(`Could not parse ${path}: ${error instanceof Error ? error.message : String(error)}`);
 	}
-	return parsePhase5EvaluationInput(value);
+	return parseContextEvaluationInput(value);
 }
 
 const SESSION_ANNOTATION_NUMBER_KEYS = [
@@ -869,9 +869,9 @@ const SESSION_ANNOTATION_NUMBER_KEYS = [
 	"truncationCount",
 	"followUpRetrievals",
 	"repeatedReads",
-] as const satisfies ReadonlyArray<keyof Omit<Phase5SessionRunAnnotations, "outcome">>;
+] as const satisfies ReadonlyArray<keyof Omit<ContextSessionRunAnnotations, "outcome">>;
 
-function loadSessionAnnotations(path: string): Phase5SessionRunAnnotations {
+function loadSessionAnnotations(path: string): ContextSessionRunAnnotations {
 	let value: unknown;
 	try {
 		value = JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -880,7 +880,7 @@ function loadSessionAnnotations(path: string): Phase5SessionRunAnnotations {
 	}
 	if (!isRecord(value)) throw new Error(`Annotations ${path} must contain a JSON object.`);
 
-	const annotations: Phase5SessionRunAnnotations = {};
+	const annotations: ContextSessionRunAnnotations = {};
 	if (value.outcome !== undefined) {
 		if (value.outcome !== "pass" && value.outcome !== "fail" && value.outcome !== "unknown") {
 			throw new Error("annotations.outcome must be pass, fail, or unknown.");
@@ -898,7 +898,7 @@ function loadSessionAnnotations(path: string): Phase5SessionRunAnnotations {
 	return annotations;
 }
 
-function loadTreatmentConfig(path: string): Phase5TreatmentConfig {
+function loadTreatmentConfig(path: string): ContextTreatmentConfig {
 	let value: unknown;
 	try {
 		value = JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -923,7 +923,7 @@ function loadSessionEntries(path: string): unknown[] {
 		});
 }
 
-function loadSessionInput(argumentsValue: CliArguments): Phase5EvaluationInput {
+function loadSessionInput(argumentsValue: CliArguments): ContextEvaluationInput {
 	if (!argumentsValue.sessionPath) throw new Error("--session is required");
 	const required = [
 		["--variant", argumentsValue.variant],
@@ -936,7 +936,7 @@ function loadSessionInput(argumentsValue: CliArguments): Phase5EvaluationInput {
 	for (const [flag, value] of required) {
 		if (value === undefined || value === "") throw new Error(`${flag} is required with --session`);
 	}
-	const run = collectPhase5EvaluationRunFromSession(loadSessionEntries(argumentsValue.sessionPath), {
+	const run = collectContextEvaluationRunFromSession(loadSessionEntries(argumentsValue.sessionPath), {
 		workloadId: argumentsValue.workloadId as string,
 		contextWindow: argumentsValue.contextWindow as number,
 		taskInputHash: argumentsValue.taskInputHash as string,
@@ -950,14 +950,14 @@ function loadSessionInput(argumentsValue: CliArguments): Phase5EvaluationInput {
 		annotations: argumentsValue.annotationsPath ? loadSessionAnnotations(argumentsValue.annotationsPath) : undefined,
 	});
 	return {
-		schemaVersion: PHASE5_EVALUATION_SCHEMA_VERSION,
-		phase: PHASE5_EVALUATION_PHASE,
-		variant: argumentsValue.variant as Phase5EvaluationVariant,
+		schemaVersion: CONTEXT_EVALUATION_SCHEMA_VERSION,
+		phase: CONTEXT_EVALUATION_PHASE,
+		variant: argumentsValue.variant as ContextEvaluationVariant,
 		runs: [run],
 	};
 }
 
-function printHumanReport(report: Phase5EvaluationReport): string {
+function printHumanReport(report: ContextEvaluationReport): string {
 	const lines = [
 		`${report.phase}: decision=${report.decision}`,
 		`Efficiency claim: ${report.efficiencyClaim}`,
@@ -970,7 +970,7 @@ function printHumanReport(report: Phase5EvaluationReport): string {
 	return `${lines.join("\n")}\n`;
 }
 
-function printSessionInput(input: Phase5EvaluationInput): string {
+function printSessionInput(input: ContextEvaluationInput): string {
 	const run = input.runs[0];
 	if (!run) return `${input.phase}: no session run\n`;
 	const limitations = run.limitations ?? [];
@@ -984,10 +984,10 @@ function printSessionInput(input: Phase5EvaluationInput): string {
 
 function printHelp(): string {
 	return [
-		"Usage: npm run evaluate:phase5 -- --baseline PATH --phase5 PATH [--json]",
-		"       npm run evaluate:phase5 -- --session PATH --variant baseline|phase5 --workload-id ID --context-window TOKENS --task-input-hash HASH --initial-context-hash HASH --controlled-config-hash HASH [options]",
+		"Usage: npm run evaluate:context -- --baseline PATH --context PATH [--json]",
+		"       npm run evaluate:context -- --session PATH --variant baseline|context --workload-id ID --context-window TOKENS --task-input-hash HASH --initial-context-hash HASH --controlled-config-hash HASH [options]",
 		"",
-		"Compares recorded baseline and Phase 5 workload results, or derives a cautious run record from session JSONL without executing a model.",
+		"Compares recorded baseline and Context workload results, or derives a cautious run record from session JSONL without executing a model.",
 		"Session options: --provider-model MODEL --cwd PATH --annotations PATH --treatment-config PATH --json",
 	].join("\n");
 }
@@ -1007,14 +1007,14 @@ if (isMainModule()) {
 				const input = loadSessionInput(argumentsValue);
 				process.stdout.write(argumentsValue.json ? `${JSON.stringify(input, null, 2)}\n` : printSessionInput(input));
 			} else {
-				if (!argumentsValue.baselinePath || !argumentsValue.phase5Path) {
-					throw new Error("--baseline and --phase5 are required");
+				if (!argumentsValue.baselinePath || !argumentsValue.contextPath) {
+					throw new Error("--baseline and --context are required");
 				}
 				const baseline = loadInput(argumentsValue.baselinePath);
-				const phase5 = loadInput(argumentsValue.phase5Path);
+				const context = loadInput(argumentsValue.contextPath);
 				if (baseline.variant !== "baseline") throw new Error("baseline input must use variant baseline");
-				if (phase5.variant !== "phase5") throw new Error("phase5 input must use variant phase5");
-				const report = comparePhase5EvaluationRuns(baseline.runs, phase5.runs);
+				if (context.variant !== "context") throw new Error("context input must use variant context");
+				const report = compareContextEvaluationRuns(baseline.runs, context.runs);
 				process.stdout.write(argumentsValue.json ? `${JSON.stringify(report, null, 2)}\n` : printHumanReport(report));
 			}
 		}

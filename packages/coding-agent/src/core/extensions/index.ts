@@ -42,8 +42,6 @@ export type {
 	BeforeProviderRequestEvent,
 	BeforeProviderRequestEventResult,
 	BuildSystemPromptOptions,
-	ChangesToolCallEvent,
-	ChangesToolResultEvent,
 	// Context
 	CompactOptions,
 	// Events - Agent
@@ -178,7 +176,6 @@ export {
 	defineTool,
 	isApplyPatchToolResult,
 	isBashToolResult,
-	isChangesToolResult,
 	isEditToolResult,
 	isFindToolResult,
 	isGrepToolResult,

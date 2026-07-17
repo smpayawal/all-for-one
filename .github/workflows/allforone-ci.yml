@@ -1,0 +1,132 @@
+name: All-For-One CI
+
+on:
+  pull_request:
+    branches: [allforone]
+  push:
+    branches: [allforone]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 6"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: allforone-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install platform tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
+
+      - name: Prepare main comparison ref
+        run: git branch --force main origin/main
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Check
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Focused agent runtime tests
+        run: npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/execution-integrity.test.ts
+
+      - name: Focused All-For-One tests
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
+          test/args.test.ts
+          test/tool-registry.test.ts
+          test/agent-session-concurrent.test.ts
+          test/agent-session-runtime-events.test.ts
+          test/apply-patch-tool.test.ts
+          test/file-mutation-queue.test.ts
+          test/scoped-context.test.ts
+          test/compaction-health.test.ts
+          test/compaction-retention.test.ts
+          test/compaction-validation.test.ts
+          test/execution-integrity.test.ts
+          test/suite/lax-message-content.test.ts
+          test/skills.test.ts
+          test/memory.test.ts
+          test/settings-manager.test.ts
+          test/interactive-mode-status.test.ts
+          test/session-rail.test.ts
+          test/suite/agent-session-runtime.test.ts
+          test/suite/agent-session-bash-persistence.test.ts
+          test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts
+          test/suite/regressions/5109-exclude-tools.test.ts
+
+      - name: Offline diagnostics
+        run: |
+          npm run doctor:allforone -- --json
+          npm run baseline:allforone -- --json
+          npm run baseline:context -- --json
+          npm run baseline:execution -- --json
+          npm run evaluate:context -- --help
+          npm run evaluate:execution -- --help
+
+      - name: Upstream relationship
+        run: node scripts/check-upstream-relationship.mjs --json
+
+  platform-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Platform-sensitive focused tests
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
+          test/apply-patch-tool.test.ts
+          test/file-mutation-queue.test.ts
+          test/memory.test.ts
+          test/scoped-context.test.ts
+          test/path-utils.test.ts
+          test/paths.test.ts
+          test/resolve-config-value.test.ts
+          test/settings-manager.test.ts
+          test/bash-close-hang-windows.test.ts
+          test/suite/agent-session-bash-persistence.test.ts
+          test/validation-commands.test.ts

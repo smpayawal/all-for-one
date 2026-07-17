@@ -2,7 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai/compat";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { PHASE4_BASELINE_TASK_CATEGORIES, type Phase4BaselineTaskCategory } from "./phase4-baseline.ts";
+import { ALLFORONE_BASELINE_TASK_CATEGORIES, type AllForOneBaselineTaskCategory } from "./allforone-baseline.ts";
 import {
 	estimateContextTokens,
 	prepareCompaction,
@@ -19,7 +19,7 @@ import {
 } from "../packages/coding-agent/src/core/session-manager.ts";
 import { ToolOutputTelemetryStore } from "../packages/coding-agent/src/core/tool-output-telemetry.ts";
 
-export const PHASE5_SCENARIO_IDS = [
+export const CONTEXT_SCENARIO_IDS = [
 	"constraint-survival",
 	"superseded-decision",
 	"repeated-compaction",
@@ -28,16 +28,16 @@ export const PHASE5_SCENARIO_IDS = [
 	"interrupted-continuation",
 ] as const;
 
-export type Phase5ScenarioId = (typeof PHASE5_SCENARIO_IDS)[number];
-export type Phase5MarkerDisposition = "summarized" | "recent-exact" | "not-retained";
+export type ContextScenarioId = (typeof CONTEXT_SCENARIO_IDS)[number];
+export type ContextMarkerDisposition = "summarized" | "recent-exact" | "not-retained";
 
-export interface Phase5CriticalMarker {
+export interface ContextCriticalMarker {
 	marker: string;
-	disposition: Phase5MarkerDisposition;
+	disposition: ContextMarkerDisposition;
 }
 
-export interface Phase5ScenarioReport {
-	id: Phase5ScenarioId;
+export interface ContextScenarioReport {
+	id: ContextScenarioId;
 	description: string;
 	executionStatus: "deterministic-fixture";
 	compactionCount: number;
@@ -47,7 +47,7 @@ export interface Phase5ScenarioReport {
 	splitTurnObserved: boolean;
 	interruptedContinuationObserved: boolean;
 	supersessionObserved: boolean;
-	criticalMarkers: Phase5CriticalMarker[];
+	criticalMarkers: ContextCriticalMarker[];
 	rawEvidenceChars: number;
 	serializedEvidenceChars: number;
 	evidenceTailMarkerRetained: boolean;
@@ -58,21 +58,21 @@ export interface Phase5ScenarioReport {
 	limitations: string[];
 }
 
-export interface Phase5BaselineReport {
+export interface ContextBaselineReport {
 	schemaVersion: 1;
-	phase: "P5.0";
+	phase: "context";
 	title: "Context integrity and compaction baseline";
-	evaluationPlan: ReadonlyArray<Phase4BaselineTaskCategory>;
+	evaluationPlan: ReadonlyArray<AllForOneBaselineTaskCategory>;
 	environment: {
 		cwd: string;
 		resourceLoading: "offline-read-only";
 		productionPolicyChanged: false;
 	};
-	scenarios: Phase5ScenarioReport[];
+	scenarios: ContextScenarioReport[];
 	limitations: string[];
 }
 
-export interface Phase5BaselineOptions {
+export interface ContextBaselineOptions {
 	cwd: string;
 }
 
@@ -116,7 +116,7 @@ function nextEntryMetadata(builder: FixtureBuilder): { id: string; parentId: str
 	const timestamp = builder.nextTimestamp;
 	builder.nextTimestamp += 1_000;
 	return {
-		id: `p5-entry-${String(builder.nextId++).padStart(4, "0")}`,
+		id: `context-entry-${String(builder.nextId++).padStart(4, "0")}`,
 		parentId: builder.lastId,
 		timestamp: new Date(timestamp).toISOString(),
 	};
@@ -171,7 +171,7 @@ function createAssistantMessage(
 		timestamp: nextMessageTimestamp(builder),
 		api: "anthropic-messages",
 		provider: "anthropic",
-		model: "phase5-fixture-model",
+		model: "context-fixture-model",
 	};
 }
 
@@ -219,7 +219,7 @@ function appendCompaction(
 	const entriesBefore = [...builder.entries];
 	const preparation = prepareCompaction(entriesBefore, settings);
 	if (!preparation) {
-		throw new Error("Phase 5 fixture did not produce a native compaction preparation");
+		throw new Error("Context fixture did not produce a native compaction preparation");
 	}
 
 	const metadata = nextEntryMetadata(builder);
@@ -278,7 +278,7 @@ function entriesText(entries: SessionEntry[]): string {
 		.join("\n");
 }
 
-function markerDisposition(observation: CompactionObservation, marker: string): Phase5MarkerDisposition {
+function markerDisposition(observation: CompactionObservation, marker: string): ContextMarkerDisposition {
 	const summarizedText = messagesText([
 		...observation.preparation.messagesToSummarize,
 		...observation.preparation.turnPrefixMessages,
@@ -304,7 +304,7 @@ function resumedMarkerDisposition(
 	entries: SessionEntry[],
 	observation: CompactionObservation,
 	marker: string,
-): Phase5MarkerDisposition {
+): ContextMarkerDisposition {
 	const compactionIndex = entries.findIndex((entry) => entry.id === observation.compactionEntryId);
 	if (compactionIndex < 0) return "not-retained";
 	return entriesText(entries.slice(compactionIndex + 1)).includes(marker) ? "recent-exact" : "not-retained";
@@ -318,13 +318,13 @@ function countToolCalls(entries: SessionEntry[]): number {
 }
 
 function createScenarioReport(
-	id: Phase5ScenarioId,
+	id: ContextScenarioId,
 	description: string,
 	builder: FixtureBuilder,
 	observations: CompactionObservation[],
-	criticalMarkers: Phase5CriticalMarker[],
+	criticalMarkers: ContextCriticalMarker[],
 	limitations: string[] = [],
-): Phase5ScenarioReport {
+): ContextScenarioReport {
 	return {
 		id,
 		description,
@@ -348,30 +348,30 @@ function createScenarioReport(
 	};
 }
 
-function collectConstraintSurvival(): Phase5ScenarioReport {
+function collectConstraintSurvival(): ContextScenarioReport {
 	const builder = createBuilder();
-	appendUser(builder, "[constraint:phase5] Preserve the exact validation command and do not add a second context manager.");
-	appendAssistantText(builder, "Acknowledged [constraint:phase5].");
+	appendUser(builder, "[constraint:context] Preserve the exact validation command and do not add a second context manager.");
+	appendAssistantText(builder, "Acknowledged [constraint:context].");
 	appendNoise(builder, "constraint-noise", 2);
 	appendUser(builder, "[constraint-followup] Continue with the approved baseline.");
 
 	const observation = appendCompaction(
 		builder,
 		COMPACTION_SETTINGS,
-		"## Constraints & Preferences\n- [constraint:phase5] Preserve the exact validation command and do not add a second context manager.\n\n## Critical Context\n- The approved baseline is deterministic and model-free.",
+		"## Constraints & Preferences\n- [constraint:context] Preserve the exact validation command and do not add a second context manager.\n\n## Critical Context\n- The approved baseline is deterministic and model-free.",
 	);
 
 	return createScenarioReport(
 		"constraint-survival",
-		"A critical Phase 5 constraint is summarized while the newest follow-up remains exact.",
+		"A critical Context constraint is summarized while the newest follow-up remains exact.",
 		builder,
 		[observation],
-		[{ marker: "constraint:phase5", disposition: markerDisposition(observation, "constraint:phase5") }],
+		[{ marker: "constraint:context", disposition: markerDisposition(observation, "constraint:context") }],
 		["The fixture checks marker placement across the native boundary; it does not evaluate model adherence."],
 	);
 }
 
-function collectSupersededDecision(): Phase5ScenarioReport {
+function collectSupersededDecision(): ContextScenarioReport {
 	const builder = createBuilder();
 	appendUser(builder, "[decision:A] Use the original retention rule for this fixture.");
 	appendAssistantText(builder, "Recorded [decision:A].");
@@ -400,7 +400,7 @@ function collectSupersededDecision(): Phase5ScenarioReport {
 	return { ...report, supersessionObserved: summary.includes("Superseded") && summary.includes("Active correction") };
 }
 
-function collectRepeatedCompaction(): Phase5ScenarioReport {
+function collectRepeatedCompaction(): ContextScenarioReport {
 	const builder = createBuilder();
 	appendUser(builder, "[repeat:initial] Establish the first context checkpoint.");
 	appendAssistantText(builder, "Initial work recorded.");
@@ -441,11 +441,11 @@ function collectRepeatedCompaction(): Phase5ScenarioReport {
 	);
 }
 
-function collectSplitTurn(): Phase5ScenarioReport {
+function collectSplitTurn(): ContextScenarioReport {
 	const builder = createBuilder();
 	appendUser(builder, "[split-turn:request] Inspect the file and keep the final suffix available.");
-	appendAssistantToolCall(builder, "p5-tool-001", "read", { path: "src/example.ts" }, "[split-turn:prefix] Read the requested file.");
-	appendToolResult(builder, "p5-tool-001", "read", "export const example = true;\n".repeat(12));
+	appendAssistantToolCall(builder, "context-tool-001", "read", { path: "src/example.ts" }, "[split-turn:prefix] Read the requested file.");
+	appendToolResult(builder, "context-tool-001", "read", "export const example = true;\n".repeat(12));
 	appendAssistantText(builder, "[split-turn:suffix] The retained suffix follows the tool result.");
 
 	const observation = appendCompaction(
@@ -467,10 +467,10 @@ function collectSplitTurn(): Phase5ScenarioReport {
 	);
 }
 
-function collectLargeEvidence(cwd: string): Phase5ScenarioReport {
+function collectLargeEvidence(cwd: string): ContextScenarioReport {
 	const builder = createBuilder();
 	const evidence = `${"evidence-line ".repeat(320)}[evidence:tail]`;
-	const toolCallId = "p5-tool-002";
+	const toolCallId = "context-tool-002";
 	appendUser(builder, "[large-evidence:request] Capture and inspect the large evidence output.");
 	appendAssistantToolCall(builder, toolCallId, "bash", { command: "capture-evidence" });
 	appendToolResult(builder, toolCallId, "bash", evidence);
@@ -489,7 +489,7 @@ function collectLargeEvidence(cwd: string): Phase5ScenarioReport {
 	);
 
 	const telemetry = new ToolOutputTelemetryStore(cwd);
-	const fullOutputPath = resolve(cwd, ".phase5-fixtures", "large-evidence.log");
+	const fullOutputPath = resolve(cwd, ".context-fixtures", "large-evidence.log");
 	const returnedEvidence = evidence.slice(0, 2_000);
 	telemetry.record(
 		"bash",
@@ -509,7 +509,7 @@ function collectLargeEvidence(cwd: string): Phase5ScenarioReport {
 		false,
 	);
 	telemetry.record("read", { path: fullOutputPath }, [{ type: "text", text: "recovered evidence" }], undefined, false);
-	const repeatedReadPath = resolve(cwd, ".phase5-fixtures", "repeated-evidence.log");
+	const repeatedReadPath = resolve(cwd, ".context-fixtures", "repeated-evidence.log");
 	telemetry.record("read", { path: repeatedReadPath }, [{ type: "text", text: "repeated evidence" }], undefined, false);
 	telemetry.record("read", { path: repeatedReadPath }, [{ type: "text", text: "repeated evidence again" }], undefined, false);
 
@@ -541,7 +541,7 @@ function collectLargeEvidence(cwd: string): Phase5ScenarioReport {
 	};
 }
 
-function collectInterruptedContinuation(): Phase5ScenarioReport {
+function collectInterruptedContinuation(): ContextScenarioReport {
 	const builder = createBuilder();
 	appendUser(builder, "[interrupted:goal] Complete the migration while preserving the public API.");
 	appendAssistantText(builder, "[interrupted:progress] The first file was inspected and the validation command was recorded.");
@@ -573,13 +573,13 @@ function collectInterruptedContinuation(): Phase5ScenarioReport {
 	return { ...report, interruptedContinuationObserved: true };
 }
 
-export function collectPhase5Baseline(options: Phase5BaselineOptions): Phase5BaselineReport {
+export function collectContextBaseline(options: ContextBaselineOptions): ContextBaselineReport {
 	const cwd = resolve(options.cwd);
 	return {
 		schemaVersion: 1,
-		phase: "P5.0",
+		phase: "context",
 		title: "Context integrity and compaction baseline",
-		evaluationPlan: PHASE4_BASELINE_TASK_CATEGORIES,
+		evaluationPlan: ALLFORONE_BASELINE_TASK_CATEGORIES,
 		environment: {
 			cwd,
 			resourceLoading: "offline-read-only",
@@ -594,7 +594,7 @@ export function collectPhase5Baseline(options: Phase5BaselineOptions): Phase5Bas
 			collectInterruptedContinuation(),
 		],
 		limitations: [
-			"P5.0 is model-free and does not measure model answer quality, latency, or cost.",
+			"context is model-free and does not measure model answer quality, latency, or cost.",
 			"Summaries are deterministic fixture strings used to observe retention boundaries, not production prompts.",
 			"No production compaction policy, session format, or context manager is changed by this baseline.",
 		],
@@ -629,7 +629,7 @@ function parseArguments(argv: string[]): { cwd: string; json: boolean; help: boo
 	return { cwd, json, help };
 }
 
-function printHumanReport(report: Phase5BaselineReport): string {
+function printHumanReport(report: ContextBaselineReport): string {
 	const lines = [
 		`${report.phase}: ${report.title}`,
 		`Fixture mode: ${report.environment.resourceLoading}; production policy changed: ${report.environment.productionPolicyChanged}`,
@@ -644,9 +644,9 @@ function printHumanReport(report: Phase5BaselineReport): string {
 
 function printHelp(): string {
 	return [
-		"Usage: npm run baseline:phase5 -- [--json] [--cwd PATH]",
+		"Usage: npm run baseline:context -- [--json] [--cwd PATH]",
 		"",
-		"Runs the offline, deterministic Phase 5.0 context-integrity fixtures.",
+		"Runs the offline, deterministic Context context-integrity fixtures.",
 	].join("\n");
 }
 
@@ -661,7 +661,7 @@ if (isMainModule()) {
 		if (argumentsValue.help) {
 			process.stdout.write(`${printHelp()}\n`);
 		} else {
-			const report = collectPhase5Baseline({ cwd: argumentsValue.cwd });
+			const report = collectContextBaseline({ cwd: argumentsValue.cwd });
 			process.stdout.write(argumentsValue.json ? `${JSON.stringify(report, null, 2)}\n` : printHumanReport(report));
 		}
 	} catch (error) {

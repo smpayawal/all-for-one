@@ -19,7 +19,6 @@ import { time } from "./timings.ts";
 import {
 	createApplyPatchTool,
 	createBashTool,
-	createChangesTool,
 	createCodingTools,
 	createEditTool,
 	createFindTool,
@@ -28,7 +27,7 @@ import {
 	createReadOnlyTools,
 	createReadTool,
 	createWriteTool,
-	type ToolName,
+	DEFAULT_ACTIVE_TOOL_NAMES,
 	withFileMutationQueue,
 } from "./tools/index.ts";
 
@@ -52,14 +51,14 @@ export interface CreateAgentSessionOptions {
 	 * Optional default tool suppression mode when no explicit allowlist is provided.
 	 *
 	 * - "all": start with no tools enabled
-	 * - "builtin": disable the default built-in tools (read, bash, edit, write, apply_patch, changes)
+	 * - "builtin": disable the default built-in tools (read, bash, edit, write, apply_patch)
 	 *   but keep extension/custom tools enabled
 	 */
 	noTools?: "all" | "builtin";
 	/**
 	 * Optional allowlist of tool names.
 	 *
-	 * When omitted, pi enables the default built-in tools (read, bash, edit, write, apply_patch, changes)
+	 * When omitted, pi enables the default built-in tools (read, bash, edit, write, apply_patch)
 	 * and leaves extension/custom tools enabled unless `noTools` changes that default.
 	 * When provided, only the listed tool names are enabled.
 	 */
@@ -116,7 +115,6 @@ export {
 	createApplyPatchTool,
 	createReadTool,
 	createBashTool,
-	createChangesTool,
 	createEditTool,
 	createWriteTool,
 	createGrepTool,
@@ -241,7 +239,7 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		thinkingLevel = clampThinkingLevel(model, thinkingLevel) as ThinkingLevel;
 	}
 
-	const defaultActiveToolNames: ToolName[] = ["read", "bash", "edit", "write", "apply_patch", "changes"];
+	const defaultActiveToolNames = [...DEFAULT_ACTIVE_TOOL_NAMES];
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;
 	const excludedToolNameSet = excludedToolNames ? new Set(excludedToolNames) : undefined;

@@ -172,6 +172,20 @@ describe("execution integrity", () => {
 		expect(agent.lastRunDiagnostics?.listenerErrors).toEqual([normalized]);
 	});
 
+	it("normalizes provider failure text before terminal state and diagnostics", async () => {
+		const failureText =
+			"provider failed\nAuthorization: Bearer bearer-test-value\napi_key=api-test-value\nOPENAI_API_KEY=sk-test-value";
+		const failure = { ...assistant([{ type: "text", text: "" }], "error"), errorMessage: failureText };
+		const agent = new Agent({ initialState: { model: model() }, streamFn: () => stream(failure) });
+
+		await agent.prompt("hello");
+
+		const normalized = normalizeRuntimeError(failureText);
+		expect(agent.state.messages.at(-1)).toMatchObject({ errorMessage: normalized });
+		expect(agent.state.errorMessage).toBe(normalized);
+		expect(agent.lastRunDiagnostics?.termination).toEqual({ reason: "error", message: normalized });
+	});
+
 	it("settles a low-level stream when context conversion rejects", async () => {
 		const events: AgentEvent[] = [];
 		const result = agentLoop([{ role: "user", content: "hello", timestamp: Date.now() }], context(), {

@@ -128,10 +128,12 @@ function inferTermination(messages: AgentMessage[]): AgentRunTermination {
 		const message = messages[index];
 		if (message.role !== "assistant") continue;
 		if (message.stopReason === "aborted") {
-			return message.errorMessage ? { reason: "aborted", message: message.errorMessage } : { reason: "aborted" };
+			const errorMessage = message.errorMessage ? normalizeRuntimeError(message.errorMessage) : undefined;
+			return errorMessage ? { reason: "aborted", message: errorMessage } : { reason: "aborted" };
 		}
 		if (message.stopReason === "error") {
-			return message.errorMessage ? { reason: "error", message: message.errorMessage } : { reason: "error" };
+			const errorMessage = message.errorMessage ? normalizeRuntimeError(message.errorMessage) : undefined;
+			return errorMessage ? { reason: "error", message: errorMessage } : { reason: "error" };
 		}
 		break;
 	}

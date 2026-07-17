@@ -350,9 +350,9 @@ describe("parseArgs", () => {
 			expect(result.noBuiltinTools).toBe(true);
 		});
 
-		test("parses --tools flag", () => {
-			const result = parseArgs(["--tools", "read,apply_patch,changes"]);
-			expect(result.tools).toEqual(["read", "apply_patch", "changes"]);
+		test("parses arbitrary --tools names for extension resolution", () => {
+			const result = parseArgs(["--tools", "read,apply_patch,custom_tool"]);
+			expect(result.tools).toEqual(["read", "apply_patch", "custom_tool"]);
 		});
 
 		test("parses -t shorthand", () => {
@@ -360,9 +360,9 @@ describe("parseArgs", () => {
 			expect(result.tools).toEqual(["read", "bash"]);
 		});
 
-		test("parses --exclude-tools flag", () => {
-			const result = parseArgs(["--exclude-tools", "apply_patch,changes"]);
-			expect(result.excludeTools).toEqual(["apply_patch", "changes"]);
+		test("parses arbitrary --exclude-tools names for extension resolution", () => {
+			const result = parseArgs(["--exclude-tools", "apply_patch,custom_tool"]);
+			expect(result.excludeTools).toEqual(["apply_patch", "custom_tool"]);
 		});
 
 		test("parses -xt shorthand", () => {

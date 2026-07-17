@@ -2,6 +2,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { buildSessionContext, type CompactionEntry, type SessionEntry } from "../session-manager.ts";
 import { resolveEvidenceReferences } from "./evidence.ts";
 import { type EvidenceReference, normalizeEvidenceReferences } from "./retention.ts";
+import type { CompactionTelemetrySnapshot } from "./telemetry.ts";
 
 export interface CompactionHealthLatest {
 	timestamp: string;
@@ -20,6 +21,7 @@ export interface CompactionHealthLatest {
 export interface CompactionHealth {
 	count: number;
 	latest?: CompactionHealthLatest;
+	telemetry: CompactionTelemetrySnapshot;
 }
 
 function detailArrayLength(details: unknown, key: string): number {
@@ -44,10 +46,22 @@ export function collectCompactionHealth(
 	entries: SessionEntry[],
 	estimateContextTokens: (messages: AgentMessage[]) => number,
 	cwd?: string,
+	telemetry: CompactionTelemetrySnapshot = {
+		compactionCount: 0,
+		structuralValidationFailureCount: 0,
+		repairAttemptCount: 0,
+		repairSuccessCount: 0,
+		repairFailureCount: 0,
+		totalDurationMs: 0,
+		lastDurationMs: 0,
+		estimatedTokensBefore: 0,
+		estimatedTokensAfter: 0,
+		limitations: [],
+	},
 ): CompactionHealth {
 	const compactions = entries.filter((entry): entry is CompactionEntry => entry.type === "compaction");
 	const latest = compactions[compactions.length - 1];
-	if (!latest) return { count: 0 };
+	if (!latest) return { count: 0, telemetry };
 
 	const tokensAfter = estimateContextTokens(buildSessionContext(entries, latest.id).messages);
 	const reductionPercent =
@@ -60,6 +74,7 @@ export function collectCompactionHealth(
 
 	return {
 		count: compactions.length,
+		telemetry,
 		latest: {
 			timestamp: latest.timestamp,
 			tokensBefore: latest.tokensBefore,

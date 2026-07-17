@@ -39,7 +39,7 @@ describe("regression #5109: exclude tools", () => {
 
 	it("filters built-in and extension tools from available and active tools", async () => {
 		const harness = await createHarness({
-			excludedToolNames: ["read", "ask_question"],
+			excludedToolNames: ["read", "ask_question", "changes"],
 			extensionFactories,
 		});
 		try {
@@ -53,7 +53,6 @@ describe("regression #5109: exclude tools", () => {
 			expect(harness.session.getActiveToolNames().sort()).toEqual([
 				"apply_patch",
 				"bash",
-				"changes",
 				"dynamic_tool",
 				"edit",
 				"write",

@@ -13,28 +13,39 @@ import {
 	formatSkillsForPromptWithDiagnostics,
 	loadSkills,
 } from "../packages/coding-agent/src/core/skills.ts";
-import { createAllToolDefinitions, createCodingToolDefinitions } from "../packages/coding-agent/src/core/tools/index.ts";
-import { createSyntheticSkillCollection, measureSkillCollection } from "./phase4-baseline.ts";
+import { buildSystemPrompt } from "../packages/coding-agent/src/core/system-prompt.ts";
+import {
+	createAllToolDefinitions,
+	createCodingToolDefinitions,
+	DEFAULT_ACTIVE_TOOL_NAMES,
+} from "../packages/coding-agent/src/core/tools/index.ts";
+import {
+	getProjectValidationPromptGuideline,
+	MAX_VALIDATION_PROMPT_CHARS,
+	MAX_VALIDATION_PROMPT_COMMANDS,
+	type ValidationCommandDiscovery,
+} from "../packages/coding-agent/src/core/validation-commands.ts";
+import { createSyntheticSkillCollection, measureSkillCollection } from "./allforone-baseline.ts";
 
-export interface Phase4DoctorCheck {
+export interface AllForOneDoctorCheck {
 	name: string;
 	status: "pass" | "warn" | "fail";
 	message: string;
 }
 
-export interface Phase4DoctorReport {
+export interface AllForOneDoctorReport {
 	schemaVersion: 1;
 	environment: { cwd: string; agentDir: string; mode: "offline-read-only" };
-	checks: Phase4DoctorCheck[];
+	checks: AllForOneDoctorCheck[];
 	passed: boolean;
 }
 
-export interface Phase4DoctorOptions {
+export interface AllForOneDoctorOptions {
 	cwd: string;
 	agentDir: string;
 }
 
-function check(name: string, fn: () => string | undefined): Phase4DoctorCheck {
+function check(name: string, fn: () => string | undefined): AllForOneDoctorCheck {
 	try {
 		const warning = fn();
 		return warning ? { name, status: "warn", message: warning } : { name, status: "pass", message: "ok" };
@@ -59,10 +70,10 @@ async function withOfflineResourceLoader<T>(loader: DefaultResourceLoader, fn: (
 	}
 }
 
-export async function runPhase4Doctor(options: Phase4DoctorOptions): Promise<Phase4DoctorReport> {
+export async function runAllForOneDoctor(options: AllForOneDoctorOptions): Promise<AllForOneDoctorReport> {
 	const cwd = resolve(options.cwd);
 	const agentDir = resolve(options.agentDir);
-	const checks: Phase4DoctorCheck[] = [];
+	const checks: AllForOneDoctorCheck[] = [];
 
 	checks.push(
 		check("tool registry integrity", () => {
@@ -80,13 +91,73 @@ export async function runPhase4Doctor(options: Phase4DoctorOptions): Promise<Pha
 		check("default capability exposure", () => {
 			const allNames = Object.keys(createAllToolDefinitions(cwd)).sort((left, right) => left.localeCompare(right));
 			const activeNames = createCodingToolDefinitions(cwd).map((tool) => tool.name);
-			const expectedActiveNames = ["read", "bash", "edit", "write", "apply_patch", "changes"];
+			const expectedActiveNames = [...DEFAULT_ACTIVE_TOOL_NAMES];
 			const optionalNames = ["grep", "find", "ls"];
 			if (JSON.stringify(activeNames) !== JSON.stringify(expectedActiveNames)) {
 				throw new Error(`default active tools changed: ${activeNames.join(", ")}`);
 			}
 			if (optionalNames.some((name) => !allNames.includes(name) || activeNames.includes(name))) {
 				throw new Error("optional read-only tools are not represented as inactive capabilities");
+			}
+			return undefined;
+		}),
+	);
+
+	checks.push(
+		check("prompt and schema structural fixtures", () => {
+			const activeTools = createCodingToolDefinitions(cwd);
+			const activeNames = activeTools.map((tool) => tool.name);
+			const schemaText = JSON.stringify(
+				activeTools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters })),
+			);
+			if (schemaText.length === 0 || schemaText.length > 50_000) {
+				throw new Error(`active tool schema is outside the 1..50000 character fixture bound: ${schemaText.length}`);
+			}
+			if (activeTools.some((tool) => tool.description.trim().length === 0 || tool.parameters === undefined)) {
+				throw new Error("default tool metadata or schema is incomplete");
+			}
+			if (formatSkillsForPromptWithDiagnostics([]).prompt !== "") {
+				throw new Error("empty skill set produced model-visible metadata");
+			}
+			const toolSnippets = Object.fromEntries(
+				activeTools
+					.filter((tool) => tool.promptSnippet !== undefined)
+					.map((tool) => [tool.name, tool.promptSnippet as string]),
+			);
+			const defaultPrompt = buildSystemPrompt({ cwd, selectedTools: activeNames, toolSnippets, skills: [] });
+			if (!defaultPrompt.includes("Available tools:") || !defaultPrompt.includes("Current working directory:")) {
+				throw new Error("default system prompt fixture is incomplete");
+			}
+			const customPrompt = buildSystemPrompt({ cwd, customPrompt: "custom fixture", selectedTools: [], skills: [] });
+			if (!customPrompt.startsWith("custom fixture") || !customPrompt.includes("Current working directory:")) {
+				throw new Error("custom system prompt fixture is incomplete");
+			}
+			const noToolsPrompt = buildSystemPrompt({ cwd, selectedTools: [], toolSnippets: {}, skills: [] });
+			if (!noToolsPrompt.includes("Available tools:\n(none)")) {
+				throw new Error("no-tools system prompt fixture is incomplete");
+			}
+			const discovery = {
+				ecosystems: ["node"],
+				packageManager: "npm" as const,
+				commands: [
+					{
+						kind: "check" as const,
+						command: "npm run check",
+						confidence: "verified" as const,
+						source: "package.json#scripts.check",
+					},
+				],
+			} satisfies ValidationCommandDiscovery;
+			if (getProjectValidationPromptGuideline(cwd, ["bash"], "off", discovery) !== undefined) {
+				throw new Error("off-mode validation guidance was exposed");
+			}
+			const observed = getProjectValidationPromptGuideline(cwd, ["bash"], "observe", discovery);
+			if (!observed || observed.length > MAX_VALIDATION_PROMPT_CHARS || !observed.includes("npm run check")) {
+				throw new Error("observe-mode validation guidance is not bounded and grounded");
+			}
+			const enforced = getProjectValidationPromptGuideline(cwd, ["bash"], "enforce", discovery);
+			if (!enforced?.includes(`up to ${MAX_VALIDATION_PROMPT_COMMANDS} grounded entries`)) {
+				throw new Error("enforce-mode validation guidance is missing its bound");
 			}
 			return undefined;
 		}),
@@ -125,7 +196,7 @@ export async function runPhase4Doctor(options: Phase4DoctorOptions): Promise<Pha
 
 	checks.push(
 		check("skill metadata diagnostics", () => {
-			const checkDir = mkdtempSync(`${tmpdir()}/pi-phase4-skills-`);
+			const checkDir = mkdtempSync(`${tmpdir()}/pi-allforone-skills-`);
 			try {
 				const checkAgentDir = resolve(checkDir, "agent");
 				const malformedDir = resolve(checkDir, "malformed");
@@ -164,9 +235,9 @@ export async function runPhase4Doctor(options: Phase4DoctorOptions): Promise<Pha
 		check("baseline comparison", () => {
 			const baseline = measureSkillCollection(createSyntheticSkillCollection(500), [8_192]);
 			const bounded = formatSkillsForPromptWithDiagnostics(createSyntheticSkillCollection(500), { maxChars: 8_000 });
-			if (baseline.budgetApplied) throw new Error("P4.0 baseline unexpectedly applied a budget");
+			if (baseline.budgetApplied) throw new Error("All-For-One baseline baseline unexpectedly applied a budget");
 			if (bounded.prompt.length >= baseline.metadataChars) {
-				throw new Error("Phase 4 budget did not reduce large-skill metadata relative to P4.0");
+				throw new Error("All-For-One budget did not reduce large-skill metadata relative to All-For-One baseline");
 			}
 			if (bounded.diagnostics.omittedCount === 0) throw new Error("comparison did not report omitted skills");
 			return undefined;
@@ -219,7 +290,7 @@ export async function runPhase4Doctor(options: Phase4DoctorOptions): Promise<Pha
 		}),
 	);
 
-	const scopeDir = await mkdtemp(`${tmpdir()}/pi-phase4-doctor-`);
+	const scopeDir = await mkdtemp(`${tmpdir()}/pi-allforone-doctor-`);
 	try {
 		const projectDir = resolve(scopeDir, "project");
 		const scopedAgentDir = resolve(scopeDir, "agent");
@@ -269,7 +340,7 @@ export async function runPhase4Doctor(options: Phase4DoctorOptions): Promise<Pha
 	};
 }
 
-function parseOptions(argv: readonly string[]): { options: Phase4DoctorOptions; json: boolean; help: boolean } {
+function parseOptions(argv: readonly string[]): { options: AllForOneDoctorOptions; json: boolean; help: boolean } {
 	let cwd = process.cwd();
 	let agentDir = getAgentDir();
 	let json = false;
@@ -286,17 +357,17 @@ function parseOptions(argv: readonly string[]): { options: Phase4DoctorOptions; 
 	return { options: { cwd, agentDir }, json, help };
 }
 
-export async function runPhase4DoctorCli(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
+export async function runAllForOneDoctorCli(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
 	const { options, json, help } = parseOptions(argv);
 	if (help) {
-		process.stdout.write("Usage: npm run doctor:phase4 -- [--cwd <path>] [--agent-dir <path>] [--json]\n");
+		process.stdout.write("Usage: npm run doctor:allforone -- [--cwd <path>] [--agent-dir <path>] [--json]\n");
 		return;
 	}
-	const report = await runPhase4Doctor(options);
+	const report = await runAllForOneDoctor(options);
 	if (json) {
 		process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 	} else {
-		process.stdout.write(`Phase 4 doctor (${report.passed ? "passed" : "failed"})\n`);
+		process.stdout.write(`All-For-One doctor (${report.passed ? "passed" : "failed"})\n`);
 		for (const item of report.checks) process.stdout.write(`  [${item.status}] ${item.name}: ${item.message}\n`);
 	}
 	if (!report.passed) process.exitCode = 1;
@@ -304,8 +375,8 @@ export async function runPhase4DoctorCli(argv: readonly string[] = process.argv.
 
 const isMainModule = process.argv[1] !== undefined && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 if (isMainModule) {
-	runPhase4DoctorCli().catch((error: unknown) => {
-		console.error(`phase4-doctor: ${error instanceof Error ? error.message : String(error)}`);
+	runAllForOneDoctorCli().catch((error: unknown) => {
+		console.error(`allforone-doctor: ${error instanceof Error ? error.message : String(error)}`);
 		process.exitCode = 1;
 	});
 }

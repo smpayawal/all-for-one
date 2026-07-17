@@ -12,7 +12,7 @@ describe("evidence reference resolution", () => {
 	let root: string;
 
 	beforeEach(() => {
-		root = mkdtempSync(join(tmpdir(), "pi-phase5-evidence-"));
+		root = mkdtempSync(join(tmpdir(), "pi-context-evidence-"));
 		mkdirSync(join(root, "output"));
 	});
 

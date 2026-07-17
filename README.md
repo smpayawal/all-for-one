@@ -58,6 +58,10 @@ npm run check        # Lint, format, and type check
 ./pi-test.sh         # Run pi from sources (can be run from any directory)
 ```
 
+## All-For-One hardening
+
+The `allforone` branch keeps the default active tools to `read`, `bash`, `edit`, `write`, and `apply_patch`. Generic structural baselines, context/execution diagnostics, upstream checks, and validation notes are collected in [docs/all-for-one](docs/all-for-one). Enforcement features remain opt-in and the live evaluation gate remains explicit.
+
 ## Supply-chain hardening
 
 We treat npm dependency changes as reviewed code changes.

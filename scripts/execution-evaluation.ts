@@ -2,25 +2,25 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const PHASE6_EVALUATION_SCHEMA_VERSION = 1 as const;
-export const PHASE6_EVALUATION_PHASE = "P6-live-evaluation" as const;
-const MAX_PHASE6_EVALUATION_RUNS = 256;
-const MAX_PHASE6_EVALUATION_LIMITATIONS = 32;
+export const EXECUTION_EVALUATION_SCHEMA_VERSION = 1 as const;
+export const EXECUTION_EVALUATION_PHASE = "execution-live-evaluation" as const;
+const MAX_EXECUTION_EVALUATION_RUNS = 256;
+const MAX_EXECUTION_EVALUATION_LIMITATIONS = 32;
 
-export type Phase6EvaluationVariant = "baseline" | "phase6";
-export type Phase6EvaluationOutcome = "pass" | "fail" | "unknown";
-export type Phase6EvaluationDecision = "pass" | "blocked" | "inconclusive";
-export interface Phase6ExecutionIntegrityTreatment {
+export type ExecutionEvaluationVariant = "baseline" | "execution";
+export type ExecutionEvaluationOutcome = "pass" | "fail" | "unknown";
+export type ExecutionEvaluationDecision = "pass" | "blocked" | "inconclusive";
+export interface ExecutionExecutionIntegrityTreatment {
 	mode: "off" | "enforce";
 	maxContinuationAttempts?: number;
 }
 
-export interface Phase6TreatmentConfig {
-	executionIntegrity: Phase6ExecutionIntegrityTreatment;
+export interface ExecutionTreatmentConfig {
+	executionIntegrity: ExecutionExecutionIntegrityTreatment;
 }
 
-export interface Phase6EvaluationMetrics {
-	outcome: Phase6EvaluationOutcome;
+export interface ExecutionEvaluationMetrics {
+	outcome: ExecutionEvaluationOutcome;
 	prematureCompletionCount: number | null;
 	unsupportedSuccessClaimCount: number | null;
 	userCorrectionTurns: number | null;
@@ -40,7 +40,7 @@ export interface Phase6EvaluationMetrics {
 	cacheWriteTokens: number;
 }
 
-export interface Phase6EvaluationRun {
+export interface ExecutionEvaluationRun {
 	workloadId: string;
 	trialId: string;
 	providerModel: string;
@@ -48,20 +48,20 @@ export interface Phase6EvaluationRun {
 	taskInputHash: string;
 	initialContextHash: string;
 	controlledConfigHash: string;
-	treatmentConfig: Phase6TreatmentConfig;
-	metrics: Phase6EvaluationMetrics;
+	treatmentConfig: ExecutionTreatmentConfig;
+	metrics: ExecutionEvaluationMetrics;
 	limitations?: string[];
-	variant: Phase6EvaluationVariant;
+	variant: ExecutionEvaluationVariant;
 }
 
-export interface Phase6EvaluationInput {
-	schemaVersion: typeof PHASE6_EVALUATION_SCHEMA_VERSION;
-	phase: typeof PHASE6_EVALUATION_PHASE;
-	variant: Phase6EvaluationVariant;
-	runs: Phase6EvaluationRun[];
+export interface ExecutionEvaluationInput {
+	schemaVersion: typeof EXECUTION_EVALUATION_SCHEMA_VERSION;
+	phase: typeof EXECUTION_EVALUATION_PHASE;
+	variant: ExecutionEvaluationVariant;
+	runs: ExecutionEvaluationRun[];
 }
 
-export interface Phase6EvaluationDeltas {
+export interface ExecutionEvaluationDeltas {
 	prematureCompletionCount: number | null;
 	unsupportedSuccessClaimCount: number | null;
 	userCorrectionTurns: number | null;
@@ -81,27 +81,27 @@ export interface Phase6EvaluationDeltas {
 	cacheWriteTokens: number;
 }
 
-export interface Phase6EvaluationPair {
+export interface ExecutionEvaluationPair {
 	workloadId: string;
 	trialId: string;
-	baseline: Phase6EvaluationRun;
-	phase6: Phase6EvaluationRun;
+	baseline: ExecutionEvaluationRun;
+	execution: ExecutionEvaluationRun;
 	correctnessRegression: boolean;
 	prematureCompletionRegression: boolean;
 	unsupportedSuccessClaimRegression: boolean;
 	falseCompletionBlockCount: number;
-	status: Phase6EvaluationDecision;
-	deltas: Phase6EvaluationDeltas;
+	status: ExecutionEvaluationDecision;
+	deltas: ExecutionEvaluationDeltas;
 	limitations: string[];
 }
 
-export interface Phase6EvaluationReport {
-	schemaVersion: typeof PHASE6_EVALUATION_SCHEMA_VERSION;
-	phase: typeof PHASE6_EVALUATION_PHASE;
+export interface ExecutionEvaluationReport {
+	schemaVersion: typeof EXECUTION_EVALUATION_SCHEMA_VERSION;
+	phase: typeof EXECUTION_EVALUATION_PHASE;
 	baselineVariant: "baseline";
-	phase6Variant: "phase6";
-	pairs: Phase6EvaluationPair[];
-	decision: Phase6EvaluationDecision;
+	executionVariant: "execution";
+	pairs: ExecutionEvaluationPair[];
+	decision: ExecutionEvaluationDecision;
 	efficiencyClaim: "not-established";
 	limitations: string[];
 }
@@ -173,15 +173,15 @@ function parseLimitations(value: RecordValue, path: string): string[] | undefine
 	if (field === undefined) return undefined;
 	if (
 		!Array.isArray(field) ||
-		field.length > MAX_PHASE6_EVALUATION_LIMITATIONS ||
+		field.length > MAX_EXECUTION_EVALUATION_LIMITATIONS ||
 		field.some((item) => typeof item !== "string" || item.trim().length === 0)
 	) {
-		throw new Error(`${path}.limitations must contain at most ${MAX_PHASE6_EVALUATION_LIMITATIONS} non-empty strings`);
+		throw new Error(`${path}.limitations must contain at most ${MAX_EXECUTION_EVALUATION_LIMITATIONS} non-empty strings`);
 	}
 	return [...field] as string[];
 }
 
-function parseTreatmentConfig(value: RecordValue, path: string): Phase6TreatmentConfig {
+function parseTreatmentConfig(value: RecordValue, path: string): ExecutionTreatmentConfig {
 	const field = value.treatmentConfig;
 	if (field === undefined) throw new Error(`${path}.treatmentConfig is required`);
 	if (!isRecord(field)) throw new Error(`${path}.treatmentConfig must be an object`);
@@ -218,7 +218,7 @@ function parseTreatmentConfig(value: RecordValue, path: string): Phase6Treatment
 	};
 }
 
-function parseMetrics(value: unknown, path: string): Phase6EvaluationMetrics {
+function parseMetrics(value: unknown, path: string): ExecutionEvaluationMetrics {
 	if (!isRecord(value)) throw new Error(`${path} must be an object`);
 	const outcome = value.outcome;
 	if (outcome !== "pass" && outcome !== "fail" && outcome !== "unknown") {
@@ -244,13 +244,13 @@ function parseMetrics(value: unknown, path: string): Phase6EvaluationMetrics {
 		cumulativeTokens: 0,
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
-	} satisfies Phase6EvaluationMetrics;
+	} satisfies ExecutionEvaluationMetrics;
 
 	for (const key of COUNT_KEYS) metrics[key] = requiredNonNegativeInteger(value, key, path);
 	return metrics;
 }
 
-function parseRun(value: unknown, index: number, expectedVariant: Phase6EvaluationVariant): Phase6EvaluationRun {
+function parseRun(value: unknown, index: number, expectedVariant: ExecutionEvaluationVariant): ExecutionEvaluationRun {
 	const path = `runs[${index}]`;
 	if (!isRecord(value)) throw new Error(`${path} must be an object`);
 	const variant = value.variant;
@@ -272,18 +272,18 @@ function parseRun(value: unknown, index: number, expectedVariant: Phase6Evaluati
 	};
 }
 
-export function parsePhase6EvaluationInput(value: unknown): Phase6EvaluationInput {
-	if (!isRecord(value)) throw new Error("Phase 6 evaluation input must be an object");
-	if (value.schemaVersion !== PHASE6_EVALUATION_SCHEMA_VERSION) {
-		throw new Error(`schemaVersion must be ${PHASE6_EVALUATION_SCHEMA_VERSION}`);
+export function parseExecutionEvaluationInput(value: unknown): ExecutionEvaluationInput {
+	if (!isRecord(value)) throw new Error("Execution evaluation input must be an object");
+	if (value.schemaVersion !== EXECUTION_EVALUATION_SCHEMA_VERSION) {
+		throw new Error(`schemaVersion must be ${EXECUTION_EVALUATION_SCHEMA_VERSION}`);
 	}
-	if (value.phase !== PHASE6_EVALUATION_PHASE) throw new Error(`phase must be ${PHASE6_EVALUATION_PHASE}`);
+	if (value.phase !== EXECUTION_EVALUATION_PHASE) throw new Error(`phase must be ${EXECUTION_EVALUATION_PHASE}`);
 	const variant = value.variant;
-	if (variant !== "baseline" && variant !== "phase6") {
-		throw new Error("variant must be baseline or phase6");
+	if (variant !== "baseline" && variant !== "execution") {
+		throw new Error("variant must be baseline or execution");
 	}
-	if (!Array.isArray(value.runs) || value.runs.length === 0 || value.runs.length > MAX_PHASE6_EVALUATION_RUNS) {
-		throw new Error(`runs must contain between 1 and ${MAX_PHASE6_EVALUATION_RUNS} entries`);
+	if (!Array.isArray(value.runs) || value.runs.length === 0 || value.runs.length > MAX_EXECUTION_EVALUATION_RUNS) {
+		throw new Error(`runs must contain between 1 and ${MAX_EXECUTION_EVALUATION_RUNS} entries`);
 	}
 	const runs = value.runs.map((run, index) => parseRun(run, index, variant));
 	const workloadTrials = new Set<string>();
@@ -294,26 +294,26 @@ export function parsePhase6EvaluationInput(value: unknown): Phase6EvaluationInpu
 		workloadTrials.add(key);
 	}
 	return {
-		schemaVersion: PHASE6_EVALUATION_SCHEMA_VERSION,
-		phase: PHASE6_EVALUATION_PHASE,
+		schemaVersion: EXECUTION_EVALUATION_SCHEMA_VERSION,
+		phase: EXECUTION_EVALUATION_PHASE,
 		variant,
 		runs,
 	};
 }
 
-function evaluationPairKey(run: Pick<Phase6EvaluationRun, "workloadId" | "trialId">): string {
+function evaluationPairKey(run: Pick<ExecutionEvaluationRun, "workloadId" | "trialId">): string {
 	return `${run.workloadId}\u0000${run.trialId}`;
 }
 
-function assertTreatmentMode(run: Phase6EvaluationRun, expectedVariant: Phase6EvaluationVariant): void {
+function assertTreatmentMode(run: ExecutionEvaluationRun, expectedVariant: ExecutionEvaluationVariant): void {
 	const expectedMode = expectedVariant === "baseline" ? "off" : "enforce";
 	if (run.treatmentConfig?.executionIntegrity?.mode !== expectedMode) {
 		throw new Error(`${expectedVariant} treatment must set executionIntegrity.mode to ${expectedMode}`);
 	}
 }
 
-function indexRuns(runs: readonly Phase6EvaluationRun[], variant: Phase6EvaluationVariant): Map<string, Phase6EvaluationRun> {
-	const indexed = new Map<string, Phase6EvaluationRun>();
+function indexRuns(runs: readonly ExecutionEvaluationRun[], variant: ExecutionEvaluationVariant): Map<string, ExecutionEvaluationRun> {
+	const indexed = new Map<string, ExecutionEvaluationRun>();
 	for (const [index, run] of runs.entries()) {
 		if (run.variant !== variant) throw new Error(`run ${index} variant must be ${variant}`);
 		assertTreatmentMode(run, variant);
@@ -324,67 +324,67 @@ function indexRuns(runs: readonly Phase6EvaluationRun[], variant: Phase6Evaluati
 	return indexed;
 }
 
-function requireSamePairContext(baseline: Phase6EvaluationRun, phase6: Phase6EvaluationRun): void {
+function requireSamePairContext(baseline: ExecutionEvaluationRun, execution: ExecutionEvaluationRun): void {
 	const sharedFields = [
-		["provider/model", baseline.providerModel, phase6.providerModel],
-		["contextWindow", baseline.contextWindow, phase6.contextWindow],
-		["taskInputHash", baseline.taskInputHash, phase6.taskInputHash],
-		["initialContextHash", baseline.initialContextHash, phase6.initialContextHash],
-		["controlledConfigHash", baseline.controlledConfigHash, phase6.controlledConfigHash],
+		["provider/model", baseline.providerModel, execution.providerModel],
+		["contextWindow", baseline.contextWindow, execution.contextWindow],
+		["taskInputHash", baseline.taskInputHash, execution.taskInputHash],
+		["initialContextHash", baseline.initialContextHash, execution.initialContextHash],
+		["controlledConfigHash", baseline.controlledConfigHash, execution.controlledConfigHash],
 	] as const;
-	for (const [name, baselineValue, phase6Value] of sharedFields) {
-		if (baselineValue !== phase6Value) {
-			throw new Error(`${name} differs between baseline and phase6 for ${baseline.workloadId}/${baseline.trialId}`);
+	for (const [name, baselineValue, executionValue] of sharedFields) {
+		if (baselineValue !== executionValue) {
+			throw new Error(`${name} differs between baseline and execution for ${baseline.workloadId}/${baseline.trialId}`);
 		}
 	}
 }
 
-function metricDelta(phase6: number | null, baseline: number | null): number | null {
-	return phase6 === null || baseline === null ? null : phase6 - baseline;
+function metricDelta(execution: number | null, baseline: number | null): number | null {
+	return execution === null || baseline === null ? null : execution - baseline;
 }
 
-function calculateDeltas(baseline: Phase6EvaluationMetrics, phase6: Phase6EvaluationMetrics): Phase6EvaluationDeltas {
+function calculateDeltas(baseline: ExecutionEvaluationMetrics, execution: ExecutionEvaluationMetrics): ExecutionEvaluationDeltas {
 	return {
-		prematureCompletionCount: metricDelta(phase6.prematureCompletionCount, baseline.prematureCompletionCount),
+		prematureCompletionCount: metricDelta(execution.prematureCompletionCount, baseline.prematureCompletionCount),
 		unsupportedSuccessClaimCount: metricDelta(
-			phase6.unsupportedSuccessClaimCount,
+			execution.unsupportedSuccessClaimCount,
 			baseline.unsupportedSuccessClaimCount,
 		),
-		userCorrectionTurns: metricDelta(phase6.userCorrectionTurns, baseline.userCorrectionTurns),
-		relevantValidationCount: phase6.relevantValidationCount - baseline.relevantValidationCount,
-		unnecessaryValidationCount: phase6.unnecessaryValidationCount - baseline.unnecessaryValidationCount,
-		staleValidationCount: phase6.staleValidationCount - baseline.staleValidationCount,
-		failedValidationCount: phase6.failedValidationCount - baseline.failedValidationCount,
-		completionContinuationCount: phase6.completionContinuationCount - baseline.completionContinuationCount,
-		falseCompletionBlockCount: phase6.falseCompletionBlockCount - baseline.falseCompletionBlockCount,
-		turns: phase6.turns - baseline.turns,
-		toolCalls: phase6.toolCalls - baseline.toolCalls,
-		peakPromptTokens: phase6.peakPromptTokens - baseline.peakPromptTokens,
-		cumulativeTokens: phase6.cumulativeTokens - baseline.cumulativeTokens,
-		wallClockSessionSpanMs: metricDelta(phase6.wallClockSessionSpanMs, baseline.wallClockSessionSpanMs),
-		estimatedCost: metricDelta(phase6.estimatedCost, baseline.estimatedCost),
-		cacheReadTokens: phase6.cacheReadTokens - baseline.cacheReadTokens,
-		cacheWriteTokens: phase6.cacheWriteTokens - baseline.cacheWriteTokens,
+		userCorrectionTurns: metricDelta(execution.userCorrectionTurns, baseline.userCorrectionTurns),
+		relevantValidationCount: execution.relevantValidationCount - baseline.relevantValidationCount,
+		unnecessaryValidationCount: execution.unnecessaryValidationCount - baseline.unnecessaryValidationCount,
+		staleValidationCount: execution.staleValidationCount - baseline.staleValidationCount,
+		failedValidationCount: execution.failedValidationCount - baseline.failedValidationCount,
+		completionContinuationCount: execution.completionContinuationCount - baseline.completionContinuationCount,
+		falseCompletionBlockCount: execution.falseCompletionBlockCount - baseline.falseCompletionBlockCount,
+		turns: execution.turns - baseline.turns,
+		toolCalls: execution.toolCalls - baseline.toolCalls,
+		peakPromptTokens: execution.peakPromptTokens - baseline.peakPromptTokens,
+		cumulativeTokens: execution.cumulativeTokens - baseline.cumulativeTokens,
+		wallClockSessionSpanMs: metricDelta(execution.wallClockSessionSpanMs, baseline.wallClockSessionSpanMs),
+		estimatedCost: metricDelta(execution.estimatedCost, baseline.estimatedCost),
+		cacheReadTokens: execution.cacheReadTokens - baseline.cacheReadTokens,
+		cacheWriteTokens: execution.cacheWriteTokens - baseline.cacheWriteTokens,
 	};
 }
 
-function createPair(baseline: Phase6EvaluationRun, phase6: Phase6EvaluationRun): Phase6EvaluationPair {
-	requireSamePairContext(baseline, phase6);
-	const correctnessRegression = baseline.metrics.outcome === "pass" && phase6.metrics.outcome === "fail";
+function createPair(baseline: ExecutionEvaluationRun, execution: ExecutionEvaluationRun): ExecutionEvaluationPair {
+	requireSamePairContext(baseline, execution);
+	const correctnessRegression = baseline.metrics.outcome === "pass" && execution.metrics.outcome === "fail";
 	const prematureCompletionRegression =
 		baseline.metrics.prematureCompletionCount !== null &&
-		phase6.metrics.prematureCompletionCount !== null &&
-		phase6.metrics.prematureCompletionCount > baseline.metrics.prematureCompletionCount;
+		execution.metrics.prematureCompletionCount !== null &&
+		execution.metrics.prematureCompletionCount > baseline.metrics.prematureCompletionCount;
 	const unsupportedSuccessClaimRegression =
 		baseline.metrics.unsupportedSuccessClaimCount !== null &&
-		phase6.metrics.unsupportedSuccessClaimCount !== null &&
-		phase6.metrics.unsupportedSuccessClaimCount > baseline.metrics.unsupportedSuccessClaimCount;
+		execution.metrics.unsupportedSuccessClaimCount !== null &&
+		execution.metrics.unsupportedSuccessClaimCount > baseline.metrics.unsupportedSuccessClaimCount;
 	const annotationMissing = ANNOTATED_COUNT_KEYS.some(
-		(key) => baseline.metrics[key] === null || phase6.metrics[key] === null,
+		(key) => baseline.metrics[key] === null || execution.metrics[key] === null,
 	);
-	const unknownCorrectness = baseline.metrics.outcome === "unknown" || phase6.metrics.outcome === "unknown";
+	const unknownCorrectness = baseline.metrics.outcome === "unknown" || execution.metrics.outcome === "unknown";
 	const blocked = correctnessRegression || prematureCompletionRegression || unsupportedSuccessClaimRegression;
-	const status: Phase6EvaluationDecision = blocked
+	const status: ExecutionEvaluationDecision = blocked
 		? "blocked"
 		: unknownCorrectness || annotationMissing
 			? "inconclusive"
@@ -395,57 +395,57 @@ function createPair(baseline: Phase6EvaluationRun, phase6: Phase6EvaluationRun):
 	];
 	if (unknownCorrectness) limitations.push("At least one run has unknown correctness; human or external annotation is required.");
 	if (annotationMissing) limitations.push("One or more quality annotations are missing; the pair is inconclusive for those metrics.");
-	if (phase6.metrics.falseCompletionBlockCount > 0) {
+	if (execution.metrics.falseCompletionBlockCount > 0) {
 		limitations.push("False completion blocks are reported for review and do not by themselves establish a quality improvement.");
 	}
-	limitations.push(...(baseline.limitations ?? []), ...(phase6.limitations ?? []));
+	limitations.push(...(baseline.limitations ?? []), ...(execution.limitations ?? []));
 
 	return {
 		workloadId: baseline.workloadId,
 		trialId: baseline.trialId,
 		baseline,
-		phase6,
+		execution,
 		correctnessRegression,
 		prematureCompletionRegression,
 		unsupportedSuccessClaimRegression,
-		falseCompletionBlockCount: phase6.metrics.falseCompletionBlockCount,
+		falseCompletionBlockCount: execution.metrics.falseCompletionBlockCount,
 		status,
-		deltas: calculateDeltas(baseline.metrics, phase6.metrics),
+		deltas: calculateDeltas(baseline.metrics, execution.metrics),
 		limitations: [...new Set(limitations)],
 	};
 }
 
 /** Compare recorded baseline and treatment runs without invoking a provider or modifying runtime policy. */
-export function comparePhase6EvaluationRuns(
-	baselineRuns: readonly Phase6EvaluationRun[],
-	phase6Runs: readonly Phase6EvaluationRun[],
-): Phase6EvaluationReport {
-	if (baselineRuns.length === 0 || phase6Runs.length === 0) throw new Error("baseline and phase6 runs must both be non-empty");
+export function compareExecutionEvaluationRuns(
+	baselineRuns: readonly ExecutionEvaluationRun[],
+	executionRuns: readonly ExecutionEvaluationRun[],
+): ExecutionEvaluationReport {
+	if (baselineRuns.length === 0 || executionRuns.length === 0) throw new Error("baseline and execution runs must both be non-empty");
 	const baselineByWorkload = indexRuns(baselineRuns, "baseline");
-	const phase6ByWorkload = indexRuns(phase6Runs, "phase6");
+	const executionByWorkload = indexRuns(executionRuns, "execution");
 	for (const [key, baseline] of baselineByWorkload) {
-		if (!phase6ByWorkload.has(key)) throw new Error(`missing phase6 run for ${baseline.workloadId}/${baseline.trialId}`);
+		if (!executionByWorkload.has(key)) throw new Error(`missing execution run for ${baseline.workloadId}/${baseline.trialId}`);
 	}
-	for (const [key, phase6] of phase6ByWorkload) {
-		if (!baselineByWorkload.has(key)) throw new Error(`missing baseline run for ${phase6.workloadId}/${phase6.trialId}`);
+	for (const [key, execution] of executionByWorkload) {
+		if (!baselineByWorkload.has(key)) throw new Error(`missing baseline run for ${execution.workloadId}/${execution.trialId}`);
 	}
 
 	const pairs = Array.from(baselineByWorkload.values()).map((baseline) => {
-		const phase6 = phase6ByWorkload.get(evaluationPairKey(baseline));
-		if (!phase6) throw new Error(`missing phase6 run for ${baseline.workloadId}/${baseline.trialId}`);
-		return createPair(baseline, phase6);
+		const execution = executionByWorkload.get(evaluationPairKey(baseline));
+		if (!execution) throw new Error(`missing execution run for ${baseline.workloadId}/${baseline.trialId}`);
+		return createPair(baseline, execution);
 	});
-	const decision: Phase6EvaluationDecision = pairs.some((pair) => pair.status === "blocked")
+	const decision: ExecutionEvaluationDecision = pairs.some((pair) => pair.status === "blocked")
 		? "blocked"
 		: pairs.some((pair) => pair.status === "inconclusive")
 			? "inconclusive"
 			: "pass";
 
 	return {
-		schemaVersion: PHASE6_EVALUATION_SCHEMA_VERSION,
-		phase: PHASE6_EVALUATION_PHASE,
+		schemaVersion: EXECUTION_EVALUATION_SCHEMA_VERSION,
+		phase: EXECUTION_EVALUATION_PHASE,
 		baselineVariant: "baseline",
-		phase6Variant: "phase6",
+		executionVariant: "execution",
 		pairs,
 		decision,
 		efficiencyClaim: "not-established",
@@ -459,7 +459,7 @@ export function comparePhase6EvaluationRuns(
 
 interface CliArguments {
 	baselinePath?: string;
-	phase6Path?: string;
+	executionPath?: string;
 	json: boolean;
 	help: boolean;
 }
@@ -476,11 +476,11 @@ function parseArguments(argv: string[]): CliArguments {
 			result.help = true;
 			continue;
 		}
-		if (argument === "--baseline" || argument === "--phase6") {
+		if (argument === "--baseline" || argument === "--execution") {
 			const value = argv[index + 1];
 			if (!value) throw new Error(`${argument} requires a path`);
 			if (argument === "--baseline") result.baselinePath = value;
-			else result.phase6Path = value;
+			else result.executionPath = value;
 			index += 1;
 			continue;
 		}
@@ -489,19 +489,19 @@ function parseArguments(argv: string[]): CliArguments {
 	return result;
 }
 
-function loadInput(path: string, expectedVariant: Phase6EvaluationVariant): Phase6EvaluationInput {
+function loadInput(path: string, expectedVariant: ExecutionEvaluationVariant): ExecutionEvaluationInput {
 	let value: unknown;
 	try {
 		value = JSON.parse(readFileSync(path, "utf8")) as unknown;
 	} catch (error) {
 		throw new Error(`Could not parse ${path}: ${error instanceof Error ? error.message : String(error)}`);
 	}
-	const input = parsePhase6EvaluationInput(value);
+	const input = parseExecutionEvaluationInput(value);
 	if (input.variant !== expectedVariant) throw new Error(`${path} must contain variant ${expectedVariant}`);
 	return input;
 }
 
-function printHumanReport(report: Phase6EvaluationReport): string {
+function printHumanReport(report: ExecutionEvaluationReport): string {
 	const lines = [
 		`${report.phase}: decision=${report.decision}, efficiencyClaim=${report.efficiencyClaim}, pairs=${report.pairs.length}`,
 	];
@@ -515,9 +515,9 @@ function printHumanReport(report: Phase6EvaluationReport): string {
 
 function printHelp(): string {
 	return [
-		"Usage: npm run evaluate:phase6 -- --baseline PATH --phase6 PATH [--json]",
+		"Usage: npm run evaluate:execution -- --baseline PATH --execution PATH [--json]",
 		"",
-		"Compares paired, recorded Phase 6 runs without invoking a provider or executing validation commands.",
+		"Compares paired, recorded Execution runs without invoking a provider or executing validation commands.",
 	].join("\n");
 }
 
@@ -532,12 +532,12 @@ if (isMainModule()) {
 		if (argumentsValue.help) {
 			process.stdout.write(`${printHelp()}\n`);
 		} else {
-			if (!argumentsValue.baselinePath || !argumentsValue.phase6Path) {
-				throw new Error("--baseline and --phase6 are required");
+			if (!argumentsValue.baselinePath || !argumentsValue.executionPath) {
+				throw new Error("--baseline and --execution are required");
 			}
 			const baseline = loadInput(argumentsValue.baselinePath, "baseline");
-			const phase6 = loadInput(argumentsValue.phase6Path, "phase6");
-			const report = comparePhase6EvaluationRuns(baseline.runs, phase6.runs);
+			const execution = loadInput(argumentsValue.executionPath, "execution");
+			const report = compareExecutionEvaluationRuns(baseline.runs, execution.runs);
 			process.stdout.write(argumentsValue.json ? `${JSON.stringify(report, null, 2)}\n` : printHumanReport(report));
 		}
 	} catch (error) {

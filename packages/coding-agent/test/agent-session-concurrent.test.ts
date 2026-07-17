@@ -123,9 +123,6 @@ describe("AgentSession concurrent prompt guard", () => {
 			modelRuntime: getModelRuntime(modelRegistry),
 			resourceLoader: createTestResourceLoader(),
 		});
-		session.subscribe((event) => {
-			console.log("DEBUG_EVENT", event.type);
-		});
 
 		return session;
 	}
@@ -164,9 +161,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		expect(session.pendingMessageCount).toBe(1);
 
 		// Cleanup
-		const abortPromise = session.abort();
-		setTimeout(() => console.log("DEBUG_STATE", session.isStreaming, session.isIdle, session.agent.lastRunDiagnostics), 100);
-		await abortPromise;
+		await session.abort();
 		await firstPrompt.catch(() => {});
 	});
 
@@ -182,9 +177,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		expect(session.pendingMessageCount).toBe(1);
 
 		// Cleanup
-		const abortPromise = session.abort();
-		setTimeout(() => console.log("DEBUG_STATE", session.isStreaming, session.isIdle, session.agent.lastRunDiagnostics), 100);
-		await abortPromise;
+		await session.abort();
 		await firstPrompt.catch(() => {});
 	});
 

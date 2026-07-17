@@ -695,7 +695,12 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 
 	function addSkills(result: LoadSkillsResult) {
 		allDiagnostics.push(...result.diagnostics);
-		for (const skill of result.skills) {
+		const orderedSkills = [...result.skills].sort((left, right) => {
+			const nameOrder = left.name.localeCompare(right.name);
+			if (nameOrder !== 0) return nameOrder;
+			return canonicalizePath(left.filePath).localeCompare(canonicalizePath(right.filePath));
+		});
+		for (const skill of orderedSkills) {
 			// Resolve symlinks to detect duplicate files
 			const realPath = canonicalizePath(skill.filePath);
 
@@ -722,11 +727,6 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 				realPathSet.add(realPath);
 			}
 		}
-	}
-
-	if (includeDefaults) {
-		addSkills(loadSkillsFromDirInternal(join(resolvedAgentDir, "skills"), "user", true));
-		addSkills(loadSkillsFromDirInternal(resolve(resolvedCwd, CONFIG_DIR_NAME, "skills"), "project", true));
 	}
 
 	const userSkillsDir = join(resolvedAgentDir, "skills");
@@ -775,6 +775,13 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 			const message = error instanceof Error ? error.message : "failed to read skill path";
 			allDiagnostics.push({ type: "warning", message, path: resolvedPath });
 		}
+	}
+
+	// Explicit skill paths are invocation-scoped and must win over default user/project skills.
+	// Among defaults, project-local skills take precedence over user-global skills.
+	if (includeDefaults) {
+		addSkills(loadSkillsFromDirInternal(resolve(resolvedCwd, CONFIG_DIR_NAME, "skills"), "project", true));
+		addSkills(loadSkillsFromDirInternal(join(resolvedAgentDir, "skills"), "user", true));
 	}
 
 	return {

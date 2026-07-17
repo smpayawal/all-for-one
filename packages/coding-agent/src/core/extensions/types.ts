@@ -69,8 +69,6 @@ import type {
 	ApplyPatchToolInput,
 	BashToolDetails,
 	BashToolInput,
-	ChangesToolDetails,
-	ChangesToolInput,
 	EditToolInput,
 	FindToolDetails,
 	FindToolInput,
@@ -856,11 +854,6 @@ export interface ApplyPatchToolCallEvent extends ToolCallEventBase {
 	input: ApplyPatchToolInput;
 }
 
-export interface ChangesToolCallEvent extends ToolCallEventBase {
-	toolName: "changes";
-	input: ChangesToolInput;
-}
-
 export interface ReadToolCallEvent extends ToolCallEventBase {
 	toolName: "read";
 	input: ReadToolInput;
@@ -905,7 +898,6 @@ export interface CustomToolCallEvent extends ToolCallEventBase {
 export type ToolCallEvent =
 	| BashToolCallEvent
 	| ApplyPatchToolCallEvent
-	| ChangesToolCallEvent
 	| ReadToolCallEvent
 	| EditToolCallEvent
 	| WriteToolCallEvent
@@ -930,11 +922,6 @@ export interface BashToolResultEvent extends ToolResultEventBase {
 export interface ApplyPatchToolResultEvent extends ToolResultEventBase {
 	toolName: "apply_patch";
 	details: ApplyPatchToolDetails | undefined;
-}
-
-export interface ChangesToolResultEvent extends ToolResultEventBase {
-	toolName: "changes";
-	details: ChangesToolDetails | undefined;
 }
 
 export interface ReadToolResultEvent extends ToolResultEventBase {
@@ -976,7 +963,6 @@ export interface CustomToolResultEvent extends ToolResultEventBase {
 export type ToolResultEvent =
 	| BashToolResultEvent
 	| ApplyPatchToolResultEvent
-	| ChangesToolResultEvent
 	| ReadToolResultEvent
 	| EditToolResultEvent
 	| WriteToolResultEvent
@@ -991,9 +977,6 @@ export function isBashToolResult(e: ToolResultEvent): e is BashToolResultEvent {
 }
 export function isApplyPatchToolResult(e: ToolResultEvent): e is ApplyPatchToolResultEvent {
 	return e.toolName === "apply_patch";
-}
-export function isChangesToolResult(e: ToolResultEvent): e is ChangesToolResultEvent {
-	return e.toolName === "changes";
 }
 export function isReadToolResult(e: ToolResultEvent): e is ReadToolResultEvent {
 	return e.toolName === "read";
@@ -1036,7 +1019,6 @@ export function isLsToolResult(e: ToolResultEvent): e is LsToolResultEvent {
  */
 export function isToolCallEventType(toolName: "bash", event: ToolCallEvent): event is BashToolCallEvent;
 export function isToolCallEventType(toolName: "apply_patch", event: ToolCallEvent): event is ApplyPatchToolCallEvent;
-export function isToolCallEventType(toolName: "changes", event: ToolCallEvent): event is ChangesToolCallEvent;
 export function isToolCallEventType(toolName: "read", event: ToolCallEvent): event is ReadToolCallEvent;
 export function isToolCallEventType(toolName: "edit", event: ToolCallEvent): event is EditToolCallEvent;
 export function isToolCallEventType(toolName: "write", event: ToolCallEvent): event is WriteToolCallEvent;

@@ -21,6 +21,7 @@ import {
 	type ValidationCommandDiscovery,
 	type ValidationExecutionKind,
 	type ValidationExecutionProvenance,
+	type ValidationGuidanceMode,
 } from "../validation-commands.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
@@ -180,6 +181,8 @@ export interface BashToolOptions {
 	spawnHook?: BashSpawnHook;
 	/** Shared validation discovery snapshot for the current runtime build. */
 	validationDiscovery?: ValidationCommandDiscovery;
+	/** Controls whether repository-grounded validation guidance is shown in the tool prompt. */
+	executionIntegrityMode?: ValidationGuidanceMode;
 }
 
 const BASH_PREVIEW_LINES = 5;
@@ -308,7 +311,12 @@ export function createBashToolDefinition(
 	const spawnHook = options?.spawnHook;
 	const executionKind: ValidationExecutionKind =
 		options?.operations?.executionKind ?? (options?.operations || spawnHook ? "custom" : "local");
-	const validationGuideline = getProjectValidationPromptGuideline(cwd, ["bash"], options?.validationDiscovery);
+	const validationGuideline = getProjectValidationPromptGuideline(
+		cwd,
+		["bash"],
+		options?.executionIntegrityMode,
+		options?.validationDiscovery,
+	);
 	return {
 		name: "bash",
 		label: "bash",

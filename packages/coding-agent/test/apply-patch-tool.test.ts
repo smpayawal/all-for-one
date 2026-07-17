@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -209,6 +219,42 @@ describe("apply_patch tool", () => {
 		expect(readFileSync(join(cwd, "windows.txt"), "utf-8")).toBe("\uFEFFalpha\r\nbravo\r\n");
 	});
 
+	it("preserves file mode and cleans up replacement temporaries", async () => {
+		if (process.platform === "win32") return;
+		const scriptPath = join(cwd, "script.sh");
+		writeFileSync(scriptPath, "#!/bin/sh\necho before\n");
+		chmodSync(scriptPath, 0o755);
+
+		await createApplyPatchTool(cwd).execute("call-mode", {
+			patch: "*** Begin Patch\n*** Update File: script.sh\n@@\n-#!/bin/sh\n-echo before\n+#!/bin/sh\n+echo after\n*** End Patch",
+		});
+
+		expect(statSync(scriptPath).mode & 0o777).toBe(0o755);
+		expect(readdirSync(cwd).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+	});
+
+	it("rejects an external modification detected after preflight", async () => {
+		const targetPath = join(cwd, "concurrent.txt");
+		writeFileSync(targetPath, "before\n");
+		let signalReads = 0;
+		const signal = {
+			get aborted() {
+				signalReads += 1;
+				if (signalReads === 5) writeFileSync(targetPath, "external change\n");
+				return false;
+			},
+		} as AbortSignal;
+
+		await expect(
+			createApplyPatchTool(cwd).execute(
+				"call-concurrent",
+				{ patch: "*** Begin Patch\n*** Update File: concurrent.txt\n@@\n-before\n+after\n*** End Patch" },
+				signal,
+			),
+		).rejects.toThrow("changed after preflight");
+		expect(readFileSync(targetPath, "utf-8")).toBe("external change\n");
+	});
+
 	it("rejects paths that escape through a symbolic link", async () => {
 		const outside = `${cwd}-outside`;
 		mkdirSync(outside, { recursive: true });
@@ -243,6 +289,33 @@ describe("apply_patch tool", () => {
 		expect(readFileSync(join(cwd, "blocked"), "utf-8")).toBe("not a directory\n");
 	});
 
+	it("restores original bytes and mode during rollback", async () => {
+		if (process.platform === "win32") return;
+		const scriptPath = join(cwd, "rollback.sh");
+		writeFileSync(scriptPath, "#!/bin/sh\necho original\n");
+		chmodSync(scriptPath, 0o755);
+		writeFileSync(join(cwd, "blocked"), "not a directory\n");
+
+		await expect(
+			createApplyPatchTool(cwd).execute("call-rollback-mode", {
+				patch: [
+					"*** Begin Patch",
+					"*** Update File: rollback.sh",
+					"@@",
+					"-#!/bin/sh",
+					"-echo original",
+					"+#!/bin/sh",
+					"+echo changed",
+					"*** Add File: blocked/child.txt",
+					"+cannot be written",
+					"*** End Patch",
+				].join("\n"),
+			}),
+		).rejects.toThrow("Rollback completed");
+		expect(readFileSync(scriptPath, "utf-8")).toBe("#!/bin/sh\necho original\n");
+		expect(statSync(scriptPath).mode & 0o777).toBe(0o755);
+	});
+
 	it("does not mutate when cancelled before execution", async () => {
 		writeFileSync(join(cwd, "cancel.txt"), "before\n");
 		const controller = new AbortController();
@@ -256,6 +329,29 @@ describe("apply_patch tool", () => {
 			),
 		).rejects.toThrow("Operation aborted");
 		expect(readFileSync(join(cwd, "cancel.txt"), "utf-8")).toBe("before\n");
+	});
+
+	it("does not commit when cancellation arrives after preflight", async () => {
+		const targetPath = join(cwd, "cancel-after-preflight.txt");
+		writeFileSync(targetPath, "before\n");
+		let signalReads = 0;
+		const signal = {
+			get aborted() {
+				signalReads += 1;
+				return signalReads >= 7;
+			},
+		} as AbortSignal;
+
+		await expect(
+			createApplyPatchTool(cwd).execute(
+				"call-cancel-after-preflight",
+				{
+					patch: "*** Begin Patch\n*** Update File: cancel-after-preflight.txt\n@@\n-before\n+after\n*** End Patch",
+				},
+				signal,
+			),
+		).rejects.toThrow("Operation aborted");
+		expect(readFileSync(targetPath, "utf-8")).toBe("before\n");
 	});
 
 	it("bounds aggregate original-file bytes retained during preflight", async () => {

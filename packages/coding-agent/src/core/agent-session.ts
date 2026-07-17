@@ -56,6 +56,8 @@ import {
 	type CompactionHealth,
 	type CompactionPreparation,
 	type CompactionResult,
+	type CompactionTelemetryRecorder,
+	CompactionTelemetryStore,
 	calculateContextTokens,
 	collectCompactionHealth,
 	collectEntriesForBranchSummary,
@@ -63,6 +65,7 @@ import {
 	estimateContextTokens,
 	estimateTokens,
 	generateBranchSummary,
+	getCompactionProviderMetrics,
 	prepareCompaction,
 	shouldCompact,
 	validateCompactionResult,
@@ -122,7 +125,7 @@ import {
 	type ResourceExtensionPaths,
 	type ResourceLoader,
 } from "./resource-loader.ts";
-import { isMutatingPathTool, ScopedContextTracker } from "./scoped-context.ts";
+import { isMutatingPathTool, type ScopedContextDiagnostics, ScopedContextTracker } from "./scoped-context.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
@@ -132,7 +135,7 @@ import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt, formatProjectContextFiles } from "./system-prompt.ts";
 import { type ToolOutputTelemetry, ToolOutputTelemetryStore } from "./tool-output-telemetry.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
-import { createAllToolDefinitions } from "./tools/index.ts";
+import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 import {
 	discoverValidationCommands,
@@ -301,6 +304,7 @@ export interface AgentContextInfo {
 	systemPromptSource: "native default" | "custom";
 	contextFiles: Array<{ path: string; chars: number; bytes: number }>;
 	contextDiagnostics: ContextDiagnostics;
+	scopedContext: ScopedContextDiagnostics;
 	visibleSkills: string[];
 	manualOnlySkills: string[];
 	activeTools: string[];
@@ -364,6 +368,7 @@ async function compactWithValidationAndRepair(
 	thinkingLevel: ThinkingLevel,
 	streamFn: AgentSession["agent"]["streamFn"],
 	env: Record<string, string> | undefined,
+	telemetry?: CompactionTelemetryRecorder,
 ): Promise<CompactionResult> {
 	const run = (instructions?: string, turnPrefixRepairInstructions?: string) =>
 		compactWithTurnPrefixInstructions(
@@ -384,18 +389,27 @@ async function compactWithValidationAndRepair(
 		initialResult = await run(customInstructions);
 	} catch (error) {
 		if (!(error instanceof Error) || !error.message.includes("turn-prefix summary is malformed")) throw error;
+		telemetry?.recordStructuralValidationFailure();
+		telemetry?.recordRepairAttempt();
 		const repairInstructions = formatCompactionRepairInstructions([
 			{ code: "missing-section", message: error.message },
 		]);
 		const combinedInstructions = customInstructions
 			? `${customInstructions}\n\n${repairInstructions}`
 			: repairInstructions;
-		const repairedResult = await run(combinedInstructions, repairInstructions);
-		assertCompactionResultValid(repairedResult, pathEntries);
-		return repairedResult;
+		try {
+			const repairedResult = await run(combinedInstructions, repairInstructions);
+			assertCompactionResultValid(repairedResult, pathEntries);
+			telemetry?.recordRepairSuccess();
+			return repairedResult;
+		} catch (repairError) {
+			telemetry?.recordRepairFailure();
+			throw repairError;
+		}
 	}
 	const initialValidation = validateCompactionResult(initialResult, pathEntries);
 	if (initialValidation.valid) return initialResult;
+	telemetry?.recordStructuralValidationFailure();
 
 	if (!initialValidation.issues.some((issue) => REPAIRABLE_COMPACTION_ISSUES.has(issue.code))) {
 		assertCompactionResultValid(initialResult, pathEntries);
@@ -405,9 +419,16 @@ async function compactWithValidationAndRepair(
 	const combinedInstructions = customInstructions
 		? `${customInstructions}\n\n${repairInstructions}`
 		: repairInstructions;
-	const repairedResult = await run(combinedInstructions);
-	assertCompactionResultValid(repairedResult, pathEntries);
-	return repairedResult;
+	telemetry?.recordRepairAttempt();
+	try {
+		const repairedResult = await run(combinedInstructions);
+		assertCompactionResultValid(repairedResult, pathEntries);
+		telemetry?.recordRepairSuccess();
+		return repairedResult;
+	} catch (repairError) {
+		telemetry?.recordRepairFailure();
+		throw repairError;
+	}
 }
 
 // ============================================================================
@@ -505,6 +526,7 @@ export class AgentSession {
 	private _scopedContextTracker: ScopedContextTracker;
 	private _dynamicContextPromptSuffix = "";
 	private _toolOutputTelemetryStore: ToolOutputTelemetryStore;
+	private _compactionTelemetry = new CompactionTelemetryStore();
 	private _executionIntegrityTracker: ExecutionIntegrityTracker;
 	private _validationCommandDiscovery: ValidationCommandDiscovery;
 	private _executionIntegrityRunStarted = false;
@@ -613,16 +635,16 @@ export class AgentSession {
 	}
 
 	private _loadScopedContextForToolCall(toolName: string, args: Record<string, unknown>): ProjectContextFile[] {
-		const { addedFiles: newlyRelevantFiles } = this._scopedContextTracker.loadForToolCall(
+		const { addedFiles: newlyRelevantFiles, changed } = this._scopedContextTracker.loadForToolCall(
 			toolName,
 			args,
 			this._getActiveContextFiles(),
 		);
-		if (newlyRelevantFiles.length === 0) return [];
+		if (!changed) return [];
 
 		this._baseSystemPrompt = this._rebuildSystemPrompt(this.getActiveToolNames());
 		if (this._systemPromptOverride) {
-			this._dynamicContextPromptSuffix += formatProjectContextFiles(newlyRelevantFiles);
+			this._dynamicContextPromptSuffix = formatProjectContextFiles(this._scopedContextTracker.getFiles());
 			this.agent.state.systemPrompt = this._systemPromptOverride + this._dynamicContextPromptSuffix;
 		} else {
 			this.agent.state.systemPrompt = this._baseSystemPrompt;
@@ -1239,11 +1261,13 @@ export class AgentSession {
 			})
 			.join("\n");
 		const skillMetadataChars = this._skillMetadataDiagnostics?.metadataChars ?? 0;
+		const scopedContext = this._scopedContextTracker.getDiagnostics();
 		const warnings = [...contextDiagnostics.warnings, ...this._scopedContextTracker.getWarnings()];
 		const compactionHealth = collectCompactionHealth(
 			this.sessionManager.getBranch(),
 			(messages) => estimateContextTokens(messages).tokens,
 			this._cwd,
+			this._compactionTelemetry.getSnapshot(),
 		);
 		const skillDiagnostics = this._skillMetadataDiagnostics;
 		if (skillDiagnostics?.omittedCount) {
@@ -1263,6 +1287,7 @@ export class AgentSession {
 				bytes: Buffer.byteLength(file.content, "utf8"),
 			})),
 			contextDiagnostics,
+			scopedContext,
 			visibleSkills,
 			manualOnlySkills,
 			activeTools: activeToolNames,
@@ -1528,6 +1553,9 @@ export class AgentSession {
 		const msg = this._lastAssistantMessage;
 		this._lastAssistantMessage = undefined;
 		if (!msg) {
+			return false;
+		}
+		if (this.agent.lastRunDiagnostics?.termination.reason === "aborted") {
 			return false;
 		}
 
@@ -2242,6 +2270,8 @@ export class AgentSession {
 		await this.abort();
 		this._compactionAbortController = new AbortController();
 		this._emit({ type: "compaction_start", reason: "manual" });
+		let telemetryStartedAt: number | undefined;
+		let telemetryCompleted = false;
 
 		try {
 			if (!this.model) {
@@ -2262,6 +2292,8 @@ export class AgentSession {
 				}
 				throw new Error("Nothing to compact (session too small)");
 			}
+			this._compactionTelemetry.start(preparation.tokensBefore);
+			telemetryStartedAt = Date.now();
 
 			let extensionCompaction: CompactionResult | undefined;
 			let fromExtension = false;
@@ -2311,6 +2343,7 @@ export class AgentSession {
 					this.thinkingLevel,
 					this.agent.streamFn,
 					env,
+					this._compactionTelemetry,
 				);
 				summary = result.summary;
 				firstKeptEntryId = result.firstKeptEntryId;
@@ -2331,6 +2364,12 @@ export class AgentSession {
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
 			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
+			this._compactionTelemetry.complete({
+				durationMs: Date.now() - (telemetryStartedAt ?? Date.now()),
+				estimatedTokensAfter,
+				providerMetrics: getCompactionProviderMetrics(details),
+			});
+			telemetryCompleted = true;
 
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
@@ -2375,6 +2414,9 @@ export class AgentSession {
 			});
 			throw error;
 		} finally {
+			if (telemetryStartedAt !== undefined && !telemetryCompleted) {
+				this._compactionTelemetry.fail(Date.now() - telemetryStartedAt);
+			}
 			this._compactionAbortController = undefined;
 			this._reconnectToAgent();
 		}
@@ -2503,6 +2545,8 @@ export class AgentSession {
 	private async _runAutoCompaction(reason: "overflow" | "threshold", willRetry: boolean): Promise<boolean> {
 		const settings = this.settingsManager.getCompactionSettings();
 		let started = false;
+		let telemetryStartedAt: number | undefined;
+		let telemetryCompleted = false;
 
 		try {
 			if (!this.model) {
@@ -2528,6 +2572,8 @@ export class AgentSession {
 			if (!preparation) {
 				return false;
 			}
+			this._compactionTelemetry.start(preparation.tokensBefore);
+			telemetryStartedAt = Date.now();
 
 			this._emit({ type: "compaction_start", reason });
 			this._autoCompactionAbortController = new AbortController();
@@ -2588,6 +2634,7 @@ export class AgentSession {
 					this.thinkingLevel,
 					this.agent.streamFn,
 					env,
+					this._compactionTelemetry,
 				);
 				summary = compactResult.summary;
 				firstKeptEntryId = compactResult.firstKeptEntryId;
@@ -2615,6 +2662,12 @@ export class AgentSession {
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
 			const estimatedTokensAfter = estimateMessagesTokens(sessionContext.messages);
+			this._compactionTelemetry.complete({
+				durationMs: Date.now() - (telemetryStartedAt ?? Date.now()),
+				estimatedTokensAfter,
+				providerMetrics: getCompactionProviderMetrics(details),
+			});
+			telemetryCompleted = true;
 
 			// Get the saved compaction entry for the extension event
 			const savedCompactionEntry = newEntries.find((e) => e.type === "compaction" && e.summary === summary) as
@@ -2669,6 +2722,9 @@ export class AgentSession {
 			}
 			return false;
 		} finally {
+			if (telemetryStartedAt !== undefined && !telemetryCompleted) {
+				this._compactionTelemetry.fail(Date.now() - telemetryStartedAt);
+			}
 			this._autoCompactionAbortController = undefined;
 		}
 	}
@@ -3006,6 +3062,7 @@ export class AgentSession {
 		includeAllExtensionTools?: boolean;
 	}): void {
 		this._executionIntegrityTracker.updateSettings(this.settingsManager.getExecutionIntegritySettings());
+		const executionIntegritySettings = this.settingsManager.getExecutionIntegritySettings();
 		const autoResizeImages = this.settingsManager.getImageAutoResize();
 		const shellCommandPrefix = this.settingsManager.getShellCommandPrefix();
 		const shellPath = this.settingsManager.getShellPath();
@@ -3022,6 +3079,7 @@ export class AgentSession {
 						commandPrefix: shellCommandPrefix,
 						shellPath,
 						validationDiscovery: this._validationCommandDiscovery,
+						executionIntegrityMode: executionIntegritySettings.mode,
 					},
 				});
 
@@ -3051,7 +3109,7 @@ export class AgentSession {
 
 		const defaultActiveToolNames = this._baseToolsOverride
 			? Object.keys(this._baseToolsOverride)
-			: ["read", "bash", "edit", "write", "apply_patch", "changes"];
+			: [...DEFAULT_ACTIVE_TOOL_NAMES];
 		const baseActiveToolNames = options.activeToolNames ?? defaultActiveToolNames;
 		this._refreshToolRegistry({
 			activeToolNames: baseActiveToolNames,

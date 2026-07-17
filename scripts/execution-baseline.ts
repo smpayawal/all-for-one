@@ -12,7 +12,7 @@ import type {
 	ValidationExecutionProvenance,
 } from "../packages/coding-agent/src/core/validation-commands.ts";
 
-export const PHASE6_SCENARIO_IDS = [
+export const EXECUTION_SCENARIO_IDS = [
 	"read-only-completion",
 	"mutation-without-validation",
 	"mutation-then-pass",
@@ -25,10 +25,10 @@ export const PHASE6_SCENARIO_IDS = [
 	"bounded-records",
 ] as const;
 
-export type Phase6ScenarioId = (typeof PHASE6_SCENARIO_IDS)[number];
+export type ExecutionScenarioId = (typeof EXECUTION_SCENARIO_IDS)[number];
 
-export interface Phase6ScenarioReport {
-	id: Phase6ScenarioId;
+export interface ExecutionScenarioReport {
+	id: ExecutionScenarioId;
 	description: string;
 	executionStatus: "deterministic-fixture";
 	decision: ExecutionIntegrityDecision;
@@ -46,9 +46,9 @@ export interface Phase6ScenarioReport {
 	limitations: string[];
 }
 
-export interface Phase6BaselineReport {
+export interface ExecutionBaselineReport {
 	schemaVersion: 1;
-	phase: "P6.0";
+	phase: "execution";
 	title: "Execution integrity and adaptive validation baseline";
 	settings: {
 		mode: "enforce";
@@ -59,11 +59,11 @@ export interface Phase6BaselineReport {
 		resourceLoading: "offline-deterministic-fixture";
 		productionPolicyChanged: false;
 	};
-	scenarios: Phase6ScenarioReport[];
+	scenarios: ExecutionScenarioReport[];
 	limitations: string[];
 }
 
-export interface Phase6BaselineOptions {
+export interface ExecutionBaselineOptions {
 	cwd: string;
 }
 
@@ -133,7 +133,7 @@ function createTracker(cwd: string, discovery = discoveryWithCommand()): Executi
 	return new ExecutionIntegrityTracker({ settings: SETTINGS, cwd, discovery });
 }
 
-function validationState(snapshot: ExecutionIntegritySnapshot): Phase6ScenarioReport["validationState"] {
+function validationState(snapshot: ExecutionIntegritySnapshot): ExecutionScenarioReport["validationState"] {
 	if (snapshot.freshFailingValidationCount > 0) return "failed";
 	if (snapshot.freshPassingValidationCount > 0) return "fresh";
 	if (snapshot.concurrentValidationCount > 0) return "concurrent";
@@ -142,12 +142,12 @@ function validationState(snapshot: ExecutionIntegritySnapshot): Phase6ScenarioRe
 }
 
 function createScenarioReport(
-	id: Phase6ScenarioId,
+	id: ExecutionScenarioId,
 	description: string,
 	tracker: ExecutionIntegrityTracker,
 	decision: ExecutionIntegrityDecision,
 	firstDecision?: ExecutionIntegrityDecision,
-): Phase6ScenarioReport {
+): ExecutionScenarioReport {
 	const snapshot = tracker.getSnapshot();
 	return {
 		id,
@@ -169,7 +169,7 @@ function createScenarioReport(
 	};
 }
 
-function readOnlyCompletion(cwd: string): Phase6ScenarioReport {
+function readOnlyCompletion(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd);
 	return createScenarioReport(
 		"read-only-completion",
@@ -179,7 +179,7 @@ function readOnlyCompletion(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-function mutationWithoutValidation(cwd: string): Phase6ScenarioReport {
+function mutationWithoutValidation(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [editObservation(0)] });
 	return createScenarioReport(
@@ -190,7 +190,7 @@ function mutationWithoutValidation(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-function mutationThenPass(cwd: string): Phase6ScenarioReport {
+function mutationThenPass(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [editObservation(0)] });
 	tracker.recordTurn({ turnIndex: 1, toolObservations: [validationObservation(1, cwd)] });
@@ -202,7 +202,7 @@ function mutationThenPass(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-function passThenMutation(cwd: string): Phase6ScenarioReport {
+function passThenMutation(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [validationObservation(0, cwd)] });
 	tracker.recordTurn({ turnIndex: 1, toolObservations: [editObservation(1)] });
@@ -214,7 +214,7 @@ function passThenMutation(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-function mutationThenFailure(cwd: string): Phase6ScenarioReport {
+function mutationThenFailure(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [editObservation(0)] });
 	tracker.recordTurn({
@@ -229,7 +229,7 @@ function mutationThenFailure(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-function parallelMutationValidation(cwd: string): Phase6ScenarioReport {
+function parallelMutationValidation(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({
 		turnIndex: 0,
@@ -243,7 +243,7 @@ function parallelMutationValidation(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-function unknownProject(cwd: string): Phase6ScenarioReport {
+function unknownProject(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd, { ecosystems: [], commands: [] });
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [editObservation(0)] });
 	return createScenarioReport(
@@ -254,7 +254,7 @@ function unknownProject(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-function compoundCommand(cwd: string): Phase6ScenarioReport {
+function compoundCommand(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [editObservation(0)] });
 	tracker.recordTurn({
@@ -269,7 +269,7 @@ function compoundCommand(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-function boundedContinuation(cwd: string): Phase6ScenarioReport {
+function boundedContinuation(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({ turnIndex: 0, toolObservations: [editObservation(0)] });
 	const firstDecision = tracker.decideCompletion();
@@ -282,7 +282,7 @@ function boundedContinuation(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-function boundedRecords(cwd: string): Phase6ScenarioReport {
+function boundedRecords(cwd: string): ExecutionScenarioReport {
 	const tracker = createTracker(cwd);
 	tracker.recordTurn({
 		turnIndex: 0,
@@ -300,11 +300,11 @@ function boundedRecords(cwd: string): Phase6ScenarioReport {
 	);
 }
 
-export function collectPhase6Baseline(options: Phase6BaselineOptions): Phase6BaselineReport {
+export function collectExecutionBaseline(options: ExecutionBaselineOptions): ExecutionBaselineReport {
 	const cwd = resolve(options.cwd);
 	return {
 		schemaVersion: 1,
-		phase: "P6.0",
+		phase: "execution",
 		title: "Execution integrity and adaptive validation baseline",
 		settings: SETTINGS,
 		environment: {
@@ -358,7 +358,7 @@ function parseArguments(argv: string[]): { cwd: string; json: boolean; help: boo
 	return { cwd, json, help };
 }
 
-function printHumanReport(report: Phase6BaselineReport): string {
+function printHumanReport(report: ExecutionBaselineReport): string {
 	const lines = [
 		`${report.phase}: ${report.title}`,
 		`Fixture mode: ${report.environment.resourceLoading}; settings=${report.settings.mode}/${report.settings.maxContinuationAttempts}`,
@@ -373,9 +373,9 @@ function printHumanReport(report: Phase6BaselineReport): string {
 
 function printHelp(): string {
 	return [
-		"Usage: npm run baseline:phase6 -- [--json] [--cwd PATH]",
+		"Usage: npm run baseline:execution -- [--json] [--cwd PATH]",
 		"",
-		"Runs deterministic, offline Phase 6 execution-integrity fixtures without a provider or repository validation commands.",
+		"Runs deterministic, offline Execution execution-integrity fixtures without a provider or repository validation commands.",
 	].join("\n");
 }
 
@@ -390,7 +390,7 @@ if (isMainModule()) {
 		if (argumentsValue.help) {
 			process.stdout.write(`${printHelp()}\n`);
 		} else {
-			const report = collectPhase6Baseline({ cwd: argumentsValue.cwd });
+			const report = collectExecutionBaseline({ cwd: argumentsValue.cwd });
 			process.stdout.write(argumentsValue.json ? `${JSON.stringify(report, null, 2)}\n` : printHumanReport(report));
 		}
 	} catch (error) {

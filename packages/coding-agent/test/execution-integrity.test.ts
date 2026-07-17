@@ -33,7 +33,7 @@ function validationProvenance(
 	return {
 		requestedCommand: command,
 		executedCommand: command,
-		cwd: "/tmp/phase6-project",
+		cwd: "/tmp/execution-project",
 		executionKind: "local",
 		exitCode: 0,
 		...overrides,
@@ -45,7 +45,7 @@ function createTracker(
 	maxContinuationAttempts = 1,
 ): ExecutionIntegrityTracker {
 	return new ExecutionIntegrityTracker({
-		cwd: "/tmp/phase6-project",
+		cwd: "/tmp/execution-project",
 		settings: { mode, maxContinuationAttempts },
 		discovery,
 	});
@@ -146,14 +146,14 @@ describe("ExecutionIntegrityTracker", () => {
 			{
 				exitCode: 0,
 				cancelled: false,
-				fullOutputPath: "/tmp/phase6-test-output.txt",
+				fullOutputPath: "/tmp/execution-test-output.txt",
 				executionProvenance: validationProvenance(),
 			},
 			1,
 		);
 
 		expect(tracker.decideCompletion()).toEqual({ action: "observe", reason: "fresh-validation-passed" });
-		expect(tracker.getSnapshot().validations[0]?.fullOutputPath).toBe("/tmp/phase6-test-output.txt");
+		expect(tracker.getSnapshot().validations[0]?.fullOutputPath).toBe("/tmp/execution-test-output.txt");
 
 		tracker.recordTurn({ turnIndex: 2, toolObservations: [mutation("write", "src/changed.ts")] });
 		tracker.recordUserBashValidation(
@@ -374,13 +374,13 @@ describe("ExecutionIntegrityTracker", () => {
 		});
 
 		expect(tracker.getSnapshot().limitations).toContain(
-			"Arbitrary bash commands may mutate the workspace and are not fully classified by Phase 6.",
+			"Arbitrary bash commands may mutate the workspace and are not fully classified by the execution-integrity boundary.",
 		);
 	});
 
 	it("allows completion without blocking when no command was discovered", () => {
 		const tracker = new ExecutionIntegrityTracker({
-			cwd: "/tmp/phase6-project",
+			cwd: "/tmp/execution-project",
 			settings: { mode: "enforce", maxContinuationAttempts: 1 },
 			discovery: { ecosystems: [], commands: [] },
 		});
