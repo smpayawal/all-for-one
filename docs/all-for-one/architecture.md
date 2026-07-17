@@ -5,7 +5,7 @@ All-For-One is a narrow hardening layer over the Native Pi monorepo. The core ag
 The main changes are:
 
 - canonical built-in capability registry with five registered coding tools and a four-tool native default profile;
-- explicit native, patch, and full tool profiles with model-keyed execution behavior;
+- explicit auto, native, patch, and full tool profiles with model-keyed execution behavior;
 - bounded path-scoped context and skill metadata diagnostics;
 - preflighted `apply_patch` mutations with concurrent-change detection and best-effort rollback;
 - opt-in, repository-grounded execution-integrity observation;

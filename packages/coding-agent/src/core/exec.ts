@@ -88,6 +88,10 @@ export async function execCommand(
 		let killReason: Exclude<ExecTermination, "completed" | "signal" | "error"> | undefined;
 		let timeoutId: NodeJS.Timeout | undefined;
 		let forceKillId: NodeJS.Timeout | undefined;
+		let processExited = false;
+		proc.once("exit", () => {
+			processExited = true;
+		});
 
 		const killProcess = (reason: Exclude<ExecTermination, "completed" | "signal" | "error">) => {
 			if (!killed) {
@@ -96,7 +100,7 @@ export async function execCommand(
 				proc.kill("SIGTERM");
 				// Force kill after 5 seconds if SIGTERM doesn't work
 				forceKillId = setTimeout(() => {
-					if (!proc.killed) {
+					if (!processExited && proc.exitCode === null && proc.signalCode === null) {
 						proc.kill("SIGKILL");
 					}
 				}, 5000);

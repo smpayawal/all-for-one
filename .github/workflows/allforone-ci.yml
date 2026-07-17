@@ -50,13 +50,12 @@ jobs:
       - name: Check
         run: npm run check
 
-      - name: Focused coding-agent feature tests
+      - name: Focused coding-agent and All-For-One tests
         run: >-
           npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/coding-model-profile.test.ts
           test/sdk-tool-profile.test.ts
           test/native-skills.test.ts
-          test/agent-session-model-extension.test.ts
           test/safe-mode.test.ts
           test/code-intel.test.ts
           test/exec.test.ts
@@ -65,18 +64,6 @@ jobs:
           test/system-prompt.test.ts
           test/tool-registry.test.ts
           test/resource-loader.test.ts
-
-      - name: Test
-        run: npm test
-
-      - name: Focused agent runtime tests
-        run: npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/execution-integrity.test.ts
-
-      - name: Focused All-For-One tests
-        run: >-
-          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
-          test/args.test.ts
-          test/tool-registry.test.ts
           test/agent-session-concurrent.test.ts
           test/agent-session-runtime-events.test.ts
           test/apply-patch-tool.test.ts
@@ -89,13 +76,18 @@ jobs:
           test/suite/lax-message-content.test.ts
           test/skills.test.ts
           test/memory.test.ts
-          test/settings-manager.test.ts
           test/interactive-mode-status.test.ts
           test/session-rail.test.ts
           test/suite/agent-session-runtime.test.ts
           test/suite/agent-session-bash-persistence.test.ts
           test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts
           test/suite/regressions/5109-exclude-tools.test.ts
+
+      - name: Focused agent runtime tests
+        run: npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/execution-integrity.test.ts
+
+      - name: Test
+        run: npm test
 
       - name: Offline diagnostics
         run: |
@@ -154,6 +146,9 @@ jobs:
           test/paths.test.ts
           test/resolve-config-value.test.ts
           test/settings-manager.test.ts
+          test/safe-mode.test.ts
+          test/code-intel.test.ts
+          test/exec.test.ts
           test/bash-close-hang-windows.test.ts
           test/suite/agent-session-bash-persistence.test.ts
           test/validation-commands.test.ts

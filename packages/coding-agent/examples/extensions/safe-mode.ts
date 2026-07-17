@@ -6,9 +6,9 @@
  *
  * This extension is not an OS sandbox. It allows only a small exact set of
  * read-only commands, blocks destructive or credential-related access, confirms
- * other bash commands and in-workspace mutations, and rejects mutation paths
- * outside the workspace. Use the sandbox/gondolin examples when process
- * isolation is required.
+ * other bash commands, known workspace mutations, and unknown extension tools,
+ * and rejects mutation paths outside the workspace. Use the sandbox/gondolin
+ * examples when process isolation is required.
  */
 
 import { basename, isAbsolute, relative, resolve, sep, win32 } from "node:path";
@@ -39,6 +39,7 @@ const SENSITIVE_PATH =
 	/(^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.git|node_modules|[^\\/]*(?:credential|secret|token)[^\\/]*|[^\\/]+\.(?:pem|key))(?=[\\/]|$)/i;
 const SENSITIVE_REFERENCE =
 	/(?:^|[\s"'=\\/])(?:\.env(?:\.[^\s"']*)?|auth\.json|[^\s"']*(?:credential|secret|token)[^\s"']*|[^\s"']+\.(?:pem|key)|(?:~[\\/])?\.(?:ssh|aws|config[\\/]gcloud))(?:$|[\s"'\\/])/i;
+const KNOWN_READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 
 export type SafeModeAction = "allow" | "ask" | "block";
 
@@ -121,7 +122,10 @@ export async function validateMutationPaths(
 		return { action: "block", reason: "Safe mode blocks malformed mutation tool input.", paths: [] };
 	}
 	if (mutation.paths.length === 0) {
-		return { action: "allow", reason: "Tool does not mutate workspace files.", paths: [] };
+		if (KNOWN_READ_ONLY_TOOLS.has(event.toolName)) {
+			return { action: "allow", reason: "Tool is a known read-only built-in.", paths: [] };
+		}
+		return { action: "ask", reason: "Unknown or extension tools require safe-mode approval.", paths: [] };
 	}
 
 	try {

@@ -10,7 +10,7 @@ Load packages/coding-agent/examples/extensions/safe-mode.ts with the extension f
 - blocks destructive commands and shell-piped downloads;
 - protects credential-like paths such as .env, auth.json, keys, and secrets;
 - rejects mutation paths outside the workspace; and
-- asks for confirmation before other commands and in-workspace mutations.
+- asks for confirmation before other commands, in-workspace mutations, and unknown extension tools.
 
 This is authorization implemented through the existing tool_call hook. It is not an OS sandbox. The permission-gate and protected-path examples remain useful for smaller policies.
 

@@ -65,6 +65,25 @@ describe("execCommand output and termination bounds", () => {
 		expect(result.termination).toBe("signal");
 	});
 
+	it.skipIf(process.platform === "win32")(
+		"force-kills a child that ignores SIGTERM after the termination grace period",
+		async () => {
+			const startedAt = Date.now();
+			const result = await execCommand(
+				process.execPath,
+				["-e", "process.on('SIGTERM', () => {}); setTimeout(() => process.exit(0), 8000);"],
+				process.cwd(),
+				{ timeout: 250 },
+			);
+
+			expect(Date.now() - startedAt).toBeLessThan(7000);
+			expect(result.code).not.toBe(0);
+			expect(result.killed).toBe(true);
+			expect(result.termination).toBe("timeout");
+		},
+		9000,
+	);
+
 	it("preserves stdout and stderr for a nonzero adapter result", async () => {
 		const result = await execCommand(
 			process.execPath,

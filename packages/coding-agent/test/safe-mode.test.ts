@@ -1,13 +1,21 @@
 import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
+import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
 import { resolveCanonicalPath } from "../src/core/tools/path-utils.ts";
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({ resolveCanonicalPath }));
 
-import { classifyBashCommand, getMutationPaths, validateMutationPaths } from "../examples/extensions/safe-mode.ts";
+import safeModeExtension, {
+	classifyBashCommand,
+	getMutationPaths,
+	validateMutationPaths,
+} from "../examples/extensions/safe-mode.ts";
 import type { ToolCallEvent } from "../src/core/extensions/types.ts";
+import { createHarness } from "./suite/harness.ts";
 
 function writeEvent(path: unknown): ToolCallEvent {
 	return {
@@ -79,18 +87,57 @@ describe("safe-mode policy", () => {
 		}
 	});
 
-	it("canonicalizes symlinked mutation paths before authorizing them", async () => {
-		const workspace = await mkdtemp(join(tmpdir(), "safe-mode-workspace-"));
-		const outside = await mkdtemp(join(tmpdir(), "safe-mode-outside-"));
+	it.skipIf(process.platform === "win32")(
+		"canonicalizes symlinked mutation paths before authorizing them",
+		async () => {
+			const workspace = await mkdtemp(join(tmpdir(), "safe-mode-workspace-"));
+			const outside = await mkdtemp(join(tmpdir(), "safe-mode-outside-"));
+			try {
+				await mkdir(join(outside, "nested"));
+				await symlink(outside, join(workspace, "linked"), "dir");
+				const result = await validateMutationPaths(writeEvent("linked/nested/escape.txt"), workspace);
+				expect(result.action).toBe("block");
+				expect(result.reason).toContain("outside the workspace");
+			} finally {
+				await rm(workspace, { recursive: true, force: true });
+				await rm(outside, { recursive: true, force: true });
+			}
+		},
+	);
+
+	it("blocks an unknown custom tool when safe mode has no interactive approval", async () => {
+		let executed = false;
+		const customTool: AgentTool = {
+			name: "deploy",
+			label: "Deploy",
+			description: "Deploy the current application.",
+			parameters: Type.Object({}),
+			execute: async () => {
+				executed = true;
+				return { content: [{ type: "text", text: "deployed" }], details: {} };
+			},
+		};
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.registerTool(customTool);
+					safeModeExtension(pi);
+				},
+			],
+		});
 		try {
-			await mkdir(join(outside, "nested"));
-			await symlink(outside, join(workspace, "linked"), "dir");
-			const result = await validateMutationPaths(writeEvent("linked/nested/escape.txt"), workspace);
-			expect(result.action).toBe("block");
-			expect(result.reason).toContain("outside the workspace");
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("deploy", {})], { stopReason: "toolUse" }),
+				fauxAssistantMessage("blocked"),
+			]);
+			await harness.session.prompt("deploy");
+
+			expect(executed).toBe(false);
+			expect(
+				harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
+			).toBeDefined();
 		} finally {
-			await rm(workspace, { recursive: true, force: true });
-			await rm(outside, { recursive: true, force: true });
+			harness.cleanup();
 		}
 	});
 });
