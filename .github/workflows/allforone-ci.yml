@@ -47,8 +47,26 @@ jobs:
       - name: Verify generated build output
         run: node scripts/check-clean-worktree.mjs --allow-build-generated
 
-      - name: Check
-        run: npm run check
+      - name: Check formatting and lint
+        run: npx biome check --error-on-warnings .
+
+      - name: Check pinned dependencies
+        run: npm run check:pinned-deps
+
+      - name: Check TypeScript import extensions
+        run: npm run check:ts-imports
+
+      - name: Check shrinkwrap
+        run: npm run check:shrinkwrap
+
+      - name: Check coding-agent install lock
+        run: npm run check:install-lock:coding-agent
+
+      - name: Typecheck
+        run: npx tsgo --noEmit
+
+      - name: Browser smoke check
+        run: npm run check:browser-smoke
 
       - name: Test
         run: npm test
