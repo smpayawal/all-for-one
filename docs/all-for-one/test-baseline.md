@@ -2,35 +2,39 @@
 
 Date: 2026-07-17
 
-The current remaining-hardening section is authoritative for the focused fix branch. Historical evidence from the preceding hardening pass follows and is not evidence for the current implementation commit. An environment or build-artifact limitation is reported as a limitation, not converted into a pass.
+The current context/tool-hook fix section is authoritative for the focused fix branch. Historical evidence from the preceding hardening pass follows and is not evidence for the current implementation commit. An environment or build-artifact limitation is reported as a limitation, not converted into a pass.
 
-## Current remaining-hardening validation
+## Current context/tool-hook fix validation
 
 | Item | Result |
 | --- | --- |
-| working branch | `fix/remaining-audit-hardening` |
-| implementation commit | `74c6d0073f26563940a01a33890d453c47b37595` |
-| remote `allforone` head | `fc5533fc7a7d89f8cbde3d08bc66ceaf77c6e88d` |
-| remote `main` | `216e672e7c9fc65682553394b74e483c0c9e47f7` |
-| `main...implementation` | `0 46`; `main` is an ancestor |
-| exact-commit GitHub Actions run | none available; no green CI claim is made |
+| working branch | `smpayawal/fix-context-integrity-tool-hooks` |
+| base `allforone` commit | `b605e39438cf0c7b5f979c336632853c3074fe8c` |
+| base `main` commit | `216e672e7c9fc65682553394b74e483c0c9e47f7` |
+| `validatedImplementationCommit` | `31a7942a5662fe455ecc2a88d6a38b9bfa218d62` |
+| `validationEvidenceCommit` | `31a7942a5662fe455ecc2a88d6a38b9bfa218d62` |
+| `workflowTestedCommit` | `31a7942a5662fe455ecc2a88d6a38b9bfa218d62` |
+| `workflowRunId` | `29564566021` |
+| `main...validatedImplementationCommit` | `0 49`; `main` is an ancestor |
+| implementation worktree after catalog restoration | clean before this documentation follow-up |
 
 | Command or suite | Result | Classification |
 | --- | --- | --- |
 | `node --test scripts/check-clean-worktree.test.mjs` | 4 passed | generated-path allowlist regression coverage |
-| `npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/scoped-context.test.ts` | 14 passed | scoped lookup regression coverage |
-| `npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/agent-loop.test.ts` | 40 passed | untrusted `afterToolCall` regression coverage |
-| exact CI gate focused list | 21 files; 372 passed | pass under isolated temporary state |
-| exact CI platform-focused list | 10 files passed, 1 skipped; 187 passed, 2 skipped | pass under isolated temporary state |
-| exact agent runtime focused test | 1 file; 17 passed | pass under isolated temporary state |
-| `npm run check` | pass | repository gate |
-| `node --test scripts/check-upstream-relationship.test.mjs` | 3 passed | verifier regression coverage |
-| `node scripts/check-upstream-relationship.mjs --main origin/main --json` | pass; current `HEAD` is 46 commits ahead and 0 behind | read-only relationship check |
-| `npm test` with isolated temporary HOME/agent directory | exit 1; coding-agent workspace had 1,826 passed, 47 skipped, 3 failed | existing reftable timing case and two missing-`fd` cases; no changed-test failure |
-| `npm run build` | exit 1 before package compilation because model-catalog endpoints were unreachable | generated catalogs were restored; build remains network-blocked |
-| GitHub Actions status | unavailable from this environment; no run for `74c6d0073f26563940a01a33890d453c47b37595` | remote verification pending |
+| `npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/scoped-context.test.ts` | 15 passed | scoped lookup regression coverage |
+| `npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/agent-loop.test.ts` | 46 passed | explicit `afterToolCall.details` override coverage |
+| additional resource-loader regression suite | 27 passed | unreadable instruction-file diagnostics |
+| `npm run check` | pass; Biome checked 832 files and all repository checks completed | repository gate |
+| `node --test scripts/check-clean-worktree.test.mjs` | 4 passed | clean-worktree helper regression coverage |
+| `node scripts/check-upstream-relationship.mjs --main origin/main --json` | pass; `currentCommit` is `31a7942a5662fe455ecc2a88d6a38b9bfa218d62`, `ahead` 49, `behind` 0, `mainIsAncestor` true | read-only relationship check |
+| `npm test` | exit 1; agent-core 223 passed; coding-agent 180 passed, 38 failed, 6 skipped; 13 AI suites failed | host permission failures for auth/session paths and localhost/tsx IPC, three reftable timeouts, one user-scoped `.agents` expectation; not converted into a pass |
+| `npm run build` | exit 1; `models.dev`, `openrouter.ai`, and `ai-gateway.vercel.sh` failed DNS resolution, then generated provider modules were missing | generated catalogs were restored; build remains network-blocked locally |
+| All-For-One CI gate in run `29564566021` | passed on `workflowTestedCommit`; build, full test, clean-worktree, focused agent, focused All-For-One, diagnostics, and upstream steps passed | exact-commit Ubuntu gate |
+| `platform-focused (ubuntu-latest)` in run `29564566021` | passed on `workflowTestedCommit` | exact-commit Ubuntu focused job |
+| `platform-focused (macos-latest)` in run `29564566021` | passed on `workflowTestedCommit` | exact-commit macOS focused job |
+| `platform-focused (windows-latest)` in run `29564566021` | failed one `test/memory.test.ts` assertion; baseline run `29562303888` failed the same assertion before this branch | exact-commit Windows limitation; unrelated to changed files |
 
-The implementation commit was clean after generated catalog restoration. The historical remote run `29548893362` tested `allforone` commit `3258be547c5175043d9fabadace558e27c0f838a`, not the current remote head or `74c6d0073f26563940a01a33890d453c47b37595`.
+The implementation commit was clean after generated catalog restoration. The documentation commit that records this evidence is intentionally separate from `validatedImplementationCommit`; all commit and workflow references above are pinned.
 
 ## Historical prior-hardening baseline
 

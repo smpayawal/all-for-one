@@ -2,7 +2,18 @@
 
 The smallest relevant checks run first, followed by the repository gate and the requested full test command. A command is reported as pass, fail, or environment-limited; an environment failure is not converted into a pass.
 
-The current remaining-hardening implementation is commit `74c6d0073f26563940a01a33890d453c47b37595` on `fix/remaining-audit-hardening`, based on remote `allforone` `fc5533fc7a7d89f8cbde3d08bc66ceaf77c6e88d`. The exact commit has no available GitHub Actions run, so CI is not reported green. The historical run `29548893362` tested `3258be547c5175043d9fabadace558e27c0f838a` only.
+The current fix branch is `smpayawal/fix-context-integrity-tool-hooks`, created from `allforone` commit `b605e39438cf0c7b5f979c336632853c3074fe8c`.
+
+Validation is pinned to immutable commits and a workflow run:
+
+```text
+validatedImplementationCommit: 31a7942a5662fe455ecc2a88d6a38b9bfa218d62
+validationEvidenceCommit: 31a7942a5662fe455ecc2a88d6a38b9bfa218d62
+workflowTestedCommit: 31a7942a5662fe455ecc2a88d6a38b9bfa218d62
+workflowRunId: 29564566021
+```
+
+The local evidence was rerun after the implementation commit and before this documentation follow-up, so `validationEvidenceCommit` is intentionally the same immutable implementation SHA rather than a moving branch reference. The exact workflow run tested that SHA: the Ubuntu gate, Ubuntu focused, and macOS focused jobs passed; the Windows focused job failed on a pre-existing `test/memory.test.ts` assertion also present in baseline run `29562303888`. CI is therefore not reported green.
 
 Structural diagnostics:
 
@@ -26,6 +37,6 @@ The full `npm test` command is explicitly requested for this repository task, al
 
 The dedicated CI gate builds packages after `npm ci --ignore-scripts` before running the full test command so direct CLI tests resolve fresh workspace distributions. The normal build regenerates network-backed AI catalog sources, so CI first checks that only `packages/ai/src/models.generated.ts`, `packages/ai/src/image-models.generated.ts`, and direct `packages/ai/src/providers/*.models.ts` paths changed, restores only those paths, and then runs a strict clean-worktree assertion; handwritten provider modules, nested provider files, and other changes fail the gate. See the recorded artifact classification in [test-baseline.md](test-baseline.md).
 
-The current implementation has no exact-commit GitHub Actions result. A historical `allforone` run is retained only as dated evidence and does not establish CI status for the current remote head or implementation commit.
+The exact workflow result above is the only CI evidence for this implementation commit. No correctness, latency, token-savings, or cost claim is made from structural fixtures or from the partial platform result.
 
 Live paired task evaluation remains pending. No correctness, latency, token-savings, or cost claim is made from structural fixtures alone.
