@@ -90,7 +90,7 @@ Add two small bundled All-For-One themes through the native theme loader:
 
 Both themes use the existing theme schema and all required tokens. They introduce no runtime dependency.
 
-New installations may resolve to the matching All-For-One theme when no explicit theme is configured. Existing explicit theme selections remain untouched. The implementation must retain a documented setting or first-run choice that allows users to select Native Pi's themes immediately.
+A new All-For-One installation with no saved theme uses the existing terminal-background detection and selects the matching All-For-One theme. Existing explicit theme selections remain untouched. Native Pi's `dark` and `light` remain immediately available through `/settings`, settings files, and CLI theme loading.
 
 Theme requirements:
 
@@ -252,7 +252,7 @@ Do not add font, animation, panel-width, per-section visibility, or arbitrary CS
 ## Architecture placement
 
 - Theme JSON files: `packages/coding-agent/src/modes/interactive/theme/`
-- Theme loading and selection: existing theme controller and settings manager
+- Theme loading and selection: existing theme controller and first-run setup
 - Welcome and compact header: `packages/coding-agent/src/modes/interactive/components/brand-header.ts`
 - Rail rendering and responsive layout: `packages/coding-agent/src/modes/interactive/components/session-rail.ts`
 - Interactive composition only: `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
@@ -282,7 +282,7 @@ The UI/UX implementation is ready when:
 2. The welcome header does not permanently consume vertical space.
 3. The rail remains responsive, optional, and free of model or repository work.
 4. Empty rail sections are not rendered.
-5. Theme changes use the native schema and preserve Native Pi themes.
+5. Theme changes use the native schema, new installations use the matching All-For-One theme, and Native Pi themes remain available.
 6. All essential states remain understandable without color.
 7. Narrow terminal behavior is unchanged or improved.
 8. Print, RPC, and SDK modes receive no interactive-only layout state.
