@@ -86,9 +86,9 @@ describe("regression #3592: no-builtin-tools keeps extension tools enabled", () 
 		session.dispose();
 	});
 
-	it("activates the canonical built-in tools by default", async () => {
+	it("activates the native built-in profile by default", async () => {
 		const session = await createSession();
-		expect(session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write", "apply_patch", "dynamic_tool"]);
+		expect(session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write", "dynamic_tool"]);
 		session.dispose();
 	});
 
