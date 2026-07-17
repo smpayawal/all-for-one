@@ -781,7 +781,7 @@ export const OPENROUTER_MODELS = {
 		cost: {
 			input: 0.098,
 			output: 0.196,
-			cacheRead: 0.02,
+			cacheRead: 0.0196,
 			cacheWrite: 0,
 		},
 		contextWindow: 1048575,
@@ -1717,8 +1717,8 @@ export const OPENROUTER_MODELS = {
 		reasoning: false,
 		input: ["text"],
 		cost: {
-			input: 0.02,
-			output: 0.04,
+			input: 0.019,
+			output: 0.03,
 			cacheRead: 0,
 			cacheWrite: 0,
 		},
@@ -1939,7 +1939,7 @@ export const OPENROUTER_MODELS = {
 			cacheWrite: 0,
 		},
 		contextWindow: 1048576,
-		maxTokens: 4096,
+		maxTokens: 131072,
 	} satisfies Model<"openai-completions">,
 	"nex-agi/nex-n2-mini": {
 		id: "nex-agi/nex-n2-mini",
@@ -3463,13 +3463,13 @@ export const OPENROUTER_MODELS = {
 		reasoning: true,
 		input: ["text"],
 		cost: {
-			input: 0.1,
+			input: 0.12,
 			output: 0.24,
 			cacheRead: 0,
 			cacheWrite: 0,
 		},
 		contextWindow: 40960,
-		maxTokens: 40960,
+		maxTokens: 16384,
 	} satisfies Model<"openai-completions">,
 	"qwen/qwen3-235b-a22b": {
 		id: "qwen/qwen3-235b-a22b",
@@ -4706,9 +4706,9 @@ export const OPENROUTER_MODELS = {
 		thinkingLevelMap: {"xhigh":"xhigh"},
 		input: ["text"],
 		cost: {
-			input: 0.9338,
-			output: 2.9348,
-			cacheRead: 0.17342,
+			input: 0.9086,
+			output: 2.8556,
+			cacheRead: 0.16874,
 			cacheWrite: 0,
 		},
 		contextWindow: 1048576,
@@ -4856,7 +4856,7 @@ export const OPENROUTER_MODELS = {
 			cacheWrite: 0,
 		},
 		contextWindow: 1048576,
-		maxTokens: 4096,
+		maxTokens: 131072,
 	} satisfies Model<"openai-completions">,
 	"~openai/gpt-latest": {
 		id: "~openai/gpt-latest",
