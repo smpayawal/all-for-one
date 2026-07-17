@@ -11,8 +11,8 @@ upstream Pi -> main -> allforone -> focused branches
 ## Current architecture and plans
 
 - [Architecture](architecture.md) — package ownership, runtime boundaries, compatibility rules, and prohibited duplication.
-- [UI/UX design](ui-ux.md) — terminal-native visual and interaction improvements delivered as the first runtime workstream.
-- [Adaptive capabilities](adaptive-capabilities.md) — centralized coding-model behavior plus automatic skill, tool, and workflow selection without another orchestration layer.
+- [UI/UX design](ui-ux.md) — terminal-native visual and interaction improvements delivered as the first runtime workstream in P0.
+- [Adaptive capabilities](adaptive-capabilities.md) — the P1 centralized coding-model profile and P2 automatic skill, tool, and workflow selection without another orchestration layer.
 - [Implementation roadmap](implementation-roadmap.md) — the authoritative P0-P5 delivery plan, affected files, validation gates, and completion criteria.
 
 ## Authoritative roadmap
@@ -64,8 +64,8 @@ Every proposal and implementation must preserve these invariants:
 ## Documentation ownership
 
 - `architecture.md` owns stable package, runtime, compatibility, and subsystem ownership decisions.
-- `ui-ux.md` owns terminal presentation and interaction decisions.
-- `adaptive-capabilities.md` owns coding-model profiles and skill, tool, and workflow activation rules.
+- `ui-ux.md` owns P0 terminal presentation and interaction decisions.
+- `adaptive-capabilities.md` owns the P1 model profile and P2 skill, tool, and workflow activation rules.
 - `implementation-roadmap.md` owns the P0-P5 delivery order and implementation gates.
 
 Do not duplicate these decisions in new phase documents. Historical plans may remain for traceability, but these four documents are the current source of truth.
