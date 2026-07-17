@@ -6,7 +6,7 @@ Optional safety and integration features stay outside the normal session. They a
 
 Load packages/coding-agent/examples/extensions/safe-mode.ts with the extension flag when a session needs allow/ask/deny policy. It:
 
-- allows common read-only commands;
+- allows only a small exact set of read-only commands;
 - blocks destructive commands and shell-piped downloads;
 - protects credential-like paths such as .env, auth.json, keys, and secrets;
 - rejects mutation paths outside the workspace; and
@@ -18,7 +18,7 @@ This is authorization implemented through the existing tool_call hook. It is not
 
 Load packages/coding-agent/examples/extensions/code-intel.ts only when the project provides an adapter. Set PI_CODE_INTEL_COMMAND to the adapter executable and optionally PI_CODE_INTEL_ARGS to a JSON string array. Each request passes one JSON argument describing diagnostics, definition, references, or symbols. The adapter owns language-server discovery and must use a server already installed by the project.
 
-The extension starts no server, bundles no language server, performs no writes, limits returned output to 20,000 characters, and uses a ten-second request timeout. Each request is a short-lived process, which gives clean shutdown without a background daemon.
+The extension starts no server and bundles no language server. It exposes a read-only interface, but the configured adapter is trusted host code and may write unless it is separately sandboxed. Captured stdout and stderr are bounded, returned output is limited to 20,000 characters, and each request has a ten-second timeout. Each request is a short-lived process, which gives clean shutdown without a background daemon.
 
 ## External sandbox launch profiles
 

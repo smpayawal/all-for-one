@@ -59,6 +59,7 @@ export type {
 	EntryRenderOptions,
 	ExecOptions,
 	ExecResult,
+	ExecTermination,
 	Extension,
 	ExtensionActions,
 	// API

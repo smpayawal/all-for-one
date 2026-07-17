@@ -50,6 +50,22 @@ jobs:
       - name: Check
         run: npm run check
 
+      - name: Focused coding-agent feature tests
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
+          test/coding-model-profile.test.ts
+          test/sdk-tool-profile.test.ts
+          test/native-skills.test.ts
+          test/agent-session-model-extension.test.ts
+          test/safe-mode.test.ts
+          test/code-intel.test.ts
+          test/exec.test.ts
+          test/args.test.ts
+          test/settings-manager.test.ts
+          test/system-prompt.test.ts
+          test/tool-registry.test.ts
+          test/resource-loader.test.ts
+
       - name: Test
         run: npm test
 

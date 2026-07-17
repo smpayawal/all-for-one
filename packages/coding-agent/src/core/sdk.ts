@@ -8,6 +8,7 @@ import { formatNoModelsAvailableMessage } from "./auth-guidance.ts";
 import {
 	type CodingModelProfileOverride,
 	getToolNamesForProfile,
+	resolveActiveToolProfile,
 	resolveCodingModelProfile,
 	resolveToolProfile,
 	type ToolProfile,
@@ -68,8 +69,8 @@ export interface CreateAgentSessionOptions {
 	/**
 	 * Optional allowlist of tool names.
 	 *
-	 * When omitted, pi enables the default native built-in tools (read, bash, edit, write)
-	 * and leaves extension/custom tools enabled unless `noTools` changes that default.
+	 * When omitted, pi follows the automatic model profile, falling back to the native built-in tools
+	 * (read, bash, edit, write), and leaves extension/custom tools enabled unless `noTools` changes that default.
 	 * When provided, only the listed tool names are enabled.
 	 */
 	tools?: string[];
@@ -254,12 +255,16 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		explicit: options.codingModelProfile,
 		settings: settingsManager.getCodingModelProfiles(),
 	});
-	const toolProfile = resolveToolProfile({
+	const requestedToolProfile = resolveToolProfile({
 		explicit: options.toolProfile,
 		settings: settingsManager.getToolProfile(),
 		modelProfile: codingModelProfile,
 	});
-	const defaultActiveToolNames = getToolNamesForProfile(toolProfile);
+	const activeToolProfile = resolveActiveToolProfile({
+		requested: requestedToolProfile,
+		modelProfile: codingModelProfile,
+	});
+	const defaultActiveToolNames = getToolNamesForProfile(activeToolProfile);
 	const allowedToolNames = options.tools ?? (options.noTools === "all" ? [] : undefined);
 	const excludedToolNames = options.excludeTools;
 	const excludedToolNameSet = excludedToolNames ? new Set(excludedToolNames) : undefined;
@@ -402,6 +407,8 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		customTools: options.customTools,
 		modelRuntime,
 		initialActiveToolNames,
+		toolProfile: requestedToolProfile,
+		codingModelProfile: options.codingModelProfile,
 		allowedToolNames,
 		excludedToolNames,
 		extensionRunnerRef,

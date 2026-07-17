@@ -490,9 +490,9 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 Specify which built-in tools to enable:
 
 - Built-in tool names: `read`, `bash`, `edit`, `write`, `apply_patch`, `grep`, `find`, `ls`
-- Default built-ins: `read`, `bash`, `edit`, `write` (the native profile)
-- Tool profiles: `native`, `patch` (`apply_patch` instead of `edit`), and `full` (both mutation tools)
-- `toolProfile` selects a profile; `codingModelProfile` selects `mutationStrategy` and `toolExecution`
+- Default built-ins: `read`, `bash`, `edit`, `write` for the default model profile
+- Tool profiles: `auto` (follows the resolved model), `native`, `patch` (`apply_patch` instead of `edit`), and `full` (both mutation tools)
+- `toolProfile` selects automatic or fixed tool exposure; `codingModelProfile` selects `mutationStrategy` and `toolExecution`
 - `noTools: "all"` disables all tools
 - `noTools: "builtin"` disables default built-ins while keeping extension and custom tools enabled
 - `excludeTools` disables specific built-in, extension, or custom tool names after any `tools` allowlist is applied

@@ -14,11 +14,12 @@ The canonical registry remains one registry; profiles only choose its active bui
 
 | Profile | Active built-ins | Intended mutation strategy |
 |---------|------------------|----------------------------|
+| `auto` | Follows the resolved model profile | Model-keyed `edit` or `apply_patch` strategy |
 | `native` | `read`, `bash`, `edit`, `write` | Precise native edit operations |
 | `patch` | `read`, `bash`, `apply_patch`, `write` | Coherent multi-hunk or multi-file patches |
 | `full` | All five coding tools | Explicit compatibility/debugging choice |
 
-Use `--tool-profile` or the SDK `toolProfile` for an explicit profile. Use `--tools`/`tools` and `--exclude-tools`/`excludeTools` when an exact allowlist or denylist is required; those explicit selections win over the profile. `codingModelProfiles` settings provide model-keyed `mutationStrategy` and `toolExecution` overrides. Resolution order is explicit session override, matching user setting, catalog metadata when available, then the conservative native/parallel fallback. The current catalog has no coding-behavior metadata, so it does not add provider-specific rules.
+Use `--tool-profile` or the SDK `toolProfile` for an explicit profile. The default is `auto`, which follows the current model's resolved mutation strategy when the model changes. Use `--tools`/`tools` and `--exclude-tools`/`excludeTools` when an exact allowlist or denylist is required; those explicit selections win over the profile. `codingModelProfiles` settings provide model-keyed `mutationStrategy` and `toolExecution` overrides. Resolution order is explicit session override, matching user setting, catalog metadata when available, then the conservative native/parallel fallback. The current catalog has no coding-behavior metadata, so it does not add provider-specific rules; the resolver keeps a future catalog metadata seam.
 
 The system prompt describes only active mutation tools. `edit` is for precise replacements in one existing file, `write` is for a new file or deliberate full-file replacement, and `apply_patch` is for coherent multi-hunk or multi-file changes. The contract also requires inspection before edits, proportionate validation after code changes, and exact reporting of checks that actually ran.
 

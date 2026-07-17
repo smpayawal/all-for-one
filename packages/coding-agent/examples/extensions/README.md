@@ -39,7 +39,7 @@ cp permission-gate.ts ~/.pi/agent/extensions/
 | `dynamic-tools.ts` | Register tools after startup (`session_start`) and at runtime via command, with prompt snippets and tool-specific prompt guidelines |
 | `kimi-deferred-tools.ts` | Search for and progressively activate tools for Kimi's deferred-tool loading protocol |
 | `structured-output.ts` | Final structured-output tool that returns `terminate: true` so the agent can end on the tool call |
-| `code-intel.ts` | Optional read-only adapter for diagnostics, definitions, references, and symbols from an already-installed project tool |
+| `code-intel.ts` | Optional read-only interface for diagnostics, definitions, references, and symbols from an already-installed trusted project adapter; sandbox the adapter separately when needed |
 | `built-in-tool-renderer.ts` | Custom compact rendering for built-in tools (read, bash, edit, write, apply_patch) while keeping original behavior |
 | `minimal-mode.ts` | Override built-in tool rendering for minimal display (only tool calls, no output in collapsed mode) |
 | `truncated-tool.ts` | Wraps ripgrep with proper output truncation (50KB/2000 lines) |

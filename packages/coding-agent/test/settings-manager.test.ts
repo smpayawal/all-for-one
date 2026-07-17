@@ -43,6 +43,48 @@ describe("SettingsManager", () => {
 			manager.setCodingModelProfiles({ "*": { toolExecution: "parallel" } });
 			expect(manager.getToolProfile()).toBe("full");
 			expect(manager.getCodingModelProfiles()).toEqual({ "*": { toolExecution: "parallel" } });
+			expect(manager.drainErrors()).toEqual([]);
+		});
+
+		it("reports invalid profile fields without discarding the loaded settings", () => {
+			const manager = SettingsManager.inMemory({
+				toolProfile: "legacy" as never,
+				codingModelProfiles: {
+					"provider/model": {
+						mutationStrategy: "replace" as never,
+						toolExecution: "serial" as never,
+						unexpected: true,
+					} as never,
+				},
+			});
+
+			const errors = manager.drainErrors();
+			expect(errors).toHaveLength(4);
+			expect(errors.every((entry) => entry.scope === "global")).toBe(true);
+			expect(errors.map((entry) => entry.error.message)).toEqual([
+				'Invalid toolProfile setting "legacy". Valid values: auto, native, patch, full.',
+				'Invalid codingModelProfiles[provider/model].mutationStrategy "replace". Valid values: edit, apply_patch.',
+				'Invalid codingModelProfiles[provider/model].toolExecution "serial". Valid values: sequential, parallel.',
+				'Unknown codingModelProfiles[provider/model] field "unexpected".',
+			]);
+			expect(manager.getToolProfile()).toBeUndefined();
+			expect(manager.getCodingModelProfiles()).toEqual({
+				"provider/model": {
+					mutationStrategy: "replace",
+					toolExecution: "serial",
+					unexpected: true,
+				},
+			});
+		});
+
+		it("bounds invalid profile diagnostics", () => {
+			const codingModelProfiles: Record<string, never> = {};
+			for (let index = 0; index < 100; index++) {
+				codingModelProfiles[`model-${index}`] = "invalid" as never;
+			}
+
+			const manager = SettingsManager.inMemory({ codingModelProfiles: codingModelProfiles as never });
+			expect(manager.drainErrors()).toHaveLength(32);
 		});
 	});
 

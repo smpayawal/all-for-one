@@ -1,7 +1,8 @@
 import type { ToolExecutionMode } from "@earendil-works/pi-agent-core";
 
 export type MutationStrategy = "edit" | "apply_patch";
-export type ToolProfile = "native" | "patch" | "full";
+export type ToolProfile = "auto" | "native" | "patch" | "full";
+export type FixedToolProfile = Exclude<ToolProfile, "auto">;
 
 export interface CodingModelProfile {
 	mutationStrategy: MutationStrategy;
@@ -20,7 +21,7 @@ export const DEFAULT_CODING_MODEL_PROFILE: CodingModelProfile = {
 	toolExecution: "parallel",
 };
 
-const TOOL_PROFILE_TOOL_NAMES: Record<ToolProfile, readonly string[]> = {
+const TOOL_PROFILE_TOOL_NAMES: Record<FixedToolProfile, readonly string[]> = {
 	native: ["read", "bash", "edit", "write"],
 	patch: ["read", "bash", "apply_patch", "write"],
 	full: ["read", "bash", "edit", "write", "apply_patch"],
@@ -35,14 +36,14 @@ export function isToolExecutionMode(value: unknown): value is ToolExecutionMode 
 }
 
 export function isToolProfile(value: unknown): value is ToolProfile {
-	return value === "native" || value === "patch" || value === "full";
+	return value === "auto" || value === "native" || value === "patch" || value === "full";
 }
 
-export function getToolNamesForProfile(profile: ToolProfile): string[] {
+export function getToolNamesForProfile(profile: FixedToolProfile): string[] {
 	return [...TOOL_PROFILE_TOOL_NAMES[profile]];
 }
 
-export function toolProfileForMutationStrategy(strategy: MutationStrategy): Exclude<ToolProfile, "full"> {
+export function toolProfileForMutationStrategy(strategy: MutationStrategy): Exclude<FixedToolProfile, "full"> {
 	return strategy === "apply_patch" ? "patch" : "native";
 }
 
@@ -133,5 +134,14 @@ export function resolveToolProfile(options: {
 	if (isToolProfile(options.settings)) {
 		return options.settings;
 	}
-	return toolProfileForMutationStrategy(options.modelProfile.mutationStrategy);
+	return "auto";
+}
+
+export function resolveActiveToolProfile(options: {
+	requested: ToolProfile;
+	modelProfile: CodingModelProfile;
+}): FixedToolProfile {
+	return options.requested === "auto"
+		? toolProfileForMutationStrategy(options.modelProfile.mutationStrategy)
+		: options.requested;
 }

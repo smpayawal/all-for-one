@@ -143,7 +143,7 @@ export function parseArgs(args: string[]): Args {
 			} else {
 				result.diagnostics.push({
 					type: "warning",
-					message: `Invalid tool profile "${profile}". Valid values: native, patch, full`,
+					message: `Invalid tool profile "${profile}". Valid values: auto, native, patch, full`,
 				});
 			}
 		} else if (arg === "--mutation-strategy" && i + 1 < args.length) {
@@ -245,6 +245,17 @@ export function parseArgs(args: string[]): Args {
 		}
 	}
 
+	const requestedMutationStrategy = result.codingModelProfile?.mutationStrategy;
+	if (
+		(requestedMutationStrategy === "apply_patch" && result.toolProfile === "native") ||
+		(requestedMutationStrategy === "edit" && result.toolProfile === "patch")
+	) {
+		result.diagnostics.push({
+			type: "warning",
+			message: `--tool-profile ${result.toolProfile} overrides --mutation-strategy ${requestedMutationStrategy}; use --tool-profile auto to follow the model strategy`,
+		});
+	}
+
 	return result;
 }
 
@@ -297,7 +308,7 @@ ${chalk.bold("Options:")}
                                  Applies to built-in, extension, and custom tools
   --exclude-tools, -xt <tools>   Comma-separated denylist of tool names to disable
                                  Applies to built-in, extension, and custom tools
-  --tool-profile, -tp <profile>  Built-in mutation profile: native, patch, or full
+  --tool-profile, -tp <profile>  Built-in mutation profile: auto, native, patch, or full
   --mutation-strategy <strategy> Coding strategy: edit or apply_patch
   --tool-execution <mode>        Tool scheduling: sequential or parallel
   --thinking <level>             Set thinking level: off, minimal, low, medium, high, xhigh, max

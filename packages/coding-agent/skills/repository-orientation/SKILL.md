@@ -1,6 +1,6 @@
 ---
 name: repository-orientation
-description: Build a bounded repository map before making a non-trivial change.
+description: Identify relevant repository boundaries before making a non-trivial change.
 ---
 
 # Repository orientation

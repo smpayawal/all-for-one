@@ -6,7 +6,13 @@ import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
-import { type CodingModelProfileOverride, isToolProfile, type ToolProfile } from "./coding-model-profile.ts";
+import {
+	type CodingModelProfileOverride,
+	isMutationStrategy,
+	isToolExecutionMode,
+	isToolProfile,
+	type ToolProfile,
+} from "./coding-model-profile.ts";
 import {
 	type ExecutionIntegrityMode,
 	type ExecutionIntegritySettings,
@@ -206,6 +212,60 @@ export interface SettingsError {
 	error: Error;
 }
 
+const MAX_SETTINGS_ERRORS = 64;
+const MAX_PROFILE_VALIDATION_ERRORS_PER_SCOPE = 32;
+
+function describeSettingValue(value: unknown): string {
+	const text = typeof value === "string" ? value : String(value);
+	return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+}
+
+function validateCodingProfileSettings(settings: Settings): string[] {
+	const rawSettings = settings as Record<string, unknown>;
+	const issues: string[] = [];
+	const addIssue = (message: string): void => {
+		if (issues.length < MAX_PROFILE_VALIDATION_ERRORS_PER_SCOPE) issues.push(message);
+	};
+
+	if (rawSettings.toolProfile !== undefined && !isToolProfile(rawSettings.toolProfile)) {
+		addIssue(
+			`Invalid toolProfile setting "${describeSettingValue(rawSettings.toolProfile)}". Valid values: auto, native, patch, full.`,
+		);
+	}
+
+	const profiles = rawSettings.codingModelProfiles;
+	if (profiles === undefined) return issues;
+	if (typeof profiles !== "object" || profiles === null || Array.isArray(profiles)) {
+		addIssue("Invalid codingModelProfiles setting. Expected an object keyed by model, provider, or *.");
+		return issues;
+	}
+
+	for (const [key, value] of Object.entries(profiles)) {
+		if (typeof value !== "object" || value === null || Array.isArray(value)) {
+			addIssue(`Invalid codingModelProfiles[${key}] setting. Expected an object.`);
+			continue;
+		}
+		const profile = value as Record<string, unknown>;
+		if (profile.mutationStrategy !== undefined && !isMutationStrategy(profile.mutationStrategy)) {
+			addIssue(
+				`Invalid codingModelProfiles[${key}].mutationStrategy "${describeSettingValue(profile.mutationStrategy)}". Valid values: edit, apply_patch.`,
+			);
+		}
+		if (profile.toolExecution !== undefined && !isToolExecutionMode(profile.toolExecution)) {
+			addIssue(
+				`Invalid codingModelProfiles[${key}].toolExecution "${describeSettingValue(profile.toolExecution)}". Valid values: sequential, parallel.`,
+			);
+		}
+		for (const field of Object.keys(profile)) {
+			if (field !== "mutationStrategy" && field !== "toolExecution") {
+				addIssue(`Unknown codingModelProfiles[${key}] field "${field}".`);
+			}
+		}
+	}
+
+	return issues;
+}
+
 export class FileSettingsStorage implements SettingsStorage {
 	private globalSettingsPath: string;
 	private projectSettingsPath: string;
@@ -342,11 +402,22 @@ export class SettingsManager {
 		const globalLoad = SettingsManager.tryLoadFromStorage(storage, "global");
 		const projectLoad = SettingsManager.tryLoadFromStorage(storage, "project", projectTrusted);
 		const initialErrors: SettingsError[] = [];
+		const addInitialError = (scope: SettingsScope, error: unknown): void => {
+			if (initialErrors.length < MAX_SETTINGS_ERRORS) {
+				initialErrors.push({ scope, error: error instanceof Error ? error : new Error(String(error)) });
+			}
+		};
 		if (globalLoad.error) {
-			initialErrors.push({ scope: "global", error: globalLoad.error });
+			addInitialError("global", globalLoad.error);
 		}
 		if (projectLoad.error) {
-			initialErrors.push({ scope: "project", error: projectLoad.error });
+			addInitialError("project", projectLoad.error);
+		}
+		for (const message of validateCodingProfileSettings(globalLoad.settings)) {
+			addInitialError("global", message);
+		}
+		for (const message of validateCodingProfileSettings(projectLoad.settings)) {
+			addInitialError("project", message);
 		}
 
 		return new SettingsManager(
@@ -494,6 +565,9 @@ export class SettingsManager {
 		if (projectLoad.error) {
 			this.recordError("project", projectLoad.error);
 		}
+		for (const message of validateCodingProfileSettings(projectLoad.settings)) {
+			this.recordError("project", message);
+		}
 		this.settings = deepMergeSettings(this.globalSettings, this.projectSettings);
 	}
 
@@ -503,6 +577,9 @@ export class SettingsManager {
 		if (!globalLoad.error) {
 			this.globalSettings = globalLoad.settings;
 			this.globalSettingsLoadError = null;
+			for (const message of validateCodingProfileSettings(globalLoad.settings)) {
+				this.recordError("global", message);
+			}
 		} else {
 			this.globalSettingsLoadError = globalLoad.error;
 			this.recordError("global", globalLoad.error);
@@ -517,6 +594,9 @@ export class SettingsManager {
 		if (!projectLoad.error) {
 			this.projectSettings = projectLoad.settings;
 			this.projectSettingsLoadError = null;
+			for (const message of validateCodingProfileSettings(projectLoad.settings)) {
+				this.recordError("project", message);
+			}
 		} else {
 			this.projectSettingsLoadError = projectLoad.error;
 			this.recordError("project", projectLoad.error);
@@ -528,6 +608,9 @@ export class SettingsManager {
 	/** Apply additional overrides on top of current settings */
 	applyOverrides(overrides: Partial<Settings>): void {
 		this.settings = deepMergeSettings(this.settings, overrides);
+		for (const message of validateCodingProfileSettings(this.settings)) {
+			this.recordError("global", message);
+		}
 	}
 
 	/** Mark a global field as modified during this session */
@@ -559,6 +642,7 @@ export class SettingsManager {
 	}
 
 	private recordError(scope: SettingsScope, error: unknown): void {
+		if (this.errors.length >= MAX_SETTINGS_ERRORS) return;
 		const normalizedError = error instanceof Error ? error : new Error(String(error));
 		this.errors.push({ scope, error: normalizedError });
 	}

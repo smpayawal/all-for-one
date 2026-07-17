@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://pi.dev/schemas/coding-agent-settings.json",
   "title": "Pi coding-agent settings",
   "description": "Machine-readable definitions for the documented coding-agent settings. Additional properties are allowed for extensions and forward-compatible settings.",
   "type": "object",
@@ -12,8 +11,8 @@
       "enum": ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
     },
     "toolProfile": {
-      "enum": ["native", "patch", "full"],
-      "default": "native"
+      "enum": ["auto", "native", "patch", "full"],
+      "default": "auto"
     },
     "codingModelProfiles": {
       "type": "object",

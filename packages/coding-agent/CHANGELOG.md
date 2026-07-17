@@ -5,7 +5,8 @@
 ### Added
 
 - Added extension registration for complete pi-ai providers, including native authentication, model refresh, filtering, and streaming behavior.
-- Added native, patch, and full coding-tool profiles with explicit CLI/SDK overrides, model-keyed coding behavior settings, and five bundled repository/debugging/verification skills.
+- Added auto, native, patch, and full coding-tool profiles with explicit CLI/SDK overrides, model-keyed coding behavior settings, and five bundled repository/debugging/verification skills.
+- Added automatic model-profile refresh, bounded safe-mode and code-intelligence extension boundaries, settings diagnostics, and focused CI coverage for the All-For-One coding-agent features.
 
 ### Fixed
 
@@ -13,6 +14,8 @@
 - Fixed obsolete custom UI, custom tool, and custom editor examples in the extension documentation ([#6735](https://github.com/earendil-works/pi/issues/6735)).
 - Fixed Kimi Coding sessions to show API-equivalent implied costs with the subscription indicator.
 - Fixed OpenAI Responses early stream endings to trigger automatic retry instead of ending the agent run ([#6727](https://github.com/earendil-works/pi/issues/6727)).
+- Fixed extension command capture to bound retained output, preserve stdout and stderr diagnostics, and distinguish timeout, cancellation, signal, and normal exit results.
+- Fixed safe-mode authorization to reject shell composition and dangerous mutation forms, and to canonicalize workspace mutation paths through symlinks.
 
 ## [0.80.10] - 2026-07-16
 

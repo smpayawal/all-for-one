@@ -13,4 +13,4 @@ The main changes are:
 - in-memory compaction telemetry; and
 - generic offline baselines, doctors, evaluators, and an upstream relationship verifier.
 
-Optional behavior remains optional. Safe-mode authorization, read-only code-intelligence, external sandbox, and lazy MCP guidance live in [optional capabilities](optional-capabilities.md), not in the default harness. No validator agent, workflow engine, database, embedding system, automatic command runner, or semantic memory subsystem was added.
+Optional behavior remains optional. Safe-mode authorization, the read-only code-intelligence interface, external sandbox, and lazy MCP guidance live in [optional capabilities](optional-capabilities.md), not in the default harness. No validator agent, workflow engine, database, embedding system, automatic command runner, or semantic memory subsystem was added.

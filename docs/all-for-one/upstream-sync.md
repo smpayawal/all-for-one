@@ -3,10 +3,10 @@
 The branch model is intentionally simple:
 
 ```text
-upstream Pi  ->  main  ->  allforone
+upstream Pi  ->  main  ->  allforone  ->  focused branches and pull requests
 ```
 
-`main` is the local mirror of upstream Pi, and `allforone` is the permanent downstream integration/work branch. Do not create phase branches for ordinary All-For-One work, merge `allforone` into `main`, or rebase the published `allforone` branch. The read-only relationship check is:
+`main` is the local mirror of upstream Pi, and `allforone` is the permanent downstream integration branch. Feature, audit, and fix work should use focused branches based on `allforone` and pull requests targeting `allforone`; do not create numbered `phase/*` branches. Do not merge `allforone` into `main` or rebase the published `allforone` branch. The read-only relationship check is:
 
 ```bash
 node scripts/check-upstream-relationship.mjs --main origin/main --json

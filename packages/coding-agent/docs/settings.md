@@ -40,15 +40,15 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| toolProfile | string | "native" | Active built-in profile: "native", "patch", or "full" |
+| toolProfile | string | "auto" | Active built-in profile: "auto", "native", "patch", or "full". `auto` follows the resolved model's mutation strategy. |
 | codingModelProfiles | object | - | Model-keyed behavior overrides; keys may be "*", a provider, a model ID, or "provider/model" |
 
-Each codingModelProfiles value may set mutationStrategy to "edit" or "apply_patch" and toolExecution to "sequential" or "parallel". Explicit CLI/SDK overrides take precedence over settings, and an explicit tools allowlist takes precedence over the profile's active built-ins.
+Each codingModelProfiles value may set mutationStrategy to "edit" or "apply_patch" and toolExecution to "sequential" or "parallel". Explicit CLI/SDK overrides take precedence over settings, and an explicit tools allowlist takes precedence over the profile's active built-ins. The current model catalog does not provide behavior metadata; catalog adaptation remains an explicit future seam rather than a hardcoded provider table.
 
 Example:
 
 {
-  "toolProfile": "native",
+  "toolProfile": "auto",
   "codingModelProfiles": {
     "*": { "toolExecution": "parallel" },
     "provider/model-id": { "mutationStrategy": "apply_patch" }

@@ -407,11 +407,23 @@ describe("parseArgs", () => {
 			expect(result.diagnostics).toEqual([
 				{
 					type: "warning",
-					message: 'Invalid tool profile "unknown". Valid values: native, patch, full',
+					message: 'Invalid tool profile "unknown". Valid values: auto, native, patch, full',
 				},
 				{
 					type: "warning",
 					message: 'Invalid tool execution mode "serial". Valid values: sequential, parallel',
+				},
+			]);
+		});
+
+		test("diagnoses a fixed tool profile that conflicts with the mutation strategy", () => {
+			const result = parseArgs(["--tool-profile", "native", "--mutation-strategy", "apply_patch"]);
+
+			expect(result.diagnostics).toEqual([
+				{
+					type: "warning",
+					message:
+						"--tool-profile native overrides --mutation-strategy apply_patch; use --tool-profile auto to follow the model strategy",
 				},
 			]);
 		});

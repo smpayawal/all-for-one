@@ -31,11 +31,13 @@ export {
 	type CodingModelProfile,
 	type CodingModelProfileOverride,
 	DEFAULT_CODING_MODEL_PROFILE,
+	type FixedToolProfile,
 	getToolNamesForProfile,
 	isMutationStrategy,
 	isToolExecutionMode,
 	isToolProfile,
 	type MutationStrategy,
+	resolveActiveToolProfile,
 	resolveCodingModelProfile,
 	resolveToolProfile,
 	type ToolProfile,
@@ -120,6 +122,7 @@ export type {
 	EntryRenderOptions,
 	ExecOptions,
 	ExecResult,
+	ExecTermination,
 	Extension,
 	ExtensionActions,
 	ExtensionAPI,
@@ -407,6 +410,7 @@ export {
 	type WriteToolOptions,
 	withFileMutationQueue,
 } from "./core/tools/index.ts";
+export { type CanonicalPathInfo, resolveCanonicalPath } from "./core/tools/path-utils.ts";
 export {
 	hasTrustRequiringProjectResources,
 	type ProjectTrustDecision,

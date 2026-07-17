@@ -52,6 +52,13 @@ import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
+	type CodingModelProfileOverride,
+	getToolNamesForProfile,
+	resolveActiveToolProfile,
+	resolveCodingModelProfile,
+	type ToolProfile,
+} from "./coding-model-profile.ts";
+import {
 	assertCompactionResultValid,
 	type CompactionHealth,
 	type CompactionPreparation,
@@ -230,8 +237,12 @@ export interface AgentSessionConfig {
 	customTools?: ToolDefinition[];
 	/** Canonical model/auth runtime used by coding-agent internals. */
 	modelRuntime: ModelRuntime;
-	/** Initial active built-in tool names. Default native profile: [read, bash, edit, write]. */
+	/** Initial active built-in tool names. The automatic profile falls back to [read, bash, edit, write]. */
 	initialActiveToolNames?: string[];
+	/** Requested profile mode. Auto follows the current model; fixed profiles do not. */
+	toolProfile?: ToolProfile;
+	/** Explicit coding behavior override applied when resolving the current model profile. */
+	codingModelProfile?: CodingModelProfileOverride;
 	/** Optional allowlist of tool names. When provided, only these tool names are exposed. */
 	allowedToolNames?: string[];
 	/** Optional denylist of tool names. When provided, these tool names are not exposed. */
@@ -439,6 +450,7 @@ async function compactWithValidationAndRepair(
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
 const MAX_SESSION_LISTENER_ERRORS = 20;
 const MAX_SESSION_LISTENER_ERROR_CHARS = 500;
+const MUTATION_PROFILE_TOOL_NAMES = new Set(["edit", "apply_patch"]);
 
 // ============================================================================
 // AgentSession Class
@@ -498,6 +510,9 @@ export class AgentSession {
 	private _cwd: string;
 	private _extensionRunnerRef?: { current?: ExtensionRunner };
 	private _initialActiveToolNames?: string[];
+	private _requestedToolProfile: ToolProfile;
+	private _codingModelProfileOverride?: CodingModelProfileOverride;
+	private _automaticProfileEnabled: boolean;
 	private _allowedToolNames?: Set<string>;
 	private _excludedToolNames?: Set<string>;
 	private _baseToolsOverride?: Record<string, AgentTool>;
@@ -552,6 +567,14 @@ export class AgentSession {
 		this._modelRuntime = config.modelRuntime;
 		this._extensionRunnerRef = config.extensionRunnerRef;
 		this._initialActiveToolNames = config.initialActiveToolNames;
+		this._requestedToolProfile = config.toolProfile ?? "auto";
+		this._codingModelProfileOverride = config.codingModelProfile;
+		this._automaticProfileEnabled =
+			config.initialActiveToolNames === undefined ||
+			config.initialActiveToolNames.some(
+				(name) =>
+					name === "read" || name === "bash" || name === "edit" || name === "write" || name === "apply_patch",
+			);
 		this._allowedToolNames = config.allowedToolNames ? new Set(config.allowedToolNames) : undefined;
 		this._excludedToolNames = config.excludedToolNames ? new Set(config.excludedToolNames) : undefined;
 		this._baseToolsOverride = config.baseToolsOverride;
@@ -568,6 +591,9 @@ export class AgentSession {
 			activeToolNames: this._initialActiveToolNames,
 			includeAllExtensionTools: true,
 		});
+		if (this.model) {
+			this._refreshCodingProfileForModel(this.model);
+		}
 	}
 
 	get modelRuntime(): ModelRuntime {
@@ -1516,6 +1542,28 @@ export class AgentSession {
 		this.agent.state.systemPrompt = this._getEffectiveSystemPrompt();
 	}
 
+	private _refreshCodingProfileForModel(model: Model<any>): void {
+		const modelProfile = resolveCodingModelProfile({
+			model,
+			explicit: this._codingModelProfileOverride,
+			settings: this.settingsManager.getCodingModelProfiles(),
+		});
+		this.agent.toolExecution = modelProfile.toolExecution;
+
+		if (this._automaticProfileEnabled && !this._allowedToolNames) {
+			const activeToolProfile = resolveActiveToolProfile({
+				requested: this._requestedToolProfile,
+				modelProfile,
+			});
+			const preservedToolNames = this.getActiveToolNames().filter((name) => !MUTATION_PROFILE_TOOL_NAMES.has(name));
+			this._refreshToolRegistry({
+				activeToolNames: [...getToolNamesForProfile(activeToolProfile), ...preservedToolNames],
+			});
+		}
+
+		this._refreshSystemPromptForCurrentModel();
+	}
+
 	// =========================================================================
 	// Prompting
 	// =========================================================================
@@ -2070,7 +2118,7 @@ export class AgentSession {
 
 		// Re-clamp thinking level for new model's capabilities
 		this.setThinkingLevel(thinkingLevel);
-		this._refreshSystemPromptForCurrentModel();
+		this._refreshCodingProfileForModel(model);
 
 		await this._emitModelSelect(model, previousModel, "set");
 	}
@@ -2117,7 +2165,7 @@ export class AgentSession {
 		// - Undefined scoped model thinking level inherits the current session preference
 		// setThinkingLevel clamps to model capabilities.
 		this.setThinkingLevel(thinkingLevel);
-		this._refreshSystemPromptForCurrentModel();
+		this._refreshCodingProfileForModel(next.model);
 
 		await this._emitModelSelect(next.model, currentModel, "cycle");
 
@@ -2143,7 +2191,7 @@ export class AgentSession {
 
 		// Re-clamp thinking level for new model's capabilities
 		this.setThinkingLevel(thinkingLevel);
-		this._refreshSystemPromptForCurrentModel();
+		this._refreshCodingProfileForModel(nextModel);
 
 		await this._emitModelSelect(nextModel, currentModel, "cycle");
 
@@ -2841,7 +2889,7 @@ export class AgentSession {
 		}
 
 		this.agent.state.model = refreshedModel;
-		this._refreshSystemPromptForCurrentModel();
+		this._refreshCodingProfileForModel(refreshedModel);
 	}
 
 	private _bindExtensionCore(runner: ExtensionRunner): void {

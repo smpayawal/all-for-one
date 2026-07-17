@@ -1,6 +1,6 @@
 # Upstream maintenance classification
 
-The current `allforone` branch is `88` commits ahead of local `main` and `0` behind. The relationship check reports `main` as an ancestor of `allforone`; this audit does not merge, rebase, switch, or rewrite either branch.
+The relationship check reports `main` as an ancestor of `allforone`; use it for the current ahead/behind counts. This audit does not merge, rebase, switch, or rewrite either branch.
 
 ## Divergence classes
 
@@ -23,4 +23,4 @@ git diff --stat main...allforone
 git diff -- packages/agent packages/coding-agent/src/core/agent-session.ts
 ```
 
-The expected maintenance direction is `main -> allforone`. A sync review should classify new upstream conflicts by the table above, preserve the permanent branch model, and keep optional All-For-One behavior outside the shared agent loop wherever a coding-agent seam is sufficient.
+The expected maintenance direction is `main -> allforone -> focused branch/PR`. A sync review should classify new upstream conflicts by the table above, preserve the permanent integration branch, and keep optional All-For-One behavior outside the shared agent loop wherever a coding-agent seam is sufficient.
