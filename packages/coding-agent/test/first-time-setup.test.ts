@@ -73,11 +73,11 @@ describe("first-time setup analytics consent", () => {
 		let shareAnalytics: boolean | undefined;
 		const component = new FirstTimeSetupComponent({
 			detectedTheme: "dark",
-			onThemePreview: () => {},
+			onThemePreview: () => undefined,
 			onSubmit: (result) => {
 				shareAnalytics = result.shareAnalytics;
 			},
-			onCancel: () => {},
+			onCancel: () => undefined,
 		});
 
 		component.handleInput("\n");
