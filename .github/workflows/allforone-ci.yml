@@ -16,10 +16,101 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install platform tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Clean-worktree helper tests
+        run: node --test scripts/check-clean-worktree.test.mjs
+
+      - name: Verify generated build output
+        run: node scripts/check-clean-worktree.mjs --allow-build-generated
+
+      - name: Check
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Focused agent runtime tests
+        run: npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/execution-integrity.test.ts
+
+      - name: Focused All-For-One tests
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
+          test/args.test.ts
+          test/tool-registry.test.ts
+          test/agent-session-concurrent.test.ts
+          test/agent-session-runtime-events.test.ts
+          test/apply-patch-tool.test.ts
+          test/file-mutation-queue.test.ts
+          test/scoped-context.test.ts
+          test/compaction-health.test.ts
+          test/compaction-retention.test.ts
+          test/compaction-validation.test.ts
+          test/execution-integrity.test.ts
+          test/suite/lax-message-content.test.ts
+          test/skills.test.ts
+          test/memory.test.ts
+          test/settings-manager.test.ts
+          test/interactive-mode-status.test.ts
+          test/session-rail.test.ts
+          test/suite/agent-session-runtime.test.ts
+          test/suite/agent-session-bash-persistence.test.ts
+          test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts
+          test/suite/regressions/5109-exclude-tools.test.ts
+
+      - name: Offline diagnostics
+        run: |
+          npm run doctor:allforone -- --json
+          npm run baseline:allforone -- --json
+          npm run baseline:context -- --json
+          npm run baseline:execution -- --json
+          npm run evaluate:context -- --help
+          npm run evaluate:execution -- --help
+
+      - name: Upstream relationship
+        run: node scripts/check-upstream-relationship.mjs --main origin/main --json
+
+      - name: Restore generated catalogs after validation
+        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
+
+      - name: Verify clean worktree
+        run: node scripts/check-clean-worktree.mjs
+
+  platform-focused:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -30,15 +121,29 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Apply Biome to Kimi compatibility test
-        run: npx biome check --write packages/ai/test/kimi-coding-compat.test.ts
+      - name: Build packages
+        run: npm run build
 
-      - name: Upload formatted test
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: biome-formatted-kimi-test
-          path: packages/ai/test/kimi-coding-compat.test.ts
-          if-no-files-found: error
+      - name: Verify generated build output
+        run: node scripts/check-clean-worktree.mjs --allow-build-generated
 
-      - name: Require committed formatting
-        run: git diff --exit-code -- packages/ai/test/kimi-coding-compat.test.ts
+      - name: Platform-sensitive focused tests
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
+          test/apply-patch-tool.test.ts
+          test/file-mutation-queue.test.ts
+          test/memory.test.ts
+          test/scoped-context.test.ts
+          test/path-utils.test.ts
+          test/paths.test.ts
+          test/resolve-config-value.test.ts
+          test/settings-manager.test.ts
+          test/bash-close-hang-windows.test.ts
+          test/suite/agent-session-bash-persistence.test.ts
+          test/validation-commands.test.ts
+
+      - name: Restore generated catalogs after validation
+        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
+
+      - name: Verify clean worktree
+        run: node scripts/check-clean-worktree.mjs
