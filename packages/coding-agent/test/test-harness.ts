@@ -330,7 +330,7 @@ export interface HarnessOptions {
 	systemPrompt?: string;
 	/** Custom tools to register on the agent. */
 	tools?: AgentTool[];
-	/** Base tools override (replaces built-in read/bash/edit/write). */
+	/** Base tools override (replaces built-in read/bash/edit/write/apply_patch). */
 	baseToolsOverride?: Record<string, AgentTool>;
 	/** Optional resource loader override. */
 	resourceLoader?: ResourceLoader;

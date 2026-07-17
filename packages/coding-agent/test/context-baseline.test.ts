@@ -14,8 +14,8 @@ describe("Context context-integrity baseline", () => {
 			"large-evidence",
 			"interrupted-continuation",
 		]);
-		expect(report.schemaVersion).toBe(1);
-		expect(report.phase).toBe("context");
+		expect(report.schemaVersion).toBe(2);
+		expect(report.capability).toBe("context-integrity");
 		expect(report.environment.resourceLoading).toBe("offline-read-only");
 		expect(report.environment.productionPolicyChanged).toBe(false);
 		expect(report.scenarios.map((scenario) => scenario.id)).toEqual(CONTEXT_SCENARIO_IDS);

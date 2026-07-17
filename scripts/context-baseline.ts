@@ -59,8 +59,8 @@ export interface ContextScenarioReport {
 }
 
 export interface ContextBaselineReport {
-	schemaVersion: 1;
-	phase: "context";
+	schemaVersion: 2;
+	capability: "context-integrity";
 	title: "Context integrity and compaction baseline";
 	evaluationPlan: ReadonlyArray<AllForOneBaselineTaskCategory>;
 	environment: {
@@ -576,8 +576,8 @@ function collectInterruptedContinuation(): ContextScenarioReport {
 export function collectContextBaseline(options: ContextBaselineOptions): ContextBaselineReport {
 	const cwd = resolve(options.cwd);
 	return {
-		schemaVersion: 1,
-		phase: "context",
+		schemaVersion: 2,
+		capability: "context-integrity",
 		title: "Context integrity and compaction baseline",
 		evaluationPlan: ALLFORONE_BASELINE_TASK_CATEGORIES,
 		environment: {
@@ -631,7 +631,7 @@ function parseArguments(argv: string[]): { cwd: string; json: boolean; help: boo
 
 function printHumanReport(report: ContextBaselineReport): string {
 	const lines = [
-		`${report.phase}: ${report.title}`,
+		`${report.capability}: ${report.title}`,
 		`Fixture mode: ${report.environment.resourceLoading}; production policy changed: ${report.environment.productionPolicyChanged}`,
 	];
 	for (const scenario of report.scenarios) {

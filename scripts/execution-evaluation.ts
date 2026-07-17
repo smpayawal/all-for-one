@@ -2,8 +2,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export const EXECUTION_EVALUATION_SCHEMA_VERSION = 1 as const;
-export const EXECUTION_EVALUATION_PHASE = "execution-live-evaluation" as const;
+export const EXECUTION_EVALUATION_SCHEMA_VERSION = 2 as const;
+export const EXECUTION_EVALUATION_TYPE = "execution-integrity" as const;
+const LEGACY_EXECUTION_EVALUATION_SCHEMA_VERSION = 1;
+const LEGACY_EXECUTION_EVALUATION_PHASE = "execution-live-evaluation";
 const MAX_EXECUTION_EVALUATION_RUNS = 256;
 const MAX_EXECUTION_EVALUATION_LIMITATIONS = 32;
 
@@ -56,7 +58,7 @@ export interface ExecutionEvaluationRun {
 
 export interface ExecutionEvaluationInput {
 	schemaVersion: typeof EXECUTION_EVALUATION_SCHEMA_VERSION;
-	phase: typeof EXECUTION_EVALUATION_PHASE;
+	evaluationType: typeof EXECUTION_EVALUATION_TYPE;
 	variant: ExecutionEvaluationVariant;
 	runs: ExecutionEvaluationRun[];
 }
@@ -97,7 +99,7 @@ export interface ExecutionEvaluationPair {
 
 export interface ExecutionEvaluationReport {
 	schemaVersion: typeof EXECUTION_EVALUATION_SCHEMA_VERSION;
-	phase: typeof EXECUTION_EVALUATION_PHASE;
+	evaluationType: typeof EXECUTION_EVALUATION_TYPE;
 	baselineVariant: "baseline";
 	executionVariant: "execution";
 	pairs: ExecutionEvaluationPair[];
@@ -274,10 +276,16 @@ function parseRun(value: unknown, index: number, expectedVariant: ExecutionEvalu
 
 export function parseExecutionEvaluationInput(value: unknown): ExecutionEvaluationInput {
 	if (!isRecord(value)) throw new Error("Execution evaluation input must be an object");
-	if (value.schemaVersion !== EXECUTION_EVALUATION_SCHEMA_VERSION) {
-		throw new Error(`schemaVersion must be ${EXECUTION_EVALUATION_SCHEMA_VERSION}`);
+	const isCurrentSchema =
+		value.schemaVersion === EXECUTION_EVALUATION_SCHEMA_VERSION && value.evaluationType === EXECUTION_EVALUATION_TYPE;
+	const isLegacySchema =
+		value.schemaVersion === LEGACY_EXECUTION_EVALUATION_SCHEMA_VERSION && value.phase === LEGACY_EXECUTION_EVALUATION_PHASE;
+	if (!isCurrentSchema && !isLegacySchema) {
+		if (value.schemaVersion !== EXECUTION_EVALUATION_SCHEMA_VERSION) {
+			throw new Error(`schemaVersion must be ${EXECUTION_EVALUATION_SCHEMA_VERSION}`);
+		}
+		throw new Error(`evaluationType must be ${EXECUTION_EVALUATION_TYPE}`);
 	}
-	if (value.phase !== EXECUTION_EVALUATION_PHASE) throw new Error(`phase must be ${EXECUTION_EVALUATION_PHASE}`);
 	const variant = value.variant;
 	if (variant !== "baseline" && variant !== "execution") {
 		throw new Error("variant must be baseline or execution");
@@ -295,7 +303,7 @@ export function parseExecutionEvaluationInput(value: unknown): ExecutionEvaluati
 	}
 	return {
 		schemaVersion: EXECUTION_EVALUATION_SCHEMA_VERSION,
-		phase: EXECUTION_EVALUATION_PHASE,
+		evaluationType: EXECUTION_EVALUATION_TYPE,
 		variant,
 		runs,
 	};
@@ -443,7 +451,7 @@ export function compareExecutionEvaluationRuns(
 
 	return {
 		schemaVersion: EXECUTION_EVALUATION_SCHEMA_VERSION,
-		phase: EXECUTION_EVALUATION_PHASE,
+		evaluationType: EXECUTION_EVALUATION_TYPE,
 		baselineVariant: "baseline",
 		executionVariant: "execution",
 		pairs,
@@ -503,7 +511,7 @@ function loadInput(path: string, expectedVariant: ExecutionEvaluationVariant): E
 
 function printHumanReport(report: ExecutionEvaluationReport): string {
 	const lines = [
-		`${report.phase}: decision=${report.decision}, efficiencyClaim=${report.efficiencyClaim}, pairs=${report.pairs.length}`,
+		`${report.evaluationType}: decision=${report.decision}, efficiencyClaim=${report.efficiencyClaim}, pairs=${report.pairs.length}`,
 	];
 	for (const pair of report.pairs) {
 		lines.push(

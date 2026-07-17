@@ -5,9 +5,6 @@ on:
     branches: [allforone]
   push:
     branches: [allforone]
-  workflow_dispatch:
-  schedule:
-    - cron: "17 3 * * 6"
 
 permissions:
   contents: read
@@ -19,6 +16,7 @@ concurrency:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -37,14 +35,17 @@ jobs:
           sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
           sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
 
-      - name: Prepare main comparison ref
-        run: git branch --force main origin/main
-
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
       - name: Build packages
         run: npm run build
+
+      - name: Verify generated build output
+        run: node scripts/check-clean-worktree.mjs --allow-build-generated
+
+      - name: Restore generated catalogs after build
+        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts packages/ai/src/providers
 
       - name: Check
         run: npm run check
@@ -90,7 +91,10 @@ jobs:
           npm run evaluate:execution -- --help
 
       - name: Upstream relationship
-        run: node scripts/check-upstream-relationship.mjs --json
+        run: node scripts/check-upstream-relationship.mjs --main origin/main --json
+
+      - name: Verify clean worktree
+        run: node scripts/check-clean-worktree.mjs
 
   platform-focused:
     strategy:
@@ -98,6 +102,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -116,6 +121,12 @@ jobs:
       - name: Build packages
         run: npm run build
 
+      - name: Verify generated build output
+        run: node scripts/check-clean-worktree.mjs --allow-build-generated
+
+      - name: Restore generated catalogs after build
+        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts packages/ai/src/providers
+
       - name: Platform-sensitive focused tests
         run: >-
           npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
@@ -130,3 +141,6 @@ jobs:
           test/bash-close-hang-windows.test.ts
           test/suite/agent-session-bash-persistence.test.ts
           test/validation-commands.test.ts
+
+      - name: Verify clean worktree
+        run: node scripts/check-clean-worktree.mjs

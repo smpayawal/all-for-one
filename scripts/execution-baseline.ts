@@ -47,8 +47,8 @@ export interface ExecutionScenarioReport {
 }
 
 export interface ExecutionBaselineReport {
-	schemaVersion: 1;
-	phase: "execution";
+	schemaVersion: 2;
+	capability: "execution-integrity";
 	title: "Execution integrity and adaptive validation baseline";
 	settings: {
 		mode: "enforce";
@@ -303,8 +303,8 @@ function boundedRecords(cwd: string): ExecutionScenarioReport {
 export function collectExecutionBaseline(options: ExecutionBaselineOptions): ExecutionBaselineReport {
 	const cwd = resolve(options.cwd);
 	return {
-		schemaVersion: 1,
-		phase: "execution",
+		schemaVersion: 2,
+		capability: "execution-integrity",
 		title: "Execution integrity and adaptive validation baseline",
 		settings: SETTINGS,
 		environment: {
@@ -360,7 +360,7 @@ function parseArguments(argv: string[]): { cwd: string; json: boolean; help: boo
 
 function printHumanReport(report: ExecutionBaselineReport): string {
 	const lines = [
-		`${report.phase}: ${report.title}`,
+		`${report.capability}: ${report.title}`,
 		`Fixture mode: ${report.environment.resourceLoading}; settings=${report.settings.mode}/${report.settings.maxContinuationAttempts}`,
 	];
 	for (const scenario of report.scenarios) {

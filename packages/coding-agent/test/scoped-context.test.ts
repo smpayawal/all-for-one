@@ -110,6 +110,92 @@ describe("ScopedContextTracker", () => {
 		);
 		expect(union.diagnostics.siblingConflicts).toHaveLength(1);
 		expect(union.warnings).toContainEqual(expect.stringContaining("Semantic conflicts are not inferred"));
+
+		const rootOnly = tracker.loadForToolCall("read", { path: "README.md" }, [
+			fixture.root,
+			fixture.frontendFile,
+			fixture.backendFile,
+		]);
+		expect(rootOnly.changed).toBe(true);
+		expect(rootOnly.diagnostics.activeScopes).toEqual([]);
+		expect(rootOnly.diagnostics.replacedScopes).toEqual(
+			[canonicalizePath(fixture.backend), canonicalizePath(fixture.frontend)].sort(),
+		);
+		expect(tracker.getFiles()).toEqual([]);
+	});
+
+	it("clears a nested scope when a later file resolves to root-only instructions", () => {
+		const fixture = createFixture();
+		const tracker = new ScopedContextTracker(fixture.cwd, fixture.resourceLoader);
+
+		tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
+		const rootOnly = tracker.loadForToolCall("read", { path: "README.md" }, [fixture.root, fixture.frontendFile]);
+
+		expect(rootOnly.changed).toBe(true);
+		expect(rootOnly.addedFiles).toEqual([]);
+		expect(rootOnly.diagnostics.activeScopes).toEqual([]);
+		expect(rootOnly.diagnostics.replacedScopes).toEqual([canonicalizePath(fixture.frontend)]);
+		expect(tracker.getFiles()).toEqual([]);
+	});
+
+	it("clears nested scopes for a directory without nested instructions", () => {
+		const fixture = createFixture();
+		const tracker = new ScopedContextTracker(fixture.cwd, fixture.resourceLoader);
+
+		tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
+		const directoryOnly = tracker.loadForToolCall("ls", { path: "docs" }, [fixture.root, fixture.frontendFile]);
+
+		expect(directoryOnly.changed).toBe(true);
+		expect(directoryOnly.diagnostics.replacedScopes).toEqual([canonicalizePath(fixture.frontend)]);
+		expect(tracker.getFiles()).toEqual([]);
+	});
+
+	it("clears a nested scope when the target only resolves to duplicate root instructions", () => {
+		const fixture = createFixture();
+		const duplicateRoot = { path: join(fixture.cwd, "duplicate-root", "AGENTS.md"), content: fixture.root.content };
+		const loader = {
+			getAgentsFilesForPath(targetPath: string) {
+				return {
+					agentsFiles: targetPath.includes("frontend")
+						? [fixture.root, fixture.frontendFile]
+						: [fixture.root, duplicateRoot],
+					diagnostics: {
+						discoveredCount: 2,
+						activeCount: 2,
+						totalChars: 0,
+						totalBytes: 0,
+						duplicatePathCount: 0,
+						duplicateContentCount: 1,
+						duplicatePaths: [],
+						duplicateContentPaths: [],
+						warnings: ["duplicate root instructions"],
+					},
+				};
+			},
+		} as unknown as ResourceLoader;
+		const tracker = new ScopedContextTracker(fixture.cwd, loader);
+
+		tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
+		const duplicateOnly = tracker.loadForToolCall("read", { path: "docs/guide.md" }, [
+			fixture.root,
+			fixture.frontendFile,
+		]);
+
+		expect(duplicateOnly.changed).toBe(true);
+		expect(duplicateOnly.diagnostics.replacedScopes).toEqual([canonicalizePath(fixture.frontend)]);
+		expect(tracker.getFiles()).toEqual([]);
+	});
+
+	it("does not rebuild effective context when a root-only lookup leaves no nested scope active", () => {
+		const fixture = createFixture();
+		const tracker = new ScopedContextTracker(fixture.cwd, fixture.resourceLoader);
+
+		const first = tracker.loadForToolCall("read", { path: "README.md" }, [fixture.root]);
+		const second = tracker.loadForToolCall("read", { path: "docs/guide.md" }, [fixture.root]);
+
+		expect(first.changed).toBe(false);
+		expect(second.changed).toBe(false);
+		expect(second.diagnostics.replacedScopes).toEqual([]);
 	});
 
 	it("deduplicates identical scoped content", () => {
@@ -183,6 +269,12 @@ describe("ScopedContextTracker", () => {
 
 		tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
 		expect(tracker.getFiles()).toHaveLength(1);
+		const outsideAfterScoped = tracker.loadForToolCall("read", { path: "outside/another.ts" }, [
+			fixture.root,
+			fixture.frontendFile,
+		]);
+		expect(outsideAfterScoped.changed).toBe(false);
+		expect(tracker.getFiles()).toEqual([fixture.frontendFile]);
 		tracker.reset();
 		expect(tracker.getFiles()).toEqual([]);
 		expect(tracker.getDiagnostics()).toEqual({

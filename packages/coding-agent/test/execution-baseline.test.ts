@@ -9,8 +9,8 @@ describe("Execution deterministic baseline", () => {
 	it("emits the required offline scenarios and schema", () => {
 		const report: ExecutionBaselineReport = collectExecutionBaseline({ cwd: process.cwd() });
 
-		expect(report.schemaVersion).toBe(1);
-		expect(report.phase).toBe("execution");
+		expect(report.schemaVersion).toBe(2);
+		expect(report.capability).toBe("execution-integrity");
 		expect(report.environment.resourceLoading).toBe("offline-deterministic-fixture");
 		expect(report.environment.productionPolicyChanged).toBe(false);
 		expect(report.settings).toEqual({ mode: "enforce", maxContinuationAttempts: 1 });

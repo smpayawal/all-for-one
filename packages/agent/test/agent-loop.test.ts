@@ -9,7 +9,14 @@ import {
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { agentLoop, agentLoopContinue } from "../src/agent-loop.ts";
-import type { AgentContext, AgentEvent, AgentLoopConfig, AgentMessage, AgentTool } from "../src/types.ts";
+import type {
+	AgentContext,
+	AgentEvent,
+	AgentLoopConfig,
+	AgentMessage,
+	AgentTool,
+	AgentToolResult,
+} from "../src/types.ts";
 
 // Mock stream for testing - mimics MockAssistantStream
 class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
@@ -81,6 +88,110 @@ function identityConverter(messages: AgentMessage[]): Message[] {
 }
 
 describe("agentLoop with AgentMessage", () => {
+	it.each([
+		["undefined content", undefined],
+		["null content", null],
+		["string content", "invalid content"],
+		["missing result", { details: {} }],
+	])("converts an extension tool's %s into an explicit error result", async (_label, invalidResult) => {
+		const tool: AgentTool = {
+			name: "invalid-tool",
+			label: "Invalid Tool",
+			description: "Returns an invalid result for lifecycle validation.",
+			parameters: Type.Object({}),
+			execute: async () => invalidResult as never,
+		};
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+		const hookResults: Array<{ content: unknown; isError: boolean }> = [];
+		const executionEnds: Array<{ result: unknown; isError: boolean }> = [];
+		let providerCalls = 0;
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: (messages) => {
+				const toolResult = messages.find((message) => message.role === "toolResult");
+				if (providerCalls > 1) expect(toolResult?.content).toEqual(expect.any(Array));
+				return messages.filter(
+					(message): message is Message =>
+						message.role === "user" || message.role === "assistant" || message.role === "toolResult",
+				);
+			},
+			afterToolCall: async ({ result, isError }) => {
+				hookResults.push({ content: result.content, isError });
+				return undefined;
+			},
+		};
+		const streamFn = () => {
+			providerCalls += 1;
+			const stream = new MockAssistantStream();
+			queueMicrotask(() => {
+				const message =
+					providerCalls === 1
+						? createAssistantMessage(
+								[{ type: "toolCall", id: "invalid-1", name: "invalid-tool", arguments: {} }],
+								"toolUse",
+							)
+						: createAssistantMessage([{ type: "text", text: "finished" }]);
+				stream.push({ type: "done", reason: providerCalls === 1 ? "toolUse" : "stop", message });
+			});
+			return stream;
+		};
+
+		const stream = agentLoop([createUserMessage("run the invalid tool")], context, config, undefined, streamFn);
+		const events: AgentEvent[] = [];
+		for await (const event of stream) {
+			events.push(event);
+			if (event.type === "tool_execution_end") executionEnds.push({ result: event.result, isError: event.isError });
+		}
+
+		const messages = await stream.result();
+		const toolResult = messages.find((message) => message.role === "toolResult");
+		const toolEnd = executionEnds[0];
+		const expectedText = "Tool returned an invalid result: content must be an array.";
+		expect(hookResults[0]).toMatchObject({ isError: true, content: [{ type: "text", text: expectedText }] });
+		expect(toolEnd).toMatchObject({ isError: true, result: { content: [{ type: "text", text: expectedText }] } });
+		expect(toolResult).toMatchObject({ isError: true, content: [{ type: "text", text: expectedText }] });
+		expect(events.at(-1)).toMatchObject({ type: "agent_end", termination: { reason: "completed" } });
+	});
+
+	it("preserves valid empty and normal tool result content", async () => {
+		const validResults: AgentToolResult<{ kind: string }>[] = [
+			{ content: [], details: { kind: "empty" } },
+			{ content: [{ type: "text", text: "valid" }], details: { kind: "normal" } },
+		];
+		for (const validResult of validResults) {
+			const tool: AgentTool = {
+				name: "valid-tool",
+				label: "Valid Tool",
+				description: "Returns a valid result.",
+				parameters: Type.Object({}),
+				execute: async () => validResult,
+			};
+			const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+			let providerCalls = 0;
+			const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+			const streamFn = () => {
+				providerCalls += 1;
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					const message =
+						providerCalls === 1
+							? createAssistantMessage(
+									[{ type: "toolCall", id: "valid-1", name: "valid-tool", arguments: {} }],
+									"toolUse",
+								)
+							: createAssistantMessage([{ type: "text", text: "finished" }]);
+					stream.push({ type: "done", reason: providerCalls === 1 ? "toolUse" : "stop", message });
+				});
+				return stream;
+			};
+			const stream = agentLoop([createUserMessage("run the valid tool")], context, config, undefined, streamFn);
+			for await (const _event of stream) {
+				// consume
+			}
+			const toolResult = (await stream.result()).find((message) => message.role === "toolResult");
+			expect(toolResult).toMatchObject({ content: validResult.content, isError: false });
+		}
+	});
 	it.each([
 		{
 			name: "prepareNextTurn",

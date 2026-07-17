@@ -32,7 +32,7 @@ customToolsSession.dispose();
 const customCwd = "/path/to/project";
 const { session: customCwdSession } = await createAgentSession({
 	cwd: customCwd,
-	tools: ["read", "bash", "edit", "write"],
+	tools: ["read", "bash", "edit", "write", "apply_patch"],
 	sessionManager: SessionManager.inMemory(customCwd),
 });
 console.log("Custom cwd session created");

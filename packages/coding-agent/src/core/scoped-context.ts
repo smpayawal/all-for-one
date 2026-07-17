@@ -168,6 +168,8 @@ export class ScopedContextTracker {
 		const candidateFiles = new Map<string, { directory: string; file: ProjectContextFile }>();
 		const requestedDirectories = new Set<string>();
 		const addedWarnings: string[] = [];
+		let hasSuccessfulInProjectLookup = false;
+		let lookupHasNonBaseContent = false;
 
 		for (const rawPath of rawPaths) {
 			try {
@@ -176,6 +178,22 @@ export class ScopedContextTracker {
 					stripAtPrefix: true,
 				});
 				const result = getAgentsFilesForPath.call(this.resourceLoader, resolvedPath);
+				const isOutsideProject = result.diagnostics.warnings.some((warning) =>
+					/outside(?: the)? project root/i.test(warning),
+				);
+				if (isOutsideProject) {
+					for (const warning of result.diagnostics.warnings) this.addWarning(warning, addedWarnings);
+					continue;
+				}
+				hasSuccessfulInProjectLookup = true;
+				if (
+					result.agentsFiles.some((contextFile) => {
+						const canonicalPath = canonicalizePath(contextFile.path);
+						return !baseCanonicalPaths.has(canonicalPath) && !baseContents.has(contextFile.content);
+					})
+				) {
+					lookupHasNonBaseContent = true;
+				}
 				for (const contextFile of result.agentsFiles) {
 					const canonicalPath = canonicalizePath(contextFile.path);
 					const directory = dirname(canonicalPath);
@@ -202,18 +220,23 @@ export class ScopedContextTracker {
 			}
 		}
 
-		if (requestedDirectories.size === 0) {
+		const rootOnlyLookup =
+			requestedDirectories.size === 0 && hasSuccessfulInProjectLookup && !lookupHasNonBaseContent;
+		if (requestedDirectories.size === 0 && !rootOnlyLookup) {
 			return { addedFiles: [], warnings: addedWarnings, changed: false, diagnostics: this.getDiagnostics() };
 		}
 
 		const oldDirectories = [...this.scopeRecords.keys()];
-		const replacedScopes = oldDirectories.filter(
-			(oldDirectory) =>
-				!Array.from(requestedDirectories).some(
-					(requestedDirectory) =>
-						isWithinPath(oldDirectory, requestedDirectory) || isWithinPath(requestedDirectory, oldDirectory),
-				),
-		);
+		const replacedScopes = rootOnlyLookup
+			? oldDirectories
+			: oldDirectories.filter(
+					(oldDirectory) =>
+						!Array.from(requestedDirectories).some(
+							(requestedDirectory) =>
+								isWithinPath(oldDirectory, requestedDirectory) ||
+								isWithinPath(requestedDirectory, oldDirectory),
+						),
+				);
 		const nextRecords = new Map<string, ScopeRecord>();
 		for (const [directory, record] of this.scopeRecords) {
 			if (!replacedScopes.includes(directory)) nextRecords.set(directory, record);

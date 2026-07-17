@@ -10,7 +10,7 @@ npm run baseline:allforone -- --json
 npm run baseline:context -- --json
 npm run baseline:execution -- --json
 npm run doctor:allforone -- --json
-node scripts/check-upstream-relationship.mjs --json
+node scripts/check-upstream-relationship.mjs --main origin/main --json
 ```
 
 Focused tests use the package-local Vitest runner:
@@ -22,6 +22,8 @@ HOME=/private/tmp/afo-test-home node node_modules/vitest/dist/cli.js --run <focu
 
 The full `npm test` command is explicitly requested for this repository task, although the repository instructions normally prefer `./test.sh` or package-local focused tests. Its final result and failure classification belong in [test-baseline.md](test-baseline.md).
 
-The dedicated CI gate builds packages after `npm ci --ignore-scripts` before running the full test command so direct CLI tests resolve fresh workspace distributions. The local evidence in this report intentionally did not run the prohibited-by-default build command; see the recorded artifact classification in [test-baseline.md](test-baseline.md).
+The dedicated CI gate builds packages after `npm ci --ignore-scripts` before running the full test command so direct CLI tests resolve fresh workspace distributions. The normal build regenerates network-backed AI catalog sources, so CI first checks that only the explicit generated-path allowlist changed, restores those paths, and then runs a strict clean-worktree assertion; unexpected tracked changes still fail the gate. The build command was run locally because this task explicitly requested it and completed with network access. See the recorded artifact classification in [test-baseline.md](test-baseline.md).
+
+The committed HEAD `3258be547c5175043d9fabadace558e27c0f838a` passed GitHub Actions `All-For-One CI` run `29548893362`; its `gate` job and Ubuntu, macOS, and Windows platform-focused jobs completed successfully. The current hardening diff remains uncommitted and therefore still requires a clean remote CI run for final CI acceptance.
 
 Live paired task evaluation remains pending. No correctness, latency, token-savings, or cost claim is made from structural fixtures alone.

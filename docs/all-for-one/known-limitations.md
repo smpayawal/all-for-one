@@ -6,7 +6,7 @@ These are deliberate boundaries or unresolved risks, not claims that the reposit
 - The apply-patch path can detect concurrent changes and performs best-effort rollback, but a process crash or filesystem failure can still leave a partial patch.
 - Validation discovery and a passing validation command do not prove task correctness. Commands are never executed automatically by the validation prompt.
 - Execution-integrity enforcement is opt-in and remains default-off. Observe mode records evidence without silently turning it into a success claim.
-- Memory is local JSONL state. Existing malformed or oversized entries can be reported and omitted, but no repair or deletion is performed automatically.
+- Memory is local JSONL state. Existing malformed, oversized, or unreadable files can be reported and omitted for reads; mutations fail closed and no repair or deletion is performed automatically.
 - Secret scanning recognizes common credential forms only; it is not a complete detector for arbitrary secrets.
 - Scoped instructions are bounded and diagnostic, but semantic conflicts between instruction files are not inferred or automatically resolved.
 - Session-rail behavior is isolated to interactive mode. Print, RPC, and SDK modes do not receive an implicit rail.

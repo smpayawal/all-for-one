@@ -321,14 +321,6 @@ Skill instructions.
 		} as unknown as Parameters<NonNullable<typeof beforeToolCall>>[0]);
 		expect(repeatedWriteResult).toBeUndefined();
 
-		const rootWriteResult = await beforeToolCall?.({
-			toolCall: { id: "write-3", name: "write", arguments: { path: "root.txt" } },
-			args: { path: "root.txt" },
-			assistantMessage: {},
-			context: {},
-		} as unknown as Parameters<NonNullable<typeof beforeToolCall>>[0]);
-		expect(rootWriteResult).toBeUndefined();
-
 		const firstPatchResult = await beforeToolCall?.({
 			toolCall: {
 				id: "patch-1",
@@ -345,6 +337,17 @@ Skill instructions.
 		expect(session.getContextInfo().scopedContext.replacedScopes).toContain(
 			canonicalizePath(join(tempDir, "frontend")),
 		);
+
+		const rootWriteResult = await beforeToolCall?.({
+			toolCall: { id: "write-3", name: "write", arguments: { path: "root.txt" } },
+			args: { path: "root.txt" },
+			assistantMessage: {},
+			context: {},
+		} as unknown as Parameters<NonNullable<typeof beforeToolCall>>[0]);
+		expect(rootWriteResult).toBeUndefined();
+		expect(session.systemPrompt).toContain("Root project instructions.");
+		expect(session.systemPrompt).not.toContain("Frontend mutation instructions.");
+		expect(session.systemPrompt).not.toContain("Backend mutation instructions.");
 
 		session.dispose();
 	});

@@ -21,13 +21,19 @@ function createTestSkill(options: {
 	baseDir: string;
 	disableModelInvocation?: boolean;
 	source?: string;
+	scope?: "user" | "project" | "temporary";
+	origin?: "package" | "top-level";
 }): Skill {
 	return {
 		name: options.name,
 		description: options.description,
 		filePath: options.filePath,
 		baseDir: options.baseDir,
-		sourceInfo: createSyntheticSourceInfo(options.filePath, { source: options.source ?? "test" }),
+		sourceInfo: createSyntheticSourceInfo(options.filePath, {
+			source: options.source ?? "test",
+			scope: options.scope,
+			origin: options.origin,
+		}),
 		disableModelInvocation: options.disableModelInvocation ?? false,
 	};
 }
@@ -411,6 +417,103 @@ describe("skills", () => {
 			expect(result.diagnostics.duplicatePaths).toEqual(["/skills/shared/SKILL.md"]);
 			expect(result.prompt).toContain("same-path-one");
 			expect(result.prompt).not.toContain("same-path-two");
+		});
+
+		it.each([
+			[
+				"project over user",
+				{ scope: "project" as const, origin: "top-level" as const },
+				{ scope: "user" as const, origin: "top-level" as const },
+			],
+			[
+				"project over package",
+				{ scope: "project" as const, origin: "top-level" as const },
+				{ scope: "user" as const, origin: "package" as const },
+			],
+			[
+				"project over project-scoped package",
+				{ scope: "project" as const, origin: "top-level" as const },
+				{ scope: "project" as const, origin: "package" as const },
+			],
+			[
+				"user over package",
+				{ scope: "user" as const, origin: "top-level" as const },
+				{ scope: "user" as const, origin: "package" as const },
+			],
+			[
+				"explicit temporary over project",
+				{ scope: "temporary" as const, origin: "top-level" as const },
+				{ scope: "project" as const, origin: "top-level" as const },
+			],
+		])("keeps the higher-priority $0 skill when names collide", (_label, winner, loser) => {
+			const result = formatSkillsForPromptWithDiagnostics([
+				createTestSkill({
+					name: "collision-skill",
+					description: "Higher-priority skill.",
+					filePath: "/zzz/lower-alphabetical-path/SKILL.md",
+					baseDir: "/zzz/lower-alphabetical-path",
+					...winner,
+				}),
+				createTestSkill({
+					name: "collision-skill",
+					description: "Lower-priority skill.",
+					filePath: "/aaa/earlier-alphabetical-path/SKILL.md",
+					baseDir: "/aaa/earlier-alphabetical-path",
+					...loser,
+				}),
+			]);
+
+			expect(result.prompt).toContain("Higher-priority skill.");
+			expect(result.prompt).not.toContain("Lower-priority skill.");
+		});
+
+		it("uses canonical path as the deterministic tie-breaker within one priority", () => {
+			const result = formatSkillsForPromptWithDiagnostics([
+				createTestSkill({
+					name: "same-priority",
+					description: "Later path.",
+					filePath: "/zzz/skill/SKILL.md",
+					baseDir: "/zzz/skill",
+					scope: "project",
+				}),
+				createTestSkill({
+					name: "same-priority",
+					description: "Earlier path.",
+					filePath: "/aaa/skill/SKILL.md",
+					baseDir: "/aaa/skill",
+					scope: "project",
+				}),
+			]);
+
+			expect(result.prompt).toContain("Earlier path.");
+			expect(result.prompt).not.toContain("Later path.");
+		});
+
+		it("sorts by source priority before applying the metadata budget", () => {
+			const highPriority = createTestSkill({
+				name: "priority-skill",
+				description: "High-priority description. ".repeat(10),
+				filePath: "/project/priority/SKILL.md",
+				baseDir: "/project/priority",
+				scope: "project",
+			});
+			const result = formatSkillsForPromptWithDiagnostics(
+				[
+					highPriority,
+					createTestSkill({
+						name: "alpha-skill",
+						description: "Low-priority description. ".repeat(10),
+						filePath: "/user/alpha/SKILL.md",
+						baseDir: "/user/alpha",
+						scope: "user",
+						origin: "package",
+					}),
+				],
+				{ maxChars: 214 },
+			);
+
+			expect(result.prompt).toContain("priority-skill");
+			expect(result.prompt).not.toContain("alpha-skill");
 		});
 
 		it("fits metadata within a character budget and reports omitted skills", () => {

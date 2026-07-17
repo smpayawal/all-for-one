@@ -1,9 +1,10 @@
 /**
  * The Message types require `content` to always be present, but untyped JS
  * extension tools, hand-built histories, and old or hand-edited session files
- * can violate that contract. We are intentionally lax at the ingestion
- * boundaries and normalize null/missing content to an empty array so it never
- * reaches rendering, compaction, or provider request conversion
+ * can violate that contract. Message ingestion still normalizes null/missing
+ * content to an empty array, while malformed tool execution results fail
+ * closed with a bounded error result before rendering, compaction, or provider
+ * request conversion
  * (issues #6259, #6276).
  */
 
@@ -26,7 +27,7 @@ function messageEntry(message: Record<string, unknown>): SessionEntry {
 }
 
 describe("lax message content handling", () => {
-	it("normalizes tool results from untyped tools that omit content", async () => {
+	it("converts untyped tool results that omit content into bounded errors", async () => {
 		const extensionFactories: ExtensionFactory[] = [
 			(pi) => {
 				pi.registerTool({
@@ -51,7 +52,10 @@ describe("lax message content handling", () => {
 
 			const toolResults = harness.session.messages.filter((message) => message.role === "toolResult");
 			expect(toolResults).toHaveLength(1);
-			expect(toolResults[0].content).toEqual([]);
+			expect(toolResults[0]).toMatchObject({
+				isError: true,
+				content: [{ type: "text", text: "Tool returned an invalid result: content must be an array." }],
+			});
 			// The follow-up turn consumed the normalized tool result without crashing.
 			expect(harness.getPendingResponseCount()).toBe(0);
 		} finally {

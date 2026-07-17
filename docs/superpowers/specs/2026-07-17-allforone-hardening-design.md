@@ -12,18 +12,18 @@ The result must be evidence-backed. Structural checks, focused tests, live evalu
 
 ## Current evidence
 
-- The working branch is `allforone`.
-- Local `main` is `70c57632975c989f80a3a49c79ff43213f1f1dad`.
-- Local `allforone` is `c0de4aa88ef93c70a9e1729c5765d77c508f4edc`.
-- `main` is the merge base and is an ancestor of `allforone`; the local relationship is `0` behind and `39` ahead.
-- The current worktree contains staged execution-integrity/runtime changes and additional unstaged edits in `agent-session.ts` and its concurrency test. These changes are preserved as the starting baseline and are not overwritten blindly.
-- The baseline `npm test` command exited nonzero. The agent package reported 203 passing tests. Coding-agent failures included sandbox-restricted home-directory writes, network/listen restrictions, an extension-steering concurrency failure, and existing interactive/lax-message failures. These are not treated as code regressions until reproduced in an appropriate environment.
+- The audited integration branch is `allforone`; the focused implementation branch is `fix/post-audit-hardening`, created from it.
+- Local `main` is `216e672e7c9fc65682553394b74e483c0c9e47f7`.
+- Local `allforone` and the current branch tip are `3258be547c5175043d9fabadace558e27c0f838a`.
+- `main` is the merge base and is an ancestor of `allforone`; the local relationship is `0` behind and `42` ahead. `origin/HEAD` points to `origin/main`.
+- The current worktree contains only uncommitted changes from this hardening pass and preserves the integration branch; no commit, push, merge, rebase, or tag was performed.
+- The final focused matrix passed 9 coding-agent files/116 tests plus the 32-test agent-loop regression. The full workspace test command remains environment-limited; exact package counts and classifications are recorded in `docs/all-for-one/test-baseline.md`.
 
 ## Constraints and non-goals
 
 The implementation must:
 
-- Work only from `allforone`; never modify `main`, rebase the published branch, or create a `phase/*` branch.
+- Keep `main` and published `allforone` untouched during focused work; create focused branches from `allforone`, target pull requests back to `allforone`, and never merge `allforone` into `main`.
 - Preserve the primary single-agent flow and keep execution integrity default-off.
 - Avoid planner/reviewer/validator agents, workflow engines, databases, embeddings, semantic memory, mandatory sandboxing, and broad UI redesign.
 - Preserve user-staged changes and unrelated worktree changes.
@@ -69,7 +69,7 @@ The `changes` tool is deleted rather than disabled. Its implementation, schema, 
 
 ### All-For-One CI
 
-`.github/workflows/allforone-ci.yml` runs for pull requests targeting `allforone`, pushes to `allforone`, manual dispatch, and an infrequent scheduled extended run. Third-party actions are pinned to immutable commit SHAs. Permissions are read-only by default, concurrency cancels superseded runs, and untrusted pull requests do not receive repository secrets.
+`.github/workflows/allforone-ci.yml` runs for pull requests targeting `allforone` and pushes to `allforone`. Because `main` is the repository default branch and the workflow is intentionally scoped to `allforone`, manual and scheduled triggers are not used. Third-party actions are pinned to immutable commit SHAs. Permissions are read-only by default, jobs have bounded timeouts, concurrency cancels superseded runs, and untrusted pull requests do not receive repository secrets.
 
 The normal gate includes dependency installation, repository static checks, core tests, focused All-For-One tests, structural diagnostics, and the offline upstream relationship check. The extended job adds platform-sensitive checks on Ubuntu, macOS, and Windows and retains actionable reports only.
 

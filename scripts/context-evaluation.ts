@@ -8,8 +8,10 @@ import {
 	type EvidenceReference,
 } from "../packages/coding-agent/src/core/compaction/retention.ts";
 
-export const CONTEXT_EVALUATION_SCHEMA_VERSION = 2 as const;
-export const CONTEXT_EVALUATION_PHASE = "context-live-evaluation" as const;
+export const CONTEXT_EVALUATION_SCHEMA_VERSION = 3 as const;
+export const CONTEXT_EVALUATION_TYPE = "context-integrity" as const;
+const LEGACY_CONTEXT_EVALUATION_SCHEMA_VERSION = 2;
+const LEGACY_CONTEXT_EVALUATION_PHASE = "context-live-evaluation";
 
 export type ContextEvaluationVariant = "baseline" | "context";
 export type ContextEvaluationOutcome = "pass" | "fail" | "unknown";
@@ -57,7 +59,7 @@ export interface ContextEvaluationRun {
 
 export interface ContextEvaluationInput {
 	schemaVersion: typeof CONTEXT_EVALUATION_SCHEMA_VERSION;
-	phase: typeof CONTEXT_EVALUATION_PHASE;
+	evaluationType: typeof CONTEXT_EVALUATION_TYPE;
 	variant: ContextEvaluationVariant;
 	runs: ContextEvaluationRun[];
 }
@@ -98,7 +100,7 @@ export interface ContextEvaluationPair {
 
 export interface ContextEvaluationReport {
 	schemaVersion: typeof CONTEXT_EVALUATION_SCHEMA_VERSION;
-	phase: typeof CONTEXT_EVALUATION_PHASE;
+	evaluationType: typeof CONTEXT_EVALUATION_TYPE;
 	baselineVariant: "baseline";
 	contextVariant: "context";
 	pairs: ContextEvaluationPair[];
@@ -586,11 +588,15 @@ export function collectContextEvaluationRunFromSession(
 /** Parse and validate a recorded baseline or Context evaluation input. */
 export function parseContextEvaluationInput(value: unknown): ContextEvaluationInput {
 	if (!isRecord(value)) throw new Error("evaluation input must be an object");
-	if (value.schemaVersion !== CONTEXT_EVALUATION_SCHEMA_VERSION) {
-		throw new Error(`schemaVersion must be ${CONTEXT_EVALUATION_SCHEMA_VERSION}`);
-	}
-	if (value.phase !== CONTEXT_EVALUATION_PHASE) {
-		throw new Error(`phase must be ${CONTEXT_EVALUATION_PHASE}`);
+	const isCurrentSchema =
+		value.schemaVersion === CONTEXT_EVALUATION_SCHEMA_VERSION && value.evaluationType === CONTEXT_EVALUATION_TYPE;
+	const isLegacySchema =
+		value.schemaVersion === LEGACY_CONTEXT_EVALUATION_SCHEMA_VERSION && value.phase === LEGACY_CONTEXT_EVALUATION_PHASE;
+	if (!isCurrentSchema && !isLegacySchema) {
+		if (value.schemaVersion !== CONTEXT_EVALUATION_SCHEMA_VERSION) {
+			throw new Error(`schemaVersion must be ${CONTEXT_EVALUATION_SCHEMA_VERSION}`);
+		}
+		throw new Error(`evaluationType must be ${CONTEXT_EVALUATION_TYPE}`);
 	}
 	if (value.variant !== "baseline" && value.variant !== "context") {
 		throw new Error("variant must be baseline or context");
@@ -608,7 +614,7 @@ export function parseContextEvaluationInput(value: unknown): ContextEvaluationIn
 
 	return {
 		schemaVersion: CONTEXT_EVALUATION_SCHEMA_VERSION,
-		phase: CONTEXT_EVALUATION_PHASE,
+		evaluationType: CONTEXT_EVALUATION_TYPE,
 		variant: value.variant,
 		runs,
 	};
@@ -735,7 +741,7 @@ export function compareContextEvaluationRuns(
 
 	return {
 		schemaVersion: CONTEXT_EVALUATION_SCHEMA_VERSION,
-		phase: CONTEXT_EVALUATION_PHASE,
+		evaluationType: CONTEXT_EVALUATION_TYPE,
 		baselineVariant: "baseline",
 		contextVariant: "context",
 		pairs,
@@ -951,7 +957,7 @@ function loadSessionInput(argumentsValue: CliArguments): ContextEvaluationInput 
 	});
 	return {
 		schemaVersion: CONTEXT_EVALUATION_SCHEMA_VERSION,
-		phase: CONTEXT_EVALUATION_PHASE,
+		evaluationType: CONTEXT_EVALUATION_TYPE,
 		variant: argumentsValue.variant as ContextEvaluationVariant,
 		runs: [run],
 	};
@@ -959,7 +965,7 @@ function loadSessionInput(argumentsValue: CliArguments): ContextEvaluationInput 
 
 function printHumanReport(report: ContextEvaluationReport): string {
 	const lines = [
-		`${report.phase}: decision=${report.decision}`,
+		`${report.evaluationType}: decision=${report.decision}`,
 		`Efficiency claim: ${report.efficiencyClaim}`,
 	];
 	for (const pair of report.pairs) {
@@ -972,10 +978,10 @@ function printHumanReport(report: ContextEvaluationReport): string {
 
 function printSessionInput(input: ContextEvaluationInput): string {
 	const run = input.runs[0];
-	if (!run) return `${input.phase}: no session run\n`;
+	if (!run) return `${input.evaluationType}: no session run\n`;
 	const limitations = run.limitations ?? [];
 	return [
-		`${input.phase}: recorded ${input.variant} session`,
+		`${input.evaluationType}: recorded ${input.variant} session`,
 		`workload=${run.workloadId}, provider/model=${run.providerModel}, turns=${run.metrics.turns}, tool-calls=${run.metrics.toolCalls}, compactions=${run.metrics.compactionCount}`,
 		`tokens-before=${run.metrics.tokensBefore.join(",") || "-"}, tokens-after=${run.metrics.tokensAfter.join(",") || "-"}`,
 		`limitations=${limitations.length === 0 ? "none" : limitations.length}`,

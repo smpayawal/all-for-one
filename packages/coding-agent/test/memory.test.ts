@@ -1,7 +1,8 @@
-import { mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { MemoryEntry } from "../src/core/memory.ts";
 import {
 	getProjectMemoryPath,
 	MAX_MEMORY_ENTRIES,
@@ -125,6 +126,132 @@ describe("ProjectMemoryStore", () => {
 		const oversizedFile = store.read();
 		expect(oversizedFile.entries).toEqual([]);
 		expect(oversizedFile.warnings.join(" ")).not.toContain("x".repeat(100));
+	});
+
+	it("rejects add on an oversized memory file without changing its bytes", () => {
+		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
+		mkdirSync(dirname(store.filePath), { recursive: true });
+		const original = "x".repeat(MAX_MEMORY_FILE_BYTES + 1);
+		writeFileSync(store.filePath, original);
+
+		expect(() => store.add("must not replace the oversized file")).toThrow(/cannot mutate|exceeds/i);
+		expect(readFileSync(store.filePath, "utf8")).toBe(original);
+	});
+
+	it("rejects an uninspectable memory path without changing the memory file", () => {
+		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
+		mkdirSync(dirname(store.filePath), { recursive: true });
+		writeFileSync(store.filePath, "existing memory bytes");
+		const original = readFileSync(store.filePath, "utf8");
+		rmSync(store.filePath);
+		mkdirSync(store.filePath);
+
+		expect(() => store.add("must not replace an uninspectable path")).toThrow();
+		expect(statSync(store.filePath).isDirectory()).toBe(true);
+		expect(original).toBe("existing memory bytes");
+	});
+
+	it("rejects a read failure without changing the memory path", () => {
+		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
+		mkdirSync(dirname(store.filePath), { recursive: true });
+		mkdirSync(store.filePath);
+
+		expect(() => store.add("must not replace after read failure")).toThrow();
+		expect(statSync(store.filePath).isDirectory()).toBe(true);
+	});
+
+	it("reports a stat failure and refuses mutation when a parent path is not a directory", () => {
+		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
+		const projectsPath = join(agentDir, "projects");
+		writeFileSync(projectsPath, "parent path bytes");
+
+		expect(store.read()).toMatchObject({
+			entries: [],
+			warnings: [expect.stringContaining("Could not inspect local memory")],
+		});
+		expect(() => store.add("must not write through a stat failure")).toThrow();
+		expect(readFileSync(projectsPath, "utf8")).toBe("parent path bytes");
+	});
+
+	it("cleans temporary files after an atomic rename failure", () => {
+		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
+		mkdirSync(dirname(store.filePath), { recursive: true });
+		mkdirSync(store.filePath);
+		const write = (store as unknown as { write(entries: MemoryEntry[]): void }).write.bind(store);
+
+		expect(() => write([])).toThrow();
+		expect(readdirSync(dirname(store.filePath)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+		expect(statSync(store.filePath).isDirectory()).toBe(true);
+	});
+
+	it("rejects mutation of an unreadable existing file without changing its bytes", () => {
+		if (process.platform === "win32") return;
+
+		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
+		mkdirSync(dirname(store.filePath), { recursive: true });
+		const original = "unreadable memory bytes";
+		writeFileSync(store.filePath, original, { mode: 0o600 });
+		chmodSync(store.filePath, 0o000);
+		expect(statSync(store.filePath).mode & 0o777).toBe(0);
+
+		try {
+			let mutationError: unknown;
+			try {
+				store.add("must not rewrite an unreadable file");
+			} catch (error) {
+				mutationError = error;
+			}
+			expect(mutationError).toBeInstanceOf(Error);
+			expect(mutationError).toMatchObject({ message: expect.stringContaining("Cannot mutate local memory safely") });
+			expect(statSync(store.filePath).mode & 0o777).toBe(0);
+		} finally {
+			chmodSync(store.filePath, 0o600);
+		}
+
+		expect(readFileSync(store.filePath, "utf8")).toBe(original);
+	});
+
+	it("rejects a symlinked storage parent without writing outside the agent directory", () => {
+		if (process.platform === "win32") return;
+
+		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
+		const outside = join(root, "outside-memory");
+		mkdirSync(outside);
+		symlinkSync(outside, join(agentDir, "projects"), "dir");
+
+		expect(() => store.add("must not follow a storage symlink")).toThrow(/memory|symbolic|directory/i);
+		expect(readdirSync(outside)).toEqual([]);
+	});
+
+	it("rejects a symlinked memory file without changing its target", () => {
+		if (process.platform === "win32") return;
+
+		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
+		mkdirSync(dirname(store.filePath), { recursive: true });
+		const outside = join(root, "outside-memory.jsonl");
+		const original = "outside memory bytes";
+		writeFileSync(outside, original);
+		symlinkSync(outside, store.filePath);
+
+		expect(store.read()).toMatchObject({
+			entries: [],
+			warnings: [expect.stringContaining("regular file")],
+		});
+		expect(() => store.add("must not follow a memory-file symlink")).toThrow(/safely|regular file|symbolic/i);
+		expect(readFileSync(outside, "utf8")).toBe(original);
+	});
+
+	it("rejects mutation when malformed existing lines would otherwise be discarded", () => {
+		const store = new ProjectMemoryStore(join(root, "project"), agentDir);
+		mkdirSync(dirname(store.filePath), { recursive: true });
+		const original = [
+			"not json",
+			JSON.stringify({ id: "valid", createdAt: "2026-01-01T00:00:00.000Z", category: "note", text: "keep" }),
+		].join("\n");
+		writeFileSync(store.filePath, original);
+
+		expect(() => store.add("must preserve malformed bytes")).toThrow(/malformed|safely/i);
+		expect(readFileSync(store.filePath, "utf8")).toBe(original);
 	});
 
 	it("supports a missing project root without writing repository files", () => {

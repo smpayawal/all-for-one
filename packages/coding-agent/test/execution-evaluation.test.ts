@@ -107,8 +107,8 @@ describe("Execution paired evaluator", () => {
 
 	it("validates the recorded input schema", () => {
 		const valid = {
-			schemaVersion: 1,
-			phase: "execution-live-evaluation",
+			schemaVersion: 2,
+			evaluationType: "execution-integrity",
 			variant: "baseline",
 			runs: [run("baseline")],
 		};
@@ -123,8 +123,8 @@ describe("Execution paired evaluator", () => {
 
 	it("requires the parent variant, approved treatment mode, and trial identity", () => {
 		const valid = {
-			schemaVersion: 1,
-			phase: "execution-live-evaluation",
+			schemaVersion: 2,
+			evaluationType: "execution-integrity",
 			variant: "baseline",
 			runs: [run("baseline")],
 		};
@@ -150,6 +150,18 @@ describe("Execution paired evaluator", () => {
 		expect(() => parseExecutionEvaluationInput({ ...valid, runs: [run("baseline", { trialId: "" })] })).toThrow(
 			/trialId/,
 		);
+	});
+
+	it("migrates the legacy phase-tagged schema to the capability field", () => {
+		const parsed = parseExecutionEvaluationInput({
+			schemaVersion: 1,
+			phase: "execution-live-evaluation",
+			variant: "baseline",
+			runs: [run("baseline")],
+		});
+
+		expect(parsed.schemaVersion).toBe(2);
+		expect(parsed.evaluationType).toBe("execution-integrity");
 	});
 
 	it("allows repeated workloads when trial identities differ and pairs each trial", () => {

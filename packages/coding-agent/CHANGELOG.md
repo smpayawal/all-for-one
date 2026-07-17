@@ -57,7 +57,7 @@
 
 ### Added
 
-- Added opt-in Phase 6 execution-integrity diagnostics with grounded validation evidence, bounded hidden continuation feedback, and offline baseline/evaluation tooling.
+- Added opt-in execution-integrity diagnostics with grounded validation evidence, bounded hidden continuation feedback, and offline baseline/evaluation tooling.
 - Added `ModelRuntime` as the canonical async SDK and internal model/auth facade while preserving the synchronous extension-facing `ModelRegistry` API. `ModelRuntime.create()` accepts any pi-ai `CredentialStore` through its `credentials` option.
 - Added provider-owned `/login` discovery directly from registered pi-ai providers, including ambient auth status and informational links.
 - Added file-backed dynamic catalogs in `models-store.json`, per-provider pi.dev catalog overlays, and Radius gateway support including offline migration from legacy credential-cached catalogs.

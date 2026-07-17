@@ -1,11 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
 	chmodSync,
+	closeSync,
+	constants,
 	existsSync,
+	fstatSync,
+	lstatSync,
 	mkdirSync,
+	openSync,
 	readFileSync,
 	renameSync,
-	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -25,6 +29,12 @@ export interface MemoryEntry {
 export interface MemoryReadResult {
 	entries: MemoryEntry[];
 	warnings: string[];
+}
+
+type MemoryReadStatus = "ok" | "recoverable-entry-errors" | "fatal-file-error";
+
+interface MemoryReadSnapshot extends MemoryReadResult {
+	status: MemoryReadStatus;
 }
 
 export interface MemoryAddResult {
@@ -110,49 +120,109 @@ function normalizeMemoryText(text: string): string {
 	return normalizedText;
 }
 
+function isMissingPathError(error: unknown): boolean {
+	if (typeof error !== "object" || error === null || !("code" in error)) return false;
+	const code = (error as { code?: unknown }).code;
+	return code === "ENOENT";
+}
+
+function ensureStorageDirectory(directory: string): void {
+	mkdirSync(directory, { recursive: true, mode: 0o700 });
+	let directoryStats: ReturnType<typeof lstatSync>;
+	try {
+		directoryStats = lstatSync(directory);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(`Could not inspect local memory storage directory: ${message}.`);
+	}
+	if (directoryStats.isSymbolicLink()) {
+		throw new Error("Cannot use local memory storage safely: a storage directory is a symbolic link.");
+	}
+	if (!directoryStats.isDirectory()) {
+		throw new Error("Cannot use local memory storage safely: a storage path is not a directory.");
+	}
+	if (process.platform !== "win32") chmodSync(directory, 0o700);
+}
+
 export class ProjectMemoryStore {
+	private readonly agentDir: string;
 	readonly filePath: string;
 
 	constructor(cwd: string, agentDir: string) {
-		this.filePath = getProjectMemoryPath(cwd, agentDir);
+		this.agentDir = resolvePath(agentDir);
+		this.filePath = getProjectMemoryPath(cwd, this.agentDir);
 	}
 
 	read(): MemoryReadResult {
-		if (!existsSync(this.filePath)) return { entries: [], warnings: [] };
+		const { entries, warnings } = this.readSnapshot();
+		return { entries, warnings };
+	}
 
+	private readSnapshot(): MemoryReadSnapshot {
+		let fileStats: ReturnType<typeof lstatSync>;
 		try {
-			if (statSync(this.filePath).size > MAX_MEMORY_FILE_BYTES) {
-				return {
-					entries: [],
-					warnings: [`Local memory file exceeds the ${MAX_MEMORY_FILE_BYTES}-byte limit; no entries were loaded.`],
-				};
-			}
+			fileStats = lstatSync(this.filePath);
 		} catch (error) {
+			if (isMissingPathError(error)) return { entries: [], warnings: [], status: "ok" };
 			const message = error instanceof Error ? error.message : String(error);
-			return { entries: [], warnings: [`Could not inspect local memory: ${message}.`] };
+			return { entries: [], warnings: [`Could not inspect local memory: ${message}.`], status: "fatal-file-error" };
+		}
+		if (!fileStats.isFile()) {
+			return {
+				entries: [],
+				warnings: ["Could not inspect local memory: path is not a regular file."],
+				status: "fatal-file-error",
+			};
+		}
+		if (fileStats.size > MAX_MEMORY_FILE_BYTES) {
+			return {
+				entries: [],
+				warnings: [`Local memory file exceeds the ${MAX_MEMORY_FILE_BYTES}-byte limit; no entries were loaded.`],
+				status: "fatal-file-error",
+			};
 		}
 
 		let content: string;
 		try {
-			content = readFileSync(this.filePath, "utf8");
+			const flags = constants.O_RDONLY | (process.platform === "win32" ? 0 : constants.O_NOFOLLOW);
+			const fileDescriptor = openSync(this.filePath, flags);
+			try {
+				const openedStats = fstatSync(fileDescriptor);
+				if (!openedStats.isFile()) throw new Error("path is not a regular file");
+				content = readFileSync(fileDescriptor, "utf8");
+			} finally {
+				closeSync(fileDescriptor);
+			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			return { entries: [], warnings: [`Could not read local memory: ${message}.`] };
+			return { entries: [], warnings: [`Could not read local memory: ${message}.`], status: "fatal-file-error" };
+		}
+		if (Buffer.byteLength(content, "utf8") > MAX_MEMORY_FILE_BYTES) {
+			return {
+				entries: [],
+				warnings: [`Local memory file exceeds the ${MAX_MEMORY_FILE_BYTES}-byte limit; no entries were loaded.`],
+				status: "fatal-file-error",
+			};
 		}
 
 		const entries: MemoryEntry[] = [];
 		const warnings: string[] = [];
+		let status: MemoryReadStatus = "ok";
 		for (const [index, line] of content.split("\n").entries()) {
 			if (line.trim().length === 0) continue;
 			if (entries.length >= MAX_MEMORY_ENTRIES) {
 				warnings.push(`Ignored memory entries after the ${MAX_MEMORY_ENTRIES}-entry limit.`);
+				status = "recoverable-entry-errors";
 				break;
 			}
 			const parsed = parseMemoryLine(line, index + 1);
 			if (parsed.entry) entries.push(parsed.entry);
-			if (parsed.warning) warnings.push(parsed.warning);
+			if (parsed.warning) {
+				warnings.push(parsed.warning);
+				status = "recoverable-entry-errors";
+			}
 		}
-		return { entries, warnings };
+		return { entries, warnings, status };
 	}
 
 	add(text: string, category: MemoryCategory = "note"): MemoryAddResult {
@@ -242,12 +312,19 @@ export class ProjectMemoryStore {
 	}
 
 	private ensureStorage(): void {
-		const directory = dirname(this.filePath);
-		mkdirSync(directory, { recursive: true, mode: 0o700 });
-		if (process.platform !== "win32") chmodSync(directory, 0o700);
-		if (!existsSync(this.filePath)) {
+		ensureStorageDirectory(this.agentDir);
+		ensureStorageDirectory(join(this.agentDir, "projects"));
+		ensureStorageDirectory(dirname(this.filePath));
+		try {
+			lstatSync(this.filePath);
+		} catch (error) {
+			if (!isMissingPathError(error)) throw error;
 			writeFileSync(this.filePath, "", { encoding: "utf8", mode: 0o600 });
+			lstatSync(this.filePath);
 		}
+	}
+
+	private enforceFilePermissions(): void {
 		if (process.platform !== "win32") chmodSync(this.filePath, 0o600);
 	}
 
@@ -281,7 +358,13 @@ export class ProjectMemoryStore {
 		let release: (() => void) | undefined;
 		try {
 			release = this.acquireLockSyncWithRetry();
-			return mutate(this.read().entries);
+			const snapshot = this.readSnapshot();
+			if (snapshot.status !== "ok") {
+				const warning = snapshot.warnings[0] ?? "the file could not be validated";
+				throw new Error(`Cannot mutate local memory safely: ${warning}`);
+			}
+			this.enforceFilePermissions();
+			return mutate(snapshot.entries);
 		} finally {
 			release?.();
 		}

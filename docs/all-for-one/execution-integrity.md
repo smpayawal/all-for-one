@@ -18,3 +18,5 @@ The tracker observes successful built-in `edit`, `write`, and `apply_patch` muta
 Bash prompt guidance follows the mode: off shows no validation guidance, observe shows one bounded advisory command, and enforce shows at most four grounded commands within an 800-character bound. Guidance is advisory and does not grant command permission.
 
 `/context` reports the mode, mutations, validation state, bounded records, continuation attempts, provenance references, and limitations. No live paired evaluation has established a quality, latency, token, or cost benefit; enforcement remains opt-in.
+
+Recorded evaluator inputs use schema version 2 with `evaluationType: "execution-integrity"`. The parser migrates the prior version-1 `phase: "execution-live-evaluation"` field to the current capability field without executing validation commands.

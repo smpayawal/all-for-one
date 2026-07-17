@@ -37,6 +37,19 @@ const EMPTY_USAGE = {
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
+const INVALID_TOOL_RESULT_MESSAGE = "Tool returned an invalid result: content must be an array.";
+
+function isValidToolResult(value: unknown): value is AgentToolResult<unknown> {
+	return typeof value === "object" && value !== null && Array.isArray((value as { content?: unknown }).content);
+}
+
+function normalizeToolResult(value: unknown, isError: boolean): { result: AgentToolResult<unknown>; isError: boolean } {
+	if (!isValidToolResult(value)) {
+		return { result: createErrorToolResult(INVALID_TOOL_RESULT_MESSAGE), isError: true };
+	}
+	return { result: value, isError };
+}
+
 function validateExecutionLimit(value: number | undefined, name: keyof ExecutionLimits): number | undefined {
 	if (value === undefined) return undefined;
 	if (!Number.isInteger(value) || value <= 0) {
@@ -1114,8 +1127,9 @@ async function finalizeExecutedToolCall(
 	// JavaScript extensions can violate the typed AgentToolResult contract before
 	// the afterToolCall hook runs. Keep every downstream hook and event on the
 	// same normalized array boundary used by the final tool-result message.
-	let result = Array.isArray(executed.result.content) ? executed.result : { ...executed.result, content: [] };
-	let isError = executed.isError;
+	const normalized = normalizeToolResult(executed.result, executed.isError);
+	let result = normalized.result;
+	let isError = normalized.isError;
 
 	if (config.afterToolCall) {
 		try {
@@ -1131,13 +1145,18 @@ async function finalizeExecutedToolCall(
 				signal,
 			);
 			if (afterResult) {
-				result = {
-					...result,
-					content: Array.isArray(afterResult.content) ? afterResult.content : result.content,
-					details: afterResult.details ?? result.details,
-					terminate: afterResult.terminate ?? result.terminate,
-				};
-				isError = afterResult.isError ?? isError;
+				if (afterResult.content !== undefined && !Array.isArray(afterResult.content)) {
+					result = createErrorToolResult(INVALID_TOOL_RESULT_MESSAGE);
+					isError = true;
+				} else {
+					result = {
+						...result,
+						content: afterResult.content ?? result.content,
+						details: afterResult.details ?? result.details,
+						terminate: afterResult.terminate ?? result.terminate,
+					};
+					isError = afterResult.isError ?? isError;
+				}
 			}
 		} catch (error) {
 			result = createErrorToolResult(normalizeRuntimeError(error));

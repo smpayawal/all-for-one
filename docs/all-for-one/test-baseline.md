@@ -8,49 +8,52 @@ Counts below are from commands actually run after the hardening changes. An envi
 
 | Check | Result |
 | --- | --- |
-| `main` | `70c57632975c989f80a3a49c79ff43213f1f1dad` |
-| `allforone` | `c0de4aa88ef93c70a9e1729c5765d77c508f4edc` |
-| merge base | `70c57632975c989f80a3a49c79ff43213f1f1dad` |
-| `main...allforone` | `0 39` |
+| working branch | `fix/post-audit-hardening` |
+| current branch tip | `3258be547c5175043d9fabadace558e27c0f838a` |
+| `main` | `216e672e7c9fc65682553394b74e483c0c9e47f7` |
+| `allforone` | `3258be547c5175043d9fabadace558e27c0f838a` |
+| merge base | `216e672e7c9fc65682553394b74e483c0c9e47f7` |
+| `main...allforone` | `0 42` |
 | `main` is an ancestor of `allforone` | yes |
+| `origin/HEAD` | `origin/main` |
 
-The worktree contained staged and unstaged execution-integrity/runtime changes before this hardening pass. They were preserved and are not treated as a clean baseline commit.
+The branch was created from `allforone`. Changes remain uncommitted; no merge, rebase, or tag was performed during this validation pass.
 
 ## Final validation
 
 | Command or suite | Result | Classification |
 | --- | --- | --- |
-| `npm run check` | pass; Biome checked 832 files, pinned dependencies/imports/shrinkwrap/install-lock/tsgo/browser smoke passed | repository gate passed |
-| focused All-For-One matrix | 21 files, 345 passed | pass; run with local IPC/filesystem permission |
-| `npm test` / agent | 17 files, 204 passed | pass |
-| `npm test` / AI | 5 files failed, 70 passed, 25 skipped; 18 tests failed, 527 passed, 736 skipped, 15 errors | exit 1; local network-listener restrictions and provider timeout failures |
-| `npm test` / coding-agent | 6 files failed, 182 passed, 6 skipped; 14 tests failed, 1,786 passed, 47 skipped | exit 1; limitations below |
-| `npm test` / TUI | passed; separately rerun after the full command | pass |
+| `npm run check` | pass; Biome checked 832 files and pinned dependencies/imports/shrinkwrap/install-lock/tsgo/browser smoke passed | repository gate passed |
+| `git diff --check` and `node --check scripts/check-clean-worktree.mjs` | passed | static validation |
+| focused coding-agent hardening matrix | 10 files passed, 1 skipped; 181 passed, 2 skipped | pass; escalated only for required temporary IPC resources |
+| focused agent-loop regression | 1 file, 32 passed | pass |
 | `doctor:allforone -- --json` | 12/12 checks passed | pass |
 | `baseline:allforone -- --json` | passed | offline structural baseline |
-| `baseline:context -- --json` | passed | deterministic fixtures |
-| `baseline:execution -- --json` | passed | deterministic fixtures; default production mode remains off |
+| `baseline:context -- --json` | passed; schema v2, capability `context-integrity` | deterministic fixtures |
+| `baseline:execution -- --json` | passed; schema v2, capability `execution-integrity` | deterministic fixtures; default production mode remains off |
 | `evaluate:context -- --help` | passed | CLI available; no live pair supplied |
 | `evaluate:execution -- --help` | passed | CLI available; no live pair supplied |
-| upstream relationship test | 3 passed | pass |
+| `node --test scripts/check-upstream-relationship.test.mjs` | 3 passed | pass |
+| `node scripts/check-upstream-relationship.mjs --main origin/main --json` | `mainIsAncestor: true`; `ahead: 42`; `behind: 0` | pass; read-only relationship check |
+| `npm run build` | pass; fetched provider catalogs and built tui, ai, agent, coding-agent, and orchestrator packages | pass; generated catalog side effects were restored and are not part of this diff |
+| GitHub Actions `All-For-One CI` run `29548893362` | committed HEAD `3258be547c5175043d9fabadace558e27c0f838a`; `gate` and `platform-focused` Ubuntu, macOS, and Windows jobs all completed successfully | remote baseline pass; does not cover the current uncommitted diff |
+| CLI args/tool-registry tests | 2 files, 74 passed | pass; default five-tool surface and optional read-only tools verified |
+| built CLI `--help` with isolated HOME | passed; title and built-in list include `apply_patch` | pass; host-global lock permission avoided |
+| root `npm test` with host HOME / agent | 17 files, 209 passed | pass |
+| root `npm test` with host HOME / AI | 88 files passed, 12 skipped; 594 passed, 701 skipped | pass |
+| root `npm test` with host HOME / coding-agent | 187 files passed, 6 skipped, 1 failed; 1,821 passed, 47 skipped | exit 1; one user-scoped `.agents` package-state expectation |
+| root `npm test` with host HOME / TUI | passed | package tests completed; aggregate command remained nonzero because coding-agent failed |
+| root `npm test` with isolated HOME / agent | 17 files, 209 passed | pass |
+| root `npm test` with isolated HOME / AI | 75 files passed, 25 skipped; 557 passed, 738 skipped | pass |
+| root `npm test` with isolated HOME and temporary agent dir / coding-agent | 188 files passed, 6 skipped; 1,823 passed, 47 skipped | pass; temporary dir exposed the existing managed `fd` binary without changing user state |
+| root `npm test` with isolated HOME / TUI | passed | aggregate root command passed |
+| workflow platform-focused set on macOS | 10 files passed, 1 skipped; 181 passed, 2 skipped | local pass; the corresponding remote matrix passed for committed HEAD, not the current uncommitted diff |
+| `check-clean-worktree.mjs --allow-build-generated` after build | rejected unrelated intentional hardening changes; generated catalog paths were allowlisted | expected on the intentionally dirty worktree |
 
-## Failure-focused comparison
+## Failure classification
 
-| Test or concern | Clean `main` | `allforone` before fix | `allforone` after fix | Classification |
-| --- | --- | --- | --- | --- |
-| Direct CLI session-id/stdout assertions | Reproduced the same `pi-ai` `getAvailable is not a function` failure in an isolated `main` checkout using the shared unbuilt workspace artifacts. | 7 failed assertions | 7 still fail locally without a package build | Stale local distribution artifact, not an All-For-One regression. CI builds packages before the full test command. |
-| Untyped tool result / `lax-message-content` | Not isolated as an equivalent test: clean `main` has the shared agent boundary but not the All-For-One telemetry hook that exposed this interaction. | 1 failed assertion with `content` undefined | 6/6 passed after normalization in `agent-loop.ts` | All-For-One lifecycle interaction fixed at the shared boundary; regression is covered. |
-| Built-in tool surface | `changes` is absent from the clean `main` tree. | `changes` was present in source, activation, docs, and tests. | `changes` is absent from active source/docs/registry; focused tool tests are 79/79. | Structural removal; Bash/Git inspection remains available. |
+The root `npm test` invocation was run as requested with the host HOME and with an isolated HOME. The host run’s sole failure expected no discovered user skill, but the current machine exposes `/Users/smpayawal/.agents/skills/microsoft-foundry/SKILL.md`. The exact assertion and the complete coding-agent suite passed with isolated HOME. The final isolated root command also exposed the existing managed `fd` binary through a temporary `PI_CODING_AGENT_DIR` and exited 0; the host-only failure is user-scoped package state rather than a repository regression.
 
-## Full-test failure classification
+The build was also run because it was explicitly requested and completed successfully with network access to provider model catalogs. It changed generated catalog files as a build side effect; those files were restored to their pre-build state.
 
-The root `npm test` command exited 1. The coding-agent Vitest summary reported 14 failed tests across six files:
-
-- Three `session-id-readonly` and four `stdout-cleanliness` CLI assertions fail because direct CLI execution resolves the local `pi-ai` distribution, whose unbuilt `createModels()` artifact does not expose the source-level `getAvailable()` API. An isolated `main` checkout reproduced the same error. The repository instructions prohibit running `npm run build` unless requested; the dedicated All-For-One CI builds packages before testing.
-- One `package-manager` test times out while attempting to clone `https://github.com/nonexistent/repo`; the sandbox cannot resolve external network hosts.
-- Three `footer-data-provider` tests time out while waiting for reftable watcher updates. Two passed with local IPC/filesystem permission; the remaining watcher behavior is platform/environment-sensitive and is covered by the platform matrix.
-- Three subprocess assertions in `allforone-baseline` and `context-evaluation` fail in the normal sandbox because `tsx` cannot create its IPC pipe. The same focused files passed with local IPC permission.
-
-The focused hardening matrix and the affected session-rail regression pass. Missing `fd` caused four pre-existing file-search tests to fail in an earlier sandboxed focused run; the final CI installs `fd-find` and that limitation is not part of the final full-test count above.
-
-No live provider/model evaluation, build command, or external deployment was run locally. Therefore this report makes no quality, latency, cost, token-savings, or provider-tokenization claim.
+The committed HEAD passed the remote GitHub Actions `All-For-One CI` run `29548893362`, including the clean-runner gate and Ubuntu, macOS, and Windows platform-focused jobs. That run predates and does not cover the current uncommitted hardening diff. No live provider/model evaluation, external deployment, or commit was performed. Therefore this report makes no quality, latency, cost, token-savings, or provider-tokenization claim. The current local worktree is intentionally dirty; the clean-worktree script was exercised and correctly rejected this local state.

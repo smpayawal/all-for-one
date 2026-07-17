@@ -453,6 +453,14 @@ function renderCompactSkillsPrompt(skills: Skill[], omittedCount: number, includ
 	return lines.join("\n");
 }
 
+function skillSourcePrecedenceRank(skill: Skill): number {
+	if (skill.sourceInfo.scope === "temporary") return 0;
+	if (skill.sourceInfo.origin !== "package" && skill.sourceInfo.scope === "project") return 1;
+	if (skill.sourceInfo.origin !== "package" && skill.sourceInfo.scope === "user") return 2;
+	if (skill.sourceInfo.origin === "package") return 3;
+	return 4;
+}
+
 function dedupeVisibleSkills(skills: Skill[]): {
 	visibleSkills: Skill[];
 	manualOnlyCount: number;
@@ -463,9 +471,13 @@ function dedupeVisibleSkills(skills: Skill[]): {
 	const candidates = skills
 		.filter((skill) => !skill.disableModelInvocation)
 		.sort((left, right) => {
+			const precedenceOrder = skillSourcePrecedenceRank(left) - skillSourcePrecedenceRank(right);
+			if (precedenceOrder !== 0) return precedenceOrder;
 			const nameOrder = left.name.localeCompare(right.name);
 			if (nameOrder !== 0) return nameOrder;
-			return canonicalizePath(left.filePath).localeCompare(canonicalizePath(right.filePath));
+			const pathOrder = canonicalizePath(left.filePath).localeCompare(canonicalizePath(right.filePath));
+			if (pathOrder !== 0) return pathOrder;
+			return left.sourceInfo.source.localeCompare(right.sourceInfo.source);
 		});
 
 	const visibleSkills: Skill[] = [];

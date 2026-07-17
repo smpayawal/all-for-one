@@ -78,8 +78,8 @@ describe("Context live-evaluation report", () => {
 	it("rejects a run input with the wrong variant", () => {
 		expect(() =>
 			parseContextEvaluationInput({
-				schemaVersion: 2,
-				phase: "context-live-evaluation",
+				schemaVersion: 3,
+				evaluationType: "context-integrity",
 				variant: "allforone",
 				runs: [createRun()],
 			}),
@@ -89,8 +89,8 @@ describe("Context live-evaluation report", () => {
 	it("rejects a non-positive context window", () => {
 		expect(() =>
 			parseContextEvaluationInput({
-				schemaVersion: 2,
-				phase: "context-live-evaluation",
+				schemaVersion: 3,
+				evaluationType: "context-integrity",
 				variant: "baseline",
 				runs: [createRun({ contextWindow: 0 })],
 			}),
@@ -100,12 +100,24 @@ describe("Context live-evaluation report", () => {
 	it("rejects fractional discrete metrics", () => {
 		expect(() =>
 			parseContextEvaluationInput({
-				schemaVersion: 2,
-				phase: "context-live-evaluation",
+				schemaVersion: 3,
+				evaluationType: "context-integrity",
 				variant: "baseline",
 				runs: [createRun({ metrics: { ...createRun().metrics, turns: 1.5 } })],
 			}),
 		).toThrow("runs[0].metrics.turns must be a non-negative integer");
+	});
+
+	it("migrates the legacy phase-tagged schema to the capability field", () => {
+		const parsed = parseContextEvaluationInput({
+			schemaVersion: 2,
+			phase: "context-live-evaluation",
+			variant: "baseline",
+			runs: [createRun()],
+		});
+
+		expect(parsed.schemaVersion).toBe(3);
+		expect(parsed.evaluationType).toBe("context-integrity");
 	});
 
 	it("blocks a paired evaluation when Context regresses correctness", () => {
