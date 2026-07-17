@@ -31,7 +31,7 @@ const ANALYTICS_OPTIONS: Array<{ value: boolean; label: string }> = [
 export class FirstTimeSetupComponent extends Container {
 	private step: "theme" | "analytics" = "theme";
 	private themeIndex: number;
-	private analyticsIndex = 0;
+	private analyticsIndex = ANALYTICS_OPTIONS.findIndex((option) => option.value === false);
 	private readonly options: FirstTimeSetupOptions;
 
 	constructor(options: FirstTimeSetupOptions) {
@@ -70,7 +70,7 @@ export class FirstTimeSetupComponent extends Container {
 				new Text(
 					theme.fg(
 						"muted",
-						"Opting in stores a tracking identifier in settings.json and enables anonymous\nusage analytics. This helps us to better debug, reproduce, and resolve issues\nand bugs within All-For-One. You can observe what is shared using /privacy and make\nchanges anytime in settings.json.",
+						"Opting in stores a tracking identifier in settings.json and enables anonymous\nusage analytics. This helps project maintainers debug and improve the application.\nYou can change this preference later in settings.json.",
 					),
 					1,
 					0,
