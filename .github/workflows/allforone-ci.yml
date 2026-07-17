@@ -50,7 +50,25 @@ jobs:
       - name: Restore generated catalogs after build
         run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
 
-      - name: Check formatting and lint
+      - name: Check startup UI formatting
+        run: npx biome check --error-on-warnings packages/coding-agent/src/cli/startup-ui.ts
+
+      - name: Check export branding formatting
+        run: npx biome check --error-on-warnings packages/coding-agent/src/core/export-html/branding.ts
+
+      - name: Check brand header formatting
+        run: npx biome check --error-on-warnings packages/coding-agent/src/modes/interactive/components/brand-header.ts
+
+      - name: Check first-time setup formatting
+        run: npx biome check --error-on-warnings packages/coding-agent/src/modes/interactive/components/first-time-setup.ts
+
+      - name: Check export branding test formatting
+        run: npx biome check --error-on-warnings packages/coding-agent/test/export-html-branding.test.ts
+
+      - name: Check first-time setup test formatting
+        run: npx biome check --error-on-warnings packages/coding-agent/test/first-time-setup.test.ts
+
+      - name: Check repository formatting and lint
         run: npx biome check --error-on-warnings .
 
       - name: Check pinned dependencies
