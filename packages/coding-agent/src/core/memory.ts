@@ -328,36 +328,11 @@ export class ProjectMemoryStore {
 		if (process.platform !== "win32") chmodSync(this.filePath, 0o600);
 	}
 
-	private acquireLockSyncWithRetry(): () => void {
-		const maxAttempts = 10;
-		const delayMs = 20;
-		let lastError: unknown;
-
-		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-			try {
-				return lockfile.lockSync(this.filePath, { realpath: false });
-			} catch (error) {
-				const code =
-					typeof error === "object" && error !== null && "code" in error
-						? String((error as { code?: unknown }).code)
-						: undefined;
-				if (code !== "ELOCKED" || attempt === maxAttempts) throw error;
-				lastError = error;
-				const start = Date.now();
-				while (Date.now() - start < delayMs) {
-					// Sleep synchronously to keep the public memory API synchronous.
-				}
-			}
-		}
-
-		throw (lastError as Error) ?? new Error("Failed to acquire project memory lock");
-	}
-
 	private withMutationLock<T>(mutate: (current: MemoryEntry[]) => T): T {
 		this.ensureStorage();
 		let release: (() => void) | undefined;
 		try {
-			release = this.acquireLockSyncWithRetry();
+			release = lockfile.lockSync(this.filePath, { realpath: false });
 			const snapshot = this.readSnapshot();
 			if (snapshot.status !== "ok") {
 				const warning = snapshot.warnings[0] ?? "the file could not be validated";

@@ -1,6 +1,7 @@
 import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import lockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { MemoryEntry } from "../src/core/memory.ts";
 import {
@@ -260,6 +261,32 @@ describe("ProjectMemoryStore", () => {
 
 		expect(result.created).toBe(true);
 		expect(store.filePath.startsWith(agentDir)).toBe(true);
+	});
+
+	it("supports mutation of an existing empty memory file", () => {
+		const store = new ProjectMemoryStore(join(root, "empty-project"), agentDir);
+		mkdirSync(dirname(store.filePath), { recursive: true });
+		writeFileSync(store.filePath, "");
+
+		const result = store.add("A note in an explicitly empty file.");
+
+		expect(result.created).toBe(true);
+		expect(store.read().entries).toHaveLength(1);
+	});
+
+	it("rejects mutation while another writer holds the memory lock", () => {
+		const store = new ProjectMemoryStore(join(root, "locked-project"), agentDir);
+		const first = store.add("The existing entry must survive lock contention.");
+		const release = lockfile.lockSync(store.filePath, { realpath: false });
+
+		try {
+			expect(() => store.add("This entry must not be written while locked.")).toThrow(/lock/i);
+			expect(store.read().entries.map((entry) => entry.id)).toEqual([first.entry.id]);
+		} finally {
+			release();
+		}
+
+		expect(store.add("The writer can continue after the lock is released.").created).toBe(true);
 	});
 
 	it("serializes mutations across store instances and uses restrictive storage permissions", () => {

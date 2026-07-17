@@ -34,10 +34,10 @@ The recorded structural comparison against the clean `allforone` HEAD snapshot m
 
 ## Upstream rehearsal
 
-The isolated history-preserving rehearsal is dated evidence from an earlier audit and used fetched `upstream/main` at `f7e060374541be0097ee015aaddb097a4f760984`; it is not a current upstream tip claim. The fresh relationship check for this pass reports `main` as an ancestor of `allforone`, 42 commits ahead and 0 behind, with no merge or worktree mutation performed.
+The isolated history-preserving rehearsal is dated evidence from an earlier audit and used fetched `upstream/main` at `f7e060374541be0097ee015aaddb097a4f760984`; it is not a current upstream tip claim. The relationship check reports `main` as an ancestor of `allforone`, 42 commits ahead and 0 behind; the current local `HEAD` is one additional commit ahead and reports 43 commits ahead. No merge or worktree mutation was performed by the verifier.
 
 ## Evidence boundary
 
-The repository gate, focused tests, diagnostics, full test command, build, upstream verifier, and the committed-HEAD remote GitHub Actions run are recorded with their actual exit status in [test-baseline.md](test-baseline.md). The current uncommitted diff still lacks a clean remote CI run. Environment-specific failures (for example local IPC restrictions, network, or user-state permissions) remain classified as limitations rather than hidden.
+The repository gate, focused tests, diagnostics, full test command, build, upstream verifier, and the committed-`allforone` remote GitHub Actions run are recorded with their actual exit status in [test-baseline.md](test-baseline.md). Local commit `6c7c349` still lacks a clean remote CI run. Environment-specific failures (for example local IPC restrictions, network, or user-state permissions) remain classified as limitations rather than hidden.
 
 No live paired model evaluation was available during this pass. Therefore this report does not claim improved correctness, latency, cost, provider-token usage, or model quality.
