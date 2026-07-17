@@ -1,5 +1,9 @@
 # All-For-One
 
+<p align="center">
+  <img src="packages/coding-agent/src/modes/interactive/assets/all-for-one.png" alt="All-For-One logo" width="180">
+</p>
+
 All-For-One is a lightweight coding harness based on Pi. It preserves Pi's provider, agent runtime, terminal UI, session, SDK, and extension architecture while adding focused changes for context handling, execution integrity, validation, and maintainability.
 
 ## Overview
