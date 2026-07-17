@@ -6,7 +6,7 @@ Modernize the interactive coding experience without replacing Pi's terminal UI a
 
 UI/UX is the first runtime implementation workstream in P0. Architecture ownership and compatibility are frozen first, then the terminal experience is improved before P1 changes the model-facing tool interface.
 
-The design must make the active task, context, capabilities, progress, and errors easier to understand while preserving the speed and keyboard-first behavior of Native Pi.
+The design makes the active task, context, capabilities, progress, and errors easier to understand while preserving the speed and keyboard-first behavior of Native Pi.
 
 ## Current implementation findings
 
@@ -227,7 +227,7 @@ Standardize built-in and extension tool rows around:
 - exit code for shell failures;
 - truncation or continuation information when output is incomplete.
 
-Collapsed success rows should normally occupy one line. Failed calls expose a short error and remain expandable. Detailed output remains available through the existing expansion interaction.
+Collapsed success rows normally occupy one line. Failed calls expose a short error and remain expandable. Detailed output remains available through the existing expansion interaction.
 
 ## Content language
 
