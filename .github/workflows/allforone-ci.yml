@@ -86,8 +86,17 @@ jobs:
       - name: Focused agent runtime tests
         run: npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/execution-integrity.test.ts
 
-      - name: Test
-        run: npm test
+      - name: TUI tests
+        run: npm --workspace @earendil-works/pi-tui test
+
+      - name: AI tests
+        run: npm --workspace @earendil-works/pi-ai test
+
+      - name: Agent core tests
+        run: npm --workspace @earendil-works/pi-agent-core test
+
+      - name: Coding agent tests
+        run: npm --workspace @earendil-works/pi-coding-agent test
 
       - name: Offline diagnostics
         run: |
