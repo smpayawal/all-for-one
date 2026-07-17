@@ -16,7 +16,6 @@ import {
 import { buildSystemPrompt } from "../packages/coding-agent/src/core/system-prompt.ts";
 import {
 	createAllToolDefinitions,
-	createCodingToolDefinitions,
 	DEFAULT_ACTIVE_TOOL_NAMES,
 } from "../packages/coding-agent/src/core/tools/index.ts";
 import {
@@ -70,6 +69,11 @@ async function withOfflineResourceLoader<T>(loader: DefaultResourceLoader, fn: (
 	}
 }
 
+function createDefaultActiveToolDefinitions(cwd: string) {
+	const allTools = createAllToolDefinitions(cwd);
+	return DEFAULT_ACTIVE_TOOL_NAMES.map((name) => allTools[name]);
+}
+
 export async function runAllForOneDoctor(options: AllForOneDoctorOptions): Promise<AllForOneDoctorReport> {
 	const cwd = resolve(options.cwd);
 	const agentDir = resolve(options.agentDir);
@@ -78,7 +82,7 @@ export async function runAllForOneDoctor(options: AllForOneDoctorOptions): Promi
 	checks.push(
 		check("tool registry integrity", () => {
 			const allTools = createAllToolDefinitions(cwd);
-			const activeTools = createCodingToolDefinitions(cwd);
+			const activeTools = createDefaultActiveToolDefinitions(cwd);
 			const allNames = Object.keys(allTools);
 			const activeNames = activeTools.map((tool) => tool.name);
 			if (new Set(allNames).size !== allNames.length) throw new Error("duplicate registered tool name");
@@ -90,7 +94,7 @@ export async function runAllForOneDoctor(options: AllForOneDoctorOptions): Promi
 	checks.push(
 		check("default capability exposure", () => {
 			const allNames = Object.keys(createAllToolDefinitions(cwd)).sort((left, right) => left.localeCompare(right));
-			const activeNames = createCodingToolDefinitions(cwd).map((tool) => tool.name);
+			const activeNames = createDefaultActiveToolDefinitions(cwd).map((tool) => tool.name);
 			const expectedActiveNames = [...DEFAULT_ACTIVE_TOOL_NAMES];
 			const optionalNames = ["grep", "find", "ls"];
 			if (JSON.stringify(activeNames) !== JSON.stringify(expectedActiveNames)) {
@@ -105,7 +109,7 @@ export async function runAllForOneDoctor(options: AllForOneDoctorOptions): Promi
 
 	checks.push(
 		check("prompt and schema structural fixtures", () => {
-			const activeTools = createCodingToolDefinitions(cwd);
+			const activeTools = createDefaultActiveToolDefinitions(cwd);
 			const activeNames = activeTools.map((tool) => tool.name);
 			const schemaText = JSON.stringify(
 				activeTools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters })),
