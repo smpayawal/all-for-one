@@ -39,7 +39,7 @@ The following rules are architectural requirements:
 
 1. The canonical built-in tool registry remains `read`, `bash`, `edit`, `write`, and `apply_patch`.
 2. A new package or change to `packages/agent` is permitted only when Pi's existing public extension, skill, prompt, theme, settings, SDK, or coding-agent boundaries cannot support the verified requirement cleanly.
-3. Optional behavior must remain isolated from the main loop and have no prompt, process, or rendering cost while disabled.
+3. Optional behavior remains isolated from the main loop and has no prompt, process, or rendering cost while disabled.
 4. Existing Pi-compatible identifiers and interfaces remain stable unless a separate migration is explicitly designed and validated.
 5. UI/UX is the first runtime implementation priority, but it remains inside the interactive coding-agent boundary and does not redefine the core runtime.
 6. Validation is part of every phase. There is no dedicated evaluation-platform phase or permanent evaluation subsystem.
@@ -77,7 +77,7 @@ Behavior belongs in the narrowest correct owner.
 | Validation evidence | Existing tests, diagnostics, execution-integrity state, and CI |
 | Strong isolation | External container, VM, or operating-system sandbox |
 
-No subsystem may introduce a second owner for one of these responsibilities.
+No subsystem introduces a second owner for one of these responsibilities.
 
 ## Runtime boundaries
 
@@ -85,25 +85,25 @@ No subsystem may introduce a second owner for one of these responsibilities.
 
 Native Pi's provider and model contracts remain authoritative. All-For-One does not add another provider abstraction or model registry.
 
-Model-specific coding behavior is centralized in one coding-agent-local profile. The profile may express bounded coding preferences such as:
+P1 centralizes model-specific coding behavior in one coding-agent-local profile. The profile may express bounded coding preferences such as:
 
 ```ts
 export interface CodingModelProfile {
   existingFileMutation: "edit" | "apply_patch";
   supportsParallelTools?: boolean;
-  recommendedThinkingLevel?: string;
+  recommendedThinkingLevel?: ThinkingLevel;
 }
 ```
 
-The final field names must use existing Pi types where possible. The profile must:
+The final fields use existing Pi types where possible. The profile:
 
-- select between existing compatible tools rather than create new mutation tools;
-- remain outside `packages/agent` and `packages/ai` unless a generic public contract is genuinely required;
-- use existing model identity;
-- provide a safe fallback for unknown models;
-- remain visible in diagnostics;
-- allow manual configuration to restore the complete five-tool set;
-- avoid unsupported performance or reliability claims.
+- selects between existing compatible tools rather than creating new mutation tools;
+- remains outside `packages/agent` and `packages/ai` unless a generic public contract is genuinely required;
+- uses existing model identity;
+- provides a safe fallback for unknown models;
+- remains visible in diagnostics;
+- allows manual configuration to restore the complete five-tool set;
+- avoids unsupported performance or reliability claims.
 
 ### Agent runtime
 
@@ -134,7 +134,7 @@ Future delegation may be an optional explicit capability for genuinely independe
 - session persistence;
 - interactive, print, RPC, and SDK behavior.
 
-A responsibility should be extracted only when the new module has one clear purpose, a stable interface, focused tests, and lower upstream conflict risk.
+A responsibility is extracted only when the new module has one clear purpose, a stable interface, focused tests, and lower upstream conflict risk.
 
 ## Canonical tool architecture
 
@@ -150,7 +150,7 @@ apply_patch
 
 The complete set remains available through manual configuration for compatibility and troubleshooting.
 
-Automatic/default tool exposure may use the centralized coding-model profile:
+Automatic/default tool exposure may use the P1 centralized coding-model profile:
 
 - one of `edit` or `apply_patch` is the primary existing-file mutation tool;
 - `write` remains file creation and intentional complete replacement;
@@ -158,13 +158,13 @@ Automatic/default tool exposure may use the centralized coding-model profile:
 - `bash` remains shell, search, repository, build, test, and lint operations;
 - the non-primary mutation tool may remain available as a configured fallback without being presented as an equal default choice.
 
-Tool descriptions, errors, outputs, truncation, cancellation, and exit information must reinforce these non-overlapping responsibilities.
+Tool descriptions, errors, outputs, truncation, cancellation, and exit information reinforce these non-overlapping responsibilities.
 
 No new default tool is added for planning, testing, linting, git, TODOs, repository maps, code review, or skills.
 
 ## Skill and workflow architecture
 
-Skills use Native Pi's Agent Skills support and progressive disclosure.
+P2 uses Native Pi's Agent Skills support and progressive disclosure.
 
 - Names and concise descriptions are model-visible within the existing metadata budget.
 - Full skill bodies load only when relevant.
@@ -187,7 +187,7 @@ A workflow is a skill-guided sequence over existing tools. It is not a scheduler
 
 ## Knowledge ownership
 
-Knowledge is deliberately separated:
+P3 separates project knowledge deliberately:
 
 - `AGENTS.md` and applicable scoped instruction files: repository behavior and working rules;
 - optional `CONTEXT.md`: stable shared terminology, domain constraints, and project facts not better represented in source;
@@ -197,9 +197,9 @@ Knowledge is deliberately separated:
 - compaction: bounded active-session continuity;
 - current session messages: temporary task state.
 
-Local memory must not become an automatic semantic knowledge base. Repository architecture must not be duplicated into opaque memory.
+Local memory does not become an automatic semantic knowledge base. Repository architecture is not duplicated into opaque memory.
 
-Compaction must retain the information needed to continue work:
+Compaction retains the information needed to continue work:
 
 - active goal and constraints;
 - decisions and rationale;
@@ -208,7 +208,7 @@ Compaction must retain the information needed to continue work:
 - commands run and evidence observed;
 - next required validation.
 
-It must do this through the existing compaction owner rather than adding another memory layer.
+It does this through the existing compaction owner rather than adding another memory layer.
 
 ## Interactive UI architecture
 
@@ -226,39 +226,40 @@ Optional responsive session rail
 Extension widgets and overlays
 ```
 
-UI/UX is the first runtime delivery workstream because it improves daily usability without changing the agent loop.
+UI/UX is the first runtime workstream in P0 because it improves daily usability without changing the agent loop.
 
-The UI must:
+The UI:
 
-- use existing session and extension events;
-- add no model calls, repository scans, or background services;
-- retain terminal-owned fonts and accessibility settings;
-- preserve Native Pi theme discovery and extension UI contracts;
-- remain responsive at narrow, medium, and wide terminal sizes;
-- keep print, RPC, and SDK behavior free of implicit interactive state.
+- uses existing session and extension events;
+- adds no model calls, repository scans, or background services;
+- retains terminal-owned fonts and accessibility settings;
+- preserves Native Pi theme discovery and extension UI contracts;
+- remains responsive at narrow, medium, and wide terminal sizes;
+- keeps print, RPC, and SDK behavior free of implicit interactive state.
 
 See [UI/UX design](ui-ux.md).
 
 ## Optional robustness boundary
 
-The following belong outside the default core and are delivered only as optional packages, extensions, templates, or documentation:
+P4 delivers the following outside the default core as optional packages, extensions, templates, or documentation:
 
 - safe-mode authorization policy;
 - read-only language-server code intelligence;
 - external sandbox and container launch templates;
-- MCP adapter configuration;
-- additional themes;
-- external-service integrations;
-- future delegation or worktree automation.
+- MCP adapter configuration.
 
-Each optional capability must:
+Each optional capability:
 
-- use Native Pi's extension and package system;
-- register no schemas while disabled;
-- start no processes while disabled;
-- avoid modifying the generic agent loop;
-- remain removable without session or configuration migration;
-- state clearly whether it provides authorization, convenience, or actual isolation.
+- uses Native Pi's extension and package system;
+- registers no schemas while disabled;
+- starts no processes while disabled;
+- avoids modifying the generic agent loop;
+- remains removable without session or configuration migration;
+- states clearly whether it provides authorization, convenience, or actual isolation.
+
+## Downstream maintenance boundary
+
+P5 reviews every retained divergence against `main`, moves optional behavior out of upstream-hot files where native hooks permit, removes duplicated helpers and policy text, preserves public compatibility, and documents the justification and rollback path for each retained difference.
 
 ## Current All-For-One additions
 
