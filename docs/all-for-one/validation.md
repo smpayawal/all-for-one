@@ -2,18 +2,18 @@
 
 The smallest relevant checks run first, followed by the repository gate and the requested full test command. A command is reported as pass, fail, or environment-limited; an environment failure is not converted into a pass.
 
-The current fix branch is `smpayawal/fix-context-integrity-tool-hooks`, created from `allforone` commit `b605e39438cf0c7b5f979c336632853c3074fe8c`.
+The current fix branch is `smpayawal/fix-secure-context-windows-validation`, created from `allforone` commit `3fa5a2b505b79d4f6b07be46bce98959db03e251`.
 
 Validation is pinned to immutable commits and a workflow run:
 
 ```text
-validatedImplementationCommit: 31a7942a5662fe455ecc2a88d6a38b9bfa218d62
-validationEvidenceCommit: 31a7942a5662fe455ecc2a88d6a38b9bfa218d62
-workflowTestedCommit: 31a7942a5662fe455ecc2a88d6a38b9bfa218d62
-workflowRunId: 29564566021
+validatedImplementationCommit: 74208c65e8522ea9988ebaf2d44782c127f754e8
+validationEvidenceCommit: DOCUMENTATION_EVIDENCE_COMMIT_PENDING
+workflowTestedCommit: 74208c65e8522ea9988ebaf2d44782c127f754e8
+workflowRunId: 29568117295
 ```
 
-The local evidence was rerun after the implementation commit and before this documentation follow-up, so `validationEvidenceCommit` is intentionally the same immutable implementation SHA rather than a moving branch reference. The exact workflow run tested that SHA: the Ubuntu gate, Ubuntu focused, and macOS focused jobs passed; the Windows focused job failed on a pre-existing `test/memory.test.ts` assertion also present in baseline run `29562303888`. CI is therefore not reported green.
+The exact workflow run tested `validatedImplementationCommit`. Its Ubuntu gate and Ubuntu, macOS, and Windows focused jobs all passed, including build, full test, focused test, and clean-worktree steps. `validationEvidenceCommit` identifies the separate documentation commit that records this evidence; it is pinned by a documentation-only follow-up because a commit cannot contain its own SHA. No moving branch-head claim is used.
 
 Structural diagnostics:
 
@@ -37,6 +37,6 @@ The full `npm test` command is explicitly requested for this repository task, al
 
 The dedicated CI gate builds packages after `npm ci --ignore-scripts` before running the full test command so direct CLI tests resolve fresh workspace distributions. The normal build regenerates network-backed AI catalog sources, so CI first checks that only `packages/ai/src/models.generated.ts`, `packages/ai/src/image-models.generated.ts`, and direct `packages/ai/src/providers/*.models.ts` paths changed, restores only those paths, and then runs a strict clean-worktree assertion; handwritten provider modules, nested provider files, and other changes fail the gate. See the recorded artifact classification in [test-baseline.md](test-baseline.md).
 
-The exact workflow result above is the only CI evidence for this implementation commit. No correctness, latency, token-savings, or cost claim is made from structural fixtures or from the partial platform result.
+The exact workflow result above is the CI evidence for this implementation commit. Local `npm test` and `npm run build` were environment-limited as recorded in [test-baseline.md](test-baseline.md); those failures were not converted into passes. No correctness, latency, token-savings, or cost claim is made from structural fixtures or from the local environment-limited commands.
 
 Live paired task evaluation remains pending. No correctness, latency, token-savings, or cost claim is made from structural fixtures alone.

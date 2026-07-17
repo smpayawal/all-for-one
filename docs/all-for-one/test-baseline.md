@@ -2,39 +2,39 @@
 
 Date: 2026-07-17
 
-The current context/tool-hook fix section is authoritative for the focused fix branch. Historical evidence from the preceding hardening pass follows and is not evidence for the current implementation commit. An environment or build-artifact limitation is reported as a limitation, not converted into a pass.
+The current secure context/Windows fix section is authoritative for the focused fix branch. Historical evidence from the preceding hardening passes follows and is not evidence for the current implementation commit. An environment or build-artifact limitation is reported as a limitation, not converted into a pass.
 
 ## Current context/tool-hook fix validation
 
 | Item | Result |
 | --- | --- |
-| working branch | `smpayawal/fix-context-integrity-tool-hooks` |
-| base `allforone` commit | `b605e39438cf0c7b5f979c336632853c3074fe8c` |
+| working branch | `smpayawal/fix-secure-context-windows-validation` |
+| base `allforone` commit | `3fa5a2b505b79d4f6b07be46bce98959db03e251` |
 | base `main` commit | `216e672e7c9fc65682553394b74e483c0c9e47f7` |
-| `validatedImplementationCommit` | `31a7942a5662fe455ecc2a88d6a38b9bfa218d62` |
-| `validationEvidenceCommit` | `31a7942a5662fe455ecc2a88d6a38b9bfa218d62` |
-| `workflowTestedCommit` | `31a7942a5662fe455ecc2a88d6a38b9bfa218d62` |
-| `workflowRunId` | `29564566021` |
-| `main...validatedImplementationCommit` | `0 49`; `main` is an ancestor |
+| `validatedImplementationCommit` | `74208c65e8522ea9988ebaf2d44782c127f754e8` |
+| `validationEvidenceCommit` | `DOCUMENTATION_EVIDENCE_COMMIT_PENDING` |
+| `workflowTestedCommit` | `74208c65e8522ea9988ebaf2d44782c127f754e8` |
+| `workflowRunId` | `29568117295` |
+| `main...validatedImplementationCommit` | `0 51`; `main` is an ancestor |
 | implementation worktree after catalog restoration | clean before this documentation follow-up |
 
 | Command or suite | Result | Classification |
 | --- | --- | --- |
 | `node --test scripts/check-clean-worktree.test.mjs` | 4 passed | generated-path allowlist regression coverage |
-| `npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/scoped-context.test.ts` | 15 passed | scoped lookup regression coverage |
-| `npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/agent-loop.test.ts` | 46 passed | explicit `afterToolCall.details` override coverage |
-| additional resource-loader regression suite | 27 passed | unreadable instruction-file diagnostics |
+| `npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/resource-loader.test.ts test/scoped-context.test.ts test/memory.test.ts` | 3 files, 67 passed | secure instruction loading, scoped-context compatibility, and Windows memory-path regression coverage |
+| `npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/agent-loop.test.ts` | 1 file, 46 passed | agent-loop compatibility coverage |
 | `npm run check` | pass; Biome checked 832 files and all repository checks completed | repository gate |
 | `node --test scripts/check-clean-worktree.test.mjs` | 4 passed | clean-worktree helper regression coverage |
-| `node scripts/check-upstream-relationship.mjs --main origin/main --json` | pass; `currentCommit` is `31a7942a5662fe455ecc2a88d6a38b9bfa218d62`, `ahead` 49, `behind` 0, `mainIsAncestor` true | read-only relationship check |
-| `npm test` | exit 1; agent-core 223 passed; coding-agent 180 passed, 38 failed, 6 skipped; 13 AI suites failed | host permission failures for auth/session paths and localhost/tsx IPC, three reftable timeouts, one user-scoped `.agents` expectation; not converted into a pass |
+| `node --test scripts/check-upstream-relationship.test.mjs` | 3 passed | upstream relationship regression coverage |
+| `node scripts/check-upstream-relationship.mjs --main origin/main --json` | pass; `currentCommit` is `74208c65e8522ea9988ebaf2d44782c127f754e8`, `ahead` 51, `behind` 0, `mainIsAncestor` true | read-only relationship check |
+| `npm test` | exit 1; AI package 18 files failed, 70 passed, 12 skipped; coding-agent 8 files failed, 180 passed, 6 skipped | sandbox denied writes under `/Users/smpayawal/.pi/agent` and tsx IPC paths; a nonexistent-GitHub clone test also could not resolve `github.com`; not converted into a pass |
 | `npm run build` | exit 1; `models.dev`, `openrouter.ai`, and `ai-gateway.vercel.sh` failed DNS resolution, then generated provider modules were missing | generated catalogs were restored; build remains network-blocked locally |
-| All-For-One CI gate in run `29564566021` | passed on `workflowTestedCommit`; build, full test, clean-worktree, focused agent, focused All-For-One, diagnostics, and upstream steps passed | exact-commit Ubuntu gate |
-| `platform-focused (ubuntu-latest)` in run `29564566021` | passed on `workflowTestedCommit` | exact-commit Ubuntu focused job |
-| `platform-focused (macos-latest)` in run `29564566021` | passed on `workflowTestedCommit` | exact-commit macOS focused job |
-| `platform-focused (windows-latest)` in run `29564566021` | failed one `test/memory.test.ts` assertion; baseline run `29562303888` failed the same assertion before this branch | exact-commit Windows limitation; unrelated to changed files |
+| All-For-One CI gate in run `29568117295` | passed on `workflowTestedCommit`; build, full test, clean-worktree, focused agent, focused All-For-One, diagnostics, and upstream steps passed | exact-commit Ubuntu gate |
+| `platform-focused (ubuntu-latest)` in run `29568117295` | passed on `workflowTestedCommit` | exact-commit Ubuntu focused job |
+| `platform-focused (macos-latest)` in run `29568117295` | passed on `workflowTestedCommit` | exact-commit macOS focused job |
+| `platform-focused (windows-latest)` in run `29568117295` | passed on `workflowTestedCommit` | exact-commit Windows focused job |
 
-The implementation commit was clean after generated catalog restoration. The documentation commit that records this evidence is intentionally separate from `validatedImplementationCommit`; all commit and workflow references above are pinned.
+The implementation commit was clean after generated catalog restoration. The documentation commit that records this evidence is intentionally separate from `validatedImplementationCommit`; its SHA is pinned in `validationEvidenceCommit` by the follow-up documentation-only commit. All commit and workflow references above are immutable.
 
 ## Historical prior-hardening baseline
 
