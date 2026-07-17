@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Modernize the interactive coding experience without replacing Pi's terminal UI architecture, adding a desktop/web shell, or imposing a permanent rendering cost on print, RPC, or SDK modes.
+Modernize the interactive coding experience without replacing Pi's terminal UI architecture, adding a desktop or web shell, or imposing a permanent rendering cost on print, RPC, or SDK modes.
+
+UI/UX is the first runtime implementation workstream in P0. Architecture ownership and compatibility are frozen first, then the terminal experience is improved before P1 changes the model-facing tool interface.
 
 The design must make the active task, context, capabilities, progress, and errors easier to understand while preserving the speed and keyboard-first behavior of Native Pi.
 
@@ -19,27 +21,27 @@ The existing interactive mode already provides the correct primitives:
 - selectors for settings, models, sessions, extensions, and trees;
 - extension-owned widgets, overlays, headers, footers, commands, and editors.
 
-The improvement should refine these surfaces rather than add another UI framework.
+The improvement refines these surfaces rather than adding another UI framework.
 
 ## Design principles
 
 ### Terminal native
 
-All-For-One remains a terminal application. It must respect the user's terminal emulator, font, zoom, color capabilities, and accessibility settings.
+All-For-One remains a terminal application. It respects the user's terminal emulator, font, zoom, color capabilities, and accessibility settings.
 
-The harness must not bundle or attempt to force a font family. Font selection belongs to the terminal. All-For-One may document recommended monospaced fonts, but the runtime must rely on normal terminal cells and safe fallback characters.
+The harness does not bundle or force a font family. Font selection belongs to the terminal. Documentation may recommend monospaced fonts, but runtime rendering relies on normal terminal cells and safe fallback characters.
 
-Nerd Font glyphs, private-use icons, and ligatures must never be required for understanding the interface.
+Nerd Font glyphs, private-use icons, and ligatures are never required to understand the interface.
 
 ### Progressive disclosure
 
-The default view should show only information needed to continue the current task. Additional context, tool output, diagnostics, and shortcuts remain available through existing expansion and selector mechanisms.
+The default view shows only information needed to continue the current task. Additional context, tool output, diagnostics, and shortcuts remain available through existing expansion and selector mechanisms.
 
-The transcript and editor are primary. The header, rail, status line, and footer support them; they must not compete with them.
+The transcript and editor are primary. The header, rail, status line, and footer support them rather than compete with them.
 
 ### Responsive by default
 
-The UI must remain useful at common terminal sizes without horizontal scrolling or clipped controls.
+The UI remains useful at common terminal sizes without horizontal scrolling or clipped controls.
 
 - Narrow terminals: transcript, status, editor, and footer only.
 - Medium terminals: the same primary column with compact metadata in the footer or status line.
@@ -50,17 +52,17 @@ The UI must remain useful at common terminal sizes without horizontal scrolling 
 
 Use Pi's existing keybinding manager and selectors. Do not hardcode key checks or create a second navigation system.
 
-Every action available through a shortcut must remain discoverable through an existing command, selector, or help surface. Mouse support may remain supplemental but is not required.
+Every shortcut action remains discoverable through an existing command, selector, or help surface. Mouse support may remain supplemental but is not required.
 
 ### Accessible presentation
 
-Themes should target WCAG 2.2 AA contrast for normal text where terminal colors permit it. State must not be communicated by color alone.
+Themes should target WCAG 2.2 AA contrast for normal text where terminal colors permit it. State is not communicated by color alone.
 
-Success, failure, pending work, warnings, selected items, and disabled items must use text or symbols in addition to color. Themes must work with terminal default backgrounds and degrade safely when truecolor or inline images are unavailable.
+Success, failure, pending work, warnings, selected items, and disabled items use text or symbols in addition to color. Themes work with terminal default backgrounds and degrade safely when truecolor or inline images are unavailable.
 
 ### Low rendering and context cost
 
-UI improvements must not add model tokens. Presentation state remains local to interactive mode. The rail and transcript summaries consume runtime events already produced by the session; they must not trigger additional model calls, repository scans, or background processes.
+UI improvements add no model tokens. Presentation state remains local to interactive mode. The rail and transcript summaries consume runtime events already produced by the session; they do not trigger additional model calls, repository scans, or background processes.
 
 ## Proposed visual system
 
@@ -68,7 +70,7 @@ UI improvements must not add model tokens. Presentation state remains local to i
 
 All application text uses the terminal's configured monospace font.
 
-The product documentation may recommend fonts such as JetBrains Mono, Iosevka, Berkeley Mono, or the platform default, but no font files are distributed and no rendering assumes a specific font.
+Documentation may recommend fonts such as JetBrains Mono, Iosevka, Berkeley Mono, or the platform default, but no font files are distributed and no rendering assumes a specific font.
 
 Use terminal typography sparingly:
 
@@ -77,7 +79,7 @@ Use terminal typography sparingly:
 - dim text only for non-essential metadata;
 - no long all-uppercase prose;
 - no decorative ASCII art in the persistent transcript;
-- symbols must have ASCII-safe equivalents when necessary.
+- symbols have ASCII-safe equivalents when necessary.
 
 ### Theme family
 
@@ -90,7 +92,7 @@ Add two small bundled All-For-One themes through the native theme loader:
 
 Both themes use the existing theme schema and all required tokens. They introduce no runtime dependency.
 
-A new All-For-One installation with no saved theme uses the existing terminal-background detection and selects the matching All-For-One theme. Existing explicit theme selections remain untouched. Native Pi's `dark` and `light` remain immediately available through `/settings`, settings files, and CLI theme loading.
+A new All-For-One installation with no saved theme uses existing terminal-background detection and selects the matching All-For-One theme. Existing explicit theme selections remain untouched. Native Pi's `dark` and `light` remain immediately available through `/settings`, settings files, and CLI theme loading.
 
 Theme requirements:
 
@@ -100,7 +102,7 @@ Theme requirements:
 - consistent syntax and Markdown hierarchy;
 - no reliance on saturated color for ordinary text;
 - verified behavior on truecolor and 256-color terminals;
-- dark and light screenshots or captured TUI fixtures in the implementation review.
+- dark and light captures or focused TUI fixtures during implementation review.
 
 A third built-in aesthetic theme is not justified initially. Additional themes belong in Pi packages.
 
@@ -126,15 +128,16 @@ The current brand header can display a 12 by 6 cell image followed by the title.
 Replace the persistent large header behavior with two states:
 
 1. Welcome state
-   - shown before the first user message;
+   - shown only for an empty interactive session;
    - optional inline product mark when terminal images are supported and sufficient height is available;
    - product name, version, selected model, and one concise help hint;
    - text-only fallback everywhere.
 
 2. Working state
-   - compact one-line product label or no header when the footer already communicates the necessary state;
+   - compact one-line product label or no header when the footer already communicates durable state;
    - no repeated logo in the transcript;
-   - custom extension headers remain supported through the existing extension API.
+   - restored non-empty sessions start compact;
+   - custom extension headers remain authoritative.
 
 No animation, spinner framework, or background asset loading is added.
 
@@ -147,16 +150,16 @@ Presentation rules:
 - user and assistant messages retain clear visual separation;
 - Markdown hierarchy is visible but restrained;
 - long reasoning blocks remain collapsible according to the existing setting;
-- code blocks and diffs keep syntax and semantic coloring;
+- code blocks and diffs retain syntax and semantic coloring;
 - tool calls render as compact rows before expansion;
 - failures automatically expose the actionable part of the error;
-- repeated metadata is removed from individual blocks when it is already present in the footer or rail.
+- repeated metadata is removed when already present in the footer or rail.
 
 ### Contextual session rail
 
 Retain the current responsive overlay approach and existing terminal-width boundary. Do not convert the rail into a permanent application sidebar or navigation tree.
 
-Rename and reorganize the rail sections:
+Rename and reorganize sections:
 
 - `STATUS`
   - idle, working, retrying, or compacting;
@@ -165,17 +168,17 @@ Rename and reorganize the rail sections:
 
 - `ACTIVITY`
   - active tool calls;
-  - the most recent completed or failed calls;
+  - recent completed or failed calls;
   - concise names only.
 
 - `CONTEXT`
   - active project instruction files and scopes;
-  - omitted or conflicting context shown only as a warning count linked to `/context` details.
+  - omitted or conflicting context shown as a warning count linked to detailed `/context` output.
 
 - `CAPABILITIES`
-  - skills loaded for the current task;
+  - skills actually loaded for the current task;
   - enabled optional capabilities when relevant;
-  - no `AGENTS` label because the primary design is single-agent.
+  - no `AGENTS` label because the default architecture is single-agent.
 
 Rail behavior:
 
@@ -187,7 +190,13 @@ Rail behavior:
 - the main column remains usable when the rail is absent;
 - shortcuts remain at the bottom only when vertical space permits.
 
-Add one `sessionRailMode` setting with `auto`, `on`, and `off`. Avoid additional rail-specific configuration until a concrete need exists.
+Add one setting:
+
+```ts
+sessionRailMode?: "auto" | "on" | "off";
+```
+
+Avoid additional rail-specific configuration until a demonstrated need exists.
 
 ### Navigation
 
@@ -203,13 +212,13 @@ Do not add tabs, a router, a page stack, or a second command palette.
 
 ### Footer and status
 
-Keep the footer concise and stable. It should communicate only durable session information such as model, working directory, context usage, and essential mode state.
+Keep the footer concise and stable. It communicates durable session information such as model, working directory, context usage, and essential mode state.
 
 Transient work belongs in the status indicator or rail. Do not display the same state simultaneously in the header, status line, rail, and footer.
 
 ### Tool presentation
 
-Standardize built-in and extension tool rows around the same concepts:
+Standardize built-in and extension tool rows around:
 
 - tool name;
 - short target or operation summary;
@@ -218,7 +227,7 @@ Standardize built-in and extension tool rows around the same concepts:
 - exit code for shell failures;
 - truncation or continuation information when output is incomplete.
 
-Collapsed success rows should normally occupy one line. Failed calls should expose a short error and remain expandable. Detailed outputs remain available through the existing expand interaction.
+Collapsed success rows should normally occupy one line. Failed calls expose a short error and remain expandable. Detailed output remains available through the existing expansion interaction.
 
 ## Content language
 
@@ -229,7 +238,7 @@ Use short, concrete labels:
 - `Context`, not `Context / Agents`;
 - `Capabilities`, not `Available intelligent resources`.
 
-Messages must distinguish:
+Messages distinguish:
 
 - what happened;
 - whether action is required;
@@ -239,7 +248,7 @@ Avoid anthropomorphic status copy, celebratory completion language, and claims n
 
 ## Settings changes
 
-Proposed new setting:
+The only proposed new UI setting is:
 
 ```ts
 sessionRailMode?: "auto" | "on" | "off";
@@ -252,12 +261,12 @@ Do not add font, animation, panel-width, per-section visibility, or arbitrary CS
 ## Architecture placement
 
 - Theme JSON files: `packages/coding-agent/src/modes/interactive/theme/`
-- Theme loading and selection: existing theme controller and first-run setup
+- Theme loading and selection: existing theme controller and settings manager
 - Welcome and compact header: `packages/coding-agent/src/modes/interactive/components/brand-header.ts`
 - Rail rendering and responsive layout: `packages/coding-agent/src/modes/interactive/components/session-rail.ts`
 - Interactive composition only: `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
 - Settings UI: existing settings selector
-- Shared rendering primitives: `packages/tui` only when the required behavior is generally useful to Native Pi components
+- Shared rendering primitives: `packages/tui` only when generally useful to Native Pi components
 
 Do not move UI concerns into `packages/agent` or `packages/ai`.
 
@@ -273,17 +282,33 @@ Do not move UI concerns into `packages/agent` or `packages/ai`.
 - Automatic screenshots or visual telemetry
 - UI behavior in print, RPC, or SDK modes
 - A large theme gallery in the core repository
+- Model calls, request classification, or repository scans for presentation
+
+## Validation
+
+UI validation belongs in P0 and includes:
+
+- focused component and settings tests;
+- theme schema and selection tests;
+- tmux captures at 80 by 24, 120 by 30, and 160 by 40;
+- text-only and image-capable paths;
+- All-For-One and Native Pi theme selection;
+- extension header, footer, widget, overlay, command, and editor compatibility;
+- `npm run check` after implementation changes;
+- final diff review against `allforone` and `main`.
+
+There is no separate visual-evaluation platform.
 
 ## Acceptance criteria
 
 The UI/UX implementation is ready when:
 
-1. The normal transcript is visibly cleaner without removing existing information.
+1. The normal transcript is cleaner without removing diagnostic information.
 2. The welcome header does not permanently consume vertical space.
 3. The rail remains responsive, optional, and free of model or repository work.
-4. Empty rail sections are not rendered.
-5. Theme changes use the native schema, new installations use the matching All-For-One theme, and Native Pi themes remain available.
-6. All essential states remain understandable without color.
+4. Empty rail sections are not rendered in automatic mode.
+5. Theme changes use the native schema and preserve Native Pi themes.
+6. Essential states remain understandable without color.
 7. Narrow terminal behavior is unchanged or improved.
 8. Print, RPC, and SDK modes receive no interactive-only layout state.
 9. Existing extension headers, footers, widgets, overlays, commands, and custom editors remain compatible.
