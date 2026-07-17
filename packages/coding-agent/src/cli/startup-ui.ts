@@ -1,6 +1,14 @@
 import { ProcessTerminal, setKeybindings, TUI } from "@earendil-works/pi-tui";
 import { existsSync } from "fs";
-import { APP_NAME, CONFIG_DIR_NAME, ENV_AGENT_DIR, getAgentDir, getSettingsPath, PACKAGE_NAME } from "../config.ts";
+import {
+	APP_NAME,
+	APP_TITLE,
+	CONFIG_DIR_NAME,
+	ENV_AGENT_DIR,
+	getAgentDir,
+	getSettingsPath,
+	PACKAGE_NAME,
+} from "../config.ts";
 import { areExperimentalFeaturesEnabled } from "../core/experimental.ts";
 import { KeybindingsManager } from "../core/keybindings.ts";
 import { DefaultPackageManager, type ResolvedResource } from "../core/package-manager.ts";
@@ -25,18 +33,26 @@ import {
 
 const OFFICIAL_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 const OFFICIAL_APP_NAME = "pi";
+const OFFICIAL_APP_TITLE = "π";
 const OFFICIAL_CONFIG_DIR_NAME = ".pi";
 
 interface DistributionMetadata {
 	packageName: string;
 	appName: string;
+	appTitle: string;
 	configDirName: string;
 }
 
-function isOfficialDistribution({ packageName, appName, configDirName }: DistributionMetadata): boolean {
+export function isOfficialPiDistribution({
+	packageName,
+	appName,
+	appTitle,
+	configDirName,
+}: DistributionMetadata): boolean {
 	return (
 		packageName === OFFICIAL_PACKAGE_NAME &&
 		appName === OFFICIAL_APP_NAME &&
+		appTitle === OFFICIAL_APP_TITLE &&
 		configDirName === OFFICIAL_CONFIG_DIR_NAME
 	);
 }
@@ -107,16 +123,17 @@ async function clearStartupTui(ui: TUI): Promise<void> {
 
 /**
  * First-time setup runs when all of these hold:
- * - this is the official Pi distribution (not a fork/rebrand)
+ * - this is the official Pi distribution, including its display identity
  * - experimental features are enabled (PI_EXPERIMENTAL=1)
  * - the default agent directory is used (no custom agent dir override)
  * - setup was not completed before (settings.json does not exist)
  */
 export function shouldRunFirstTimeSetup(settingsPath: string = getSettingsPath()): boolean {
 	if (
-		!isOfficialDistribution({
+		!isOfficialPiDistribution({
 			packageName: PACKAGE_NAME,
 			appName: APP_NAME,
+			appTitle: APP_TITLE,
 			configDirName: CONFIG_DIR_NAME,
 		})
 	) {
