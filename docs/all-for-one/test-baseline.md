@@ -20,6 +20,9 @@ The current remaining-hardening section is authoritative for the focused fix bra
 | `node --test scripts/check-clean-worktree.test.mjs` | 4 passed | generated-path allowlist regression coverage |
 | `npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/scoped-context.test.ts` | 14 passed | scoped lookup regression coverage |
 | `npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/agent-loop.test.ts` | 40 passed | untrusted `afterToolCall` regression coverage |
+| exact CI gate focused list | 21 files; 372 passed | pass under isolated temporary state |
+| exact CI platform-focused list | 10 files passed, 1 skipped; 187 passed, 2 skipped | pass under isolated temporary state |
+| exact agent runtime focused test | 1 file; 17 passed | pass under isolated temporary state |
 | `npm run check` | pass | repository gate |
 | `node --test scripts/check-upstream-relationship.test.mjs` | 3 passed | verifier regression coverage |
 | `node scripts/check-upstream-relationship.mjs --main origin/main --json` | pass; current `HEAD` is 46 commits ahead and 0 behind | read-only relationship check |
