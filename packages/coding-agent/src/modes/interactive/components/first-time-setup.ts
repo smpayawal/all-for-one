@@ -22,6 +22,10 @@ const THEME_OPTIONS: Array<{ value: TerminalTheme; label: string }> = [
 	{ value: "light", label: "Light" },
 ];
 
+export const DEFAULT_SHARE_ANALYTICS = false;
+export const ANALYTICS_DESCRIPTION =
+	"Opting in stores a tracking identifier in settings.json and enables anonymous\nusage analytics. This helps project maintainers debug and improve the application.\nYou can change this preference later in settings.json.";
+
 const ANALYTICS_OPTIONS: Array<{ value: boolean; label: string }> = [
 	{ value: true, label: "Share anonymous usage data" },
 	{ value: false, label: "Don't share" },
@@ -31,7 +35,7 @@ const ANALYTICS_OPTIONS: Array<{ value: boolean; label: string }> = [
 export class FirstTimeSetupComponent extends Container {
 	private step: "theme" | "analytics" = "theme";
 	private themeIndex: number;
-	private analyticsIndex = 0;
+	private analyticsIndex = ANALYTICS_OPTIONS.findIndex((option) => option.value === DEFAULT_SHARE_ANALYTICS);
 	private readonly options: FirstTimeSetupOptions;
 
 	constructor(options: FirstTimeSetupOptions) {
@@ -66,16 +70,7 @@ export class FirstTimeSetupComponent extends Container {
 			);
 		} else {
 			this.addChild(new Text(theme.fg("text", "Opt-in to anonymous usage data sharing?"), 1, 0));
-			this.addChild(
-				new Text(
-					theme.fg(
-						"muted",
-						"Opting in stores a tracking identifier in settings.json and enables anonymous\nusage analytics. This helps us to better debug, reproduce, and resolve issues\nand bugs within All-For-One. You can observe what is shared using /privacy and make\nchanges anytime in settings.json.",
-					),
-					1,
-					0,
-				),
-			);
+			this.addChild(new Text(theme.fg("muted", ANALYTICS_DESCRIPTION), 1, 0));
 			this.addChild(new Spacer(1));
 			this.addOptionList(
 				ANALYTICS_OPTIONS.map((option) => option.label),

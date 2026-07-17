@@ -1,10 +1,38 @@
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { shouldRunFirstTimeSetup } from "../src/cli/startup-ui.ts";
+import { isOfficialPiDistribution, shouldRunFirstTimeSetup } from "../src/cli/startup-ui.ts";
 import { ENV_AGENT_DIR } from "../src/config.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import {
+	ANALYTICS_DESCRIPTION,
+	DEFAULT_SHARE_ANALYTICS,
+} from "../src/modes/interactive/components/first-time-setup.ts";
+
+describe("first-time setup distribution boundary", () => {
+	it("recognizes the official Pi identity", () => {
+		expect(
+			isOfficialPiDistribution({
+				packageName: "@earendil-works/pi-coding-agent",
+				appName: "pi",
+				appTitle: "π",
+				configDirName: ".pi",
+			}),
+		).toBe(true);
+	});
+
+	it("does not treat All-For-One as the official Pi distribution", () => {
+		expect(
+			isOfficialPiDistribution({
+				packageName: "@earendil-works/pi-coding-agent",
+				appName: "pi",
+				appTitle: "All-For-One",
+				configDirName: ".pi",
+			}),
+		).toBe(false);
+	});
+});
 
 describe("shouldRunFirstTimeSetup", () => {
 	const originalPiExperimental = process.env.PI_EXPERIMENTAL;
@@ -33,26 +61,15 @@ describe("shouldRunFirstTimeSetup", () => {
 		}
 	});
 
-	it("returns true when experimental, default agent dir, and no settings.json", () => {
-		expect(shouldRunFirstTimeSetup(settingsPath)).toBe(true);
-	});
-
-	it("returns false when experimental features are disabled", () => {
-		delete process.env.PI_EXPERIMENTAL;
-
+	it("stays disabled for the All-For-One distribution", () => {
 		expect(shouldRunFirstTimeSetup(settingsPath)).toBe(false);
 	});
+});
 
-	it("returns false when a custom agent dir is set", () => {
-		process.env[ENV_AGENT_DIR] = tempDir;
-
-		expect(shouldRunFirstTimeSetup(settingsPath)).toBe(false);
-	});
-
-	it("returns false when settings.json already exists", () => {
-		writeFileSync(settingsPath, "{}", "utf-8");
-
-		expect(shouldRunFirstTimeSetup(settingsPath)).toBe(false);
+describe("first-time setup analytics consent", () => {
+	it("defaults to disabled and avoids unsupported privacy guidance", () => {
+		expect(DEFAULT_SHARE_ANALYTICS).toBe(false);
+		expect(ANALYTICS_DESCRIPTION).not.toContain("/privacy");
 	});
 });
 

@@ -49,8 +49,8 @@
 	],
 	"scripts": {
 		"clean": "shx rm -rf dist",
-		"generate-models": "node scripts/generate-models.ts",
-		"generate-model-catalog": "node scripts/generate-models.ts --strict --json-only --json-output ../../.artifacts/model-catalog",
+		"generate-models": "node scripts/generate-models.ts && node scripts/ensure-kimi-coding-compat.ts",
+		"generate-model-catalog": "node scripts/generate-models.ts --strict --json-only --json-output ../../.artifacts/model-catalog && node scripts/ensure-kimi-coding-compat.ts --json-output ../../.artifacts/model-catalog",
 		"generate-image-models": "node scripts/generate-image-models.ts",
 		"build": "npm run generate-models && tsgo -p tsconfig.build.json && shx rm -rf dist/providers/data && shx cp -r src/providers/data dist/providers/data",
 		"test": "vitest --run",
