@@ -12,7 +12,7 @@ const allowBuildGenerated = process.argv.includes("--allow-build-generated");
 const isGeneratedBuildPath = (path) =>
 	path === "packages/ai/src/models.generated.ts" ||
 	path === "packages/ai/src/image-models.generated.ts" ||
-	path.startsWith("packages/ai/src/providers/");
+	/^packages\/ai\/src\/providers\/[^/]+\.models\.ts$/.test(path);
 const unexpectedPaths = allowBuildGenerated ? changedPaths.filter((path) => !isGeneratedBuildPath(path)) : changedPaths;
 
 if (unexpectedPaths.length > 0) {

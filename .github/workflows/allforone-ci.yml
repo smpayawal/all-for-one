@@ -41,11 +41,14 @@ jobs:
       - name: Build packages
         run: npm run build
 
+      - name: Clean-worktree helper tests
+        run: node --test scripts/check-clean-worktree.test.mjs
+
       - name: Verify generated build output
         run: node scripts/check-clean-worktree.mjs --allow-build-generated
 
       - name: Restore generated catalogs after build
-        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts packages/ai/src/providers
+        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
 
       - name: Check
         run: npm run check
@@ -125,7 +128,7 @@ jobs:
         run: node scripts/check-clean-worktree.mjs --allow-build-generated
 
       - name: Restore generated catalogs after build
-        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts packages/ai/src/providers
+        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
 
       - name: Platform-sensitive focused tests
         run: >-

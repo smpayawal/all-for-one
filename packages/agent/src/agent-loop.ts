@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { normalizeRuntimeError } from "./runtime-error.ts";
 import type {
+	AfterToolCallResult,
 	AgentContext,
 	AgentEvent,
 	AgentLoopConfig,
@@ -38,6 +39,8 @@ const EMPTY_USAGE = {
 };
 
 const INVALID_TOOL_RESULT_MESSAGE = "Tool returned an invalid result: content must be an array.";
+const INVALID_AFTER_TOOL_RESULT_MESSAGE =
+	"afterToolCall returned an invalid result: expected undefined or an object with array content and boolean isError/terminate fields.";
 
 function isValidToolResult(value: unknown): value is AgentToolResult<unknown> {
 	return typeof value === "object" && value !== null && Array.isArray((value as { content?: unknown }).content);
@@ -48,6 +51,16 @@ function normalizeToolResult(value: unknown, isError: boolean): { result: AgentT
 		return { result: createErrorToolResult(INVALID_TOOL_RESULT_MESSAGE), isError: true };
 	}
 	return { result: value, isError };
+}
+
+function isValidAfterToolCallResult(value: unknown): value is AfterToolCallResult {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+	const candidate = value as { content?: unknown; isError?: unknown; terminate?: unknown };
+	return (
+		(candidate.content === undefined || Array.isArray(candidate.content)) &&
+		(candidate.isError === undefined || typeof candidate.isError === "boolean") &&
+		(candidate.terminate === undefined || typeof candidate.terminate === "boolean")
+	);
 }
 
 function validateExecutionLimit(value: number | undefined, name: keyof ExecutionLimits): number | undefined {
@@ -1144,9 +1157,9 @@ async function finalizeExecutedToolCall(
 				},
 				signal,
 			);
-			if (afterResult) {
-				if (afterResult.content !== undefined && !Array.isArray(afterResult.content)) {
-					result = createErrorToolResult(INVALID_TOOL_RESULT_MESSAGE);
+			if (afterResult !== undefined) {
+				if (!isValidAfterToolCallResult(afterResult)) {
+					result = createErrorToolResult(INVALID_AFTER_TOOL_RESULT_MESSAGE);
 					isError = true;
 				} else {
 					result = {

@@ -192,6 +192,120 @@ describe("agentLoop with AgentMessage", () => {
 			expect(toolResult).toMatchObject({ content: validResult.content, isError: false });
 		}
 	});
+
+	it.each([
+		["null", null],
+		["string", "invalid hook result"],
+		["number", 42],
+		["array", []],
+		["invalid content", { content: "invalid" }],
+		["invalid isError", { isError: "invalid" }],
+		["invalid terminate", { terminate: "invalid" }],
+	] as const)("converts an afterToolCall %s into an explicit error result", async (_label, invalidResult) => {
+		const tool: AgentTool = {
+			name: "hook-result-tool",
+			label: "Hook Result Tool",
+			description: "Returns a valid result before hook validation.",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "original" }], details: {} }),
+		};
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+			afterToolCall: async () => invalidResult as never,
+		};
+		let providerCalls = 0;
+		const streamFn = () => {
+			providerCalls += 1;
+			const stream = new MockAssistantStream();
+			queueMicrotask(() => {
+				const message =
+					providerCalls === 1
+						? createAssistantMessage(
+								[{ type: "toolCall", id: "hook-result-1", name: "hook-result-tool", arguments: {} }],
+								"toolUse",
+							)
+						: createAssistantMessage([{ type: "text", text: "finished" }]);
+				stream.push({ type: "done", reason: providerCalls === 1 ? "toolUse" : "stop", message });
+			});
+			return stream;
+		};
+		const stream = agentLoop([createUserMessage("run the hook-result tool")], context, config, undefined, streamFn);
+		const events: AgentEvent[] = [];
+		for await (const event of stream) events.push(event);
+
+		const messages = await stream.result();
+		const toolResult = messages.find((message) => message.role === "toolResult");
+		const toolEnd = events.find((event) => event.type === "tool_execution_end");
+		const expectedText =
+			"afterToolCall returned an invalid result: expected undefined or an object with array content and boolean isError/terminate fields.";
+		expect(providerCalls).toBe(2);
+		expect(toolEnd).toMatchObject({
+			isError: true,
+			result: { content: [{ type: "text", text: expectedText }] },
+		});
+		expect(toolResult).toMatchObject({
+			isError: true,
+			content: [{ type: "text", text: expectedText }],
+		});
+		expect(toolResult && "terminate" in toolResult).toBe(false);
+	});
+
+	it("applies valid afterToolCall partial overrides", async () => {
+		const tool: AgentTool = {
+			name: "override-tool",
+			label: "Override Tool",
+			description: "Returns a valid result for hook override testing.",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "original" }], details: {} }),
+		};
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+			afterToolCall: async () => ({
+				content: [{ type: "text", text: "overridden" }],
+				details: { source: "hook" },
+				isError: true,
+				terminate: true,
+			}),
+		};
+		let providerCalls = 0;
+		const stream = agentLoop([createUserMessage("run the override tool")], context, config, undefined, () => {
+			providerCalls += 1;
+			const mockStream = new MockAssistantStream();
+			queueMicrotask(() => {
+				const message = createAssistantMessage(
+					[{ type: "toolCall", id: "override-1", name: "override-tool", arguments: {} }],
+					"toolUse",
+				);
+				mockStream.push({ type: "done", reason: "toolUse", message });
+			});
+			return mockStream;
+		});
+
+		const events: AgentEvent[] = [];
+		for await (const event of stream) events.push(event);
+		const messages = await stream.result();
+		const toolResult = messages.find((message) => message.role === "toolResult");
+		const toolEnd = events.find((event) => event.type === "tool_execution_end");
+
+		expect(providerCalls).toBe(1);
+		expect(toolEnd).toMatchObject({
+			isError: true,
+			result: {
+				content: [{ type: "text", text: "overridden" }],
+				details: { source: "hook" },
+				terminate: true,
+			},
+		});
+		expect(toolResult).toMatchObject({
+			isError: true,
+			content: [{ type: "text", text: "overridden" }],
+			details: { source: "hook" },
+		});
+	});
 	it.each([
 		{
 			name: "prepareNextTurn",

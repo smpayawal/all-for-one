@@ -54,6 +54,7 @@ function createFixture() {
 	const resourceLoader = {
 		getAgentsFilesForPath(targetPath: string) {
 			if (targetPath.includes("outside")) return result([], ["outside project root"]);
+			if (targetPath.includes("failed")) throw new Error("lookup failed");
 			if (targetPath.includes("frontend")) return result([root, frontendFile]);
 			if (targetPath.includes("backend")) return result([root, backendFile]);
 			return result([root]);
@@ -285,5 +286,78 @@ describe("ScopedContextTracker", () => {
 			siblingConflicts: [],
 			activeChars: 0,
 		});
+	});
+
+	it("preserves a nested scope when a root-only target shares a batch with an outside target", () => {
+		const fixture = createFixture();
+		const tracker = new ScopedContextTracker(fixture.cwd, fixture.resourceLoader);
+
+		tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
+		const mixed = tracker.loadForToolCall(
+			"apply_patch",
+			{
+				patch: "*** Begin Patch\n*** Update File: README.md\n*** Update File: outside/file.ts\n*** End Patch",
+			},
+			[fixture.root, fixture.frontendFile],
+		);
+
+		expect(mixed.changed).toBe(false);
+		expect(mixed.diagnostics.replacedScopes).toEqual([]);
+		expect(tracker.getFiles()).toEqual([fixture.frontendFile]);
+	});
+
+	it("preserves a nested scope when a root-only target shares a batch with a failed lookup", () => {
+		const fixture = createFixture();
+		const tracker = new ScopedContextTracker(fixture.cwd, fixture.resourceLoader);
+
+		tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
+		const mixed = tracker.loadForToolCall(
+			"apply_patch",
+			{
+				patch: "*** Begin Patch\n*** Update File: README.md\n*** Update File: failed/file.ts\n*** End Patch",
+			},
+			[fixture.root, fixture.frontendFile],
+		);
+
+		expect(mixed.changed).toBe(false);
+		expect(mixed.diagnostics.replacedScopes).toEqual([]);
+		expect(mixed.warnings).toContainEqual(expect.stringContaining("Path-scoped context lookup failed"));
+		expect(tracker.getFiles()).toEqual([fixture.frontendFile]);
+	});
+
+	it("retains the current scope when a nested target shares a batch with a failed sibling", () => {
+		const fixture = createFixture();
+		const tracker = new ScopedContextTracker(fixture.cwd, fixture.resourceLoader);
+
+		tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
+		const mixed = tracker.loadForToolCall(
+			"apply_patch",
+			{
+				patch: "*** Begin Patch\n*** Update File: backend/src/api.ts\n*** Update File: failed/file.ts\n*** End Patch",
+			},
+			[fixture.root, fixture.frontendFile],
+		);
+
+		expect(mixed.changed).toBe(true);
+		expect(mixed.diagnostics.replacedScopes).toEqual([]);
+		expect(tracker.getFiles()).toEqual(expect.arrayContaining([fixture.frontendFile, fixture.backendFile]));
+	});
+
+	it("clears nested scopes only after every root-only target resolves successfully", () => {
+		const fixture = createFixture();
+		const tracker = new ScopedContextTracker(fixture.cwd, fixture.resourceLoader);
+
+		tracker.loadForToolCall("read", { path: "frontend/src/App.tsx" }, [fixture.root]);
+		const rootOnly = tracker.loadForToolCall(
+			"apply_patch",
+			{
+				patch: "*** Begin Patch\n*** Update File: README.md\n*** Update File: docs/guide.md\n*** End Patch",
+			},
+			[fixture.root, fixture.frontendFile],
+		);
+
+		expect(rootOnly.changed).toBe(true);
+		expect(rootOnly.diagnostics.replacedScopes).toEqual([canonicalizePath(fixture.frontend)]);
+		expect(tracker.getFiles()).toEqual([]);
 	});
 });
