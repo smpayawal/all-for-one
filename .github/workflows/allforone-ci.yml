@@ -50,12 +50,20 @@ jobs:
       - name: Check
         run: npm run check
 
-      - name: Focused coding-agent and All-For-One tests
+      - name: Native skill tests
+        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/native-skills.test.ts
+
+      - name: Resource loader tests
+        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/resource-loader.test.ts
+
+      - name: Skill tests
+        run: npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/skills.test.ts
+
+      - name: Remaining focused coding-agent and All-For-One tests
         run: >-
           npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/coding-model-profile.test.ts
           test/sdk-tool-profile.test.ts
-          test/native-skills.test.ts
           test/safe-mode.test.ts
           test/code-intel.test.ts
           test/exec.test.ts
@@ -63,7 +71,6 @@ jobs:
           test/settings-manager.test.ts
           test/system-prompt.test.ts
           test/tool-registry.test.ts
-          test/resource-loader.test.ts
           test/agent-session-concurrent.test.ts
           test/agent-session-runtime-events.test.ts
           test/apply-patch-tool.test.ts
@@ -74,7 +81,6 @@ jobs:
           test/compaction-validation.test.ts
           test/execution-integrity.test.ts
           test/suite/lax-message-content.test.ts
-          test/skills.test.ts
           test/memory.test.ts
           test/interactive-mode-status.test.ts
           test/session-rail.test.ts
