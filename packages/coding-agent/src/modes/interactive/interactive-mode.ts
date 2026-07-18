@@ -141,6 +141,7 @@ import {
 	WorkingStatusIndicator,
 } from "./components/status-indicator.ts";
 import { ToolExecutionComponent } from "./components/tool-execution.ts";
+import { TranscriptTurnHeaderComponent } from "./components/transcript-turn-header.ts";
 import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
@@ -162,6 +163,12 @@ import {
 } from "./theme/theme.ts";
 import { InteractiveThemeController } from "./theme/theme-controller.ts";
 import { canHandleTranscriptNavigation, getTranscriptNavigationAction } from "./transcript-navigation.ts";
+import {
+	buildTranscriptGroups,
+	createTranscriptMessageItem,
+	type TranscriptRenderItem,
+	type TranscriptTurnRole,
+} from "./transcript-turns.ts";
 import { TranscriptViewport } from "./transcript-viewport.ts";
 
 /** Interface for components that can be expanded/collapsed */
@@ -199,12 +206,6 @@ type CompactionQueuedMessage = {
 	mode: "steer" | "followUp";
 };
 
-type RenderSessionItem = AgentMessage | Extract<SessionEntry, { type: "custom" }>;
-
-function isCustomSessionEntry(item: RenderSessionItem): item is Extract<SessionEntry, { type: "custom" }> {
-	return "type" in item && item.type === "custom";
-}
-
 const DEAD_TERMINAL_ERROR_CODES = new Set(["EIO", "EPIPE", "ENOTCONN"]);
 
 function isDeadTerminalError(error: unknown): boolean {
@@ -213,6 +214,12 @@ function isDeadTerminalError(error: unknown): boolean {
 	}
 	const code = (error as NodeJS.ErrnoException).code;
 	return code !== undefined && DEAD_TERMINAL_ERROR_CODES.has(code);
+}
+
+function ensureRenderedToolComponents(
+	renderedToolComponents: Map<string, ToolExecutionComponent> | undefined,
+): Map<string, ToolExecutionComponent> {
+	return renderedToolComponents ?? new Map();
 }
 
 const ANTHROPIC_SUBSCRIPTION_AUTH_WARNING =
@@ -385,6 +392,9 @@ export class InteractiveMode {
 
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
+	private renderedToolComponents = new Map<string, ToolExecutionComponent>();
+	private liveTranscriptTurnRole: TranscriptTurnRole | undefined;
+	private liveTranscriptTurnSequence = 0;
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
@@ -1848,6 +1858,9 @@ export class InteractiveMode {
 		this.streamingComponent = undefined;
 		this.streamingMessage = undefined;
 		this.pendingTools.clear();
+		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+		this.renderedToolComponents.clear();
+		this.liveTranscriptTurnRole = undefined;
 		this.renderInitialMessages();
 	}
 
@@ -2948,6 +2961,8 @@ export class InteractiveMode {
 			case "agent_start":
 				this.resetSessionRailTurn();
 				this.pendingTools.clear();
+				this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+				this.renderedToolComponents.clear();
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -2978,6 +2993,7 @@ export class InteractiveMode {
 
 			case "entry_appended":
 				if (event.entry.type === "custom") {
+					this.liveTranscriptTurnRole = undefined;
 					this.addCustomEntryToChat(event.entry);
 					this.ui.requestRender();
 				}
@@ -2997,13 +3013,16 @@ export class InteractiveMode {
 
 			case "message_start":
 				if (event.message.role === "custom") {
+					this.liveTranscriptTurnRole = undefined;
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
+					this.ensureLiveTranscriptTurn("user");
 					this.addMessageToChat(event.message);
 					this.updatePendingMessagesDisplay();
 					this.ui.requestRender();
 				} else if (event.message.role === "assistant") {
+					this.ensureLiveTranscriptTurn("assistant");
 					this.streamingComponent = new AssistantMessageComponent(
 						undefined,
 						this.hideThinkingBlock,
@@ -3020,27 +3039,19 @@ export class InteractiveMode {
 
 			case "message_update":
 				if (this.streamingComponent && event.message.role === "assistant") {
+					this.ensureLiveTranscriptTurn("assistant");
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage);
 
 					for (const content of this.streamingMessage.content) {
 						if (content.type === "toolCall") {
 							if (!this.pendingTools.has(content.id)) {
-								const component = new ToolExecutionComponent(
+								const component = this.createToolExecutionComponent(
 									content.name,
 									content.id,
 									content.arguments,
-									{
-										showImages: this.settingsManager.getShowImages(),
-										imageWidthCells: this.settingsManager.getImageWidthCells(),
-									},
-									this.getRegisteredToolDefinition(content.name),
-									this.ui,
-									this.sessionManager.getCwd(),
 								);
-								component.setExpanded(this.toolOutputExpanded);
-								this.chatContainer.addChild(component);
-								this.pendingTools.set(content.id, component);
+								this.addLiveToolExecutionComponent(component, content.id);
 							} else {
 								const component = this.pendingTools.get(content.id);
 								if (component) {
@@ -3055,6 +3066,11 @@ export class InteractiveMode {
 
 			case "message_end":
 				if (event.message.role === "user") break;
+				if (event.message.role === "toolResult") {
+					this.renderOrphanToolResult(event.message);
+					this.ui.requestRender();
+					break;
+				}
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					let errorMessage: string | undefined;
@@ -3097,21 +3113,8 @@ export class InteractiveMode {
 				this.startSessionRailTool?.(event.toolCallId, event.toolName);
 				let component = this.pendingTools.get(event.toolCallId);
 				if (!component) {
-					component = new ToolExecutionComponent(
-						event.toolName,
-						event.toolCallId,
-						event.args,
-						{
-							showImages: this.settingsManager.getShowImages(),
-							imageWidthCells: this.settingsManager.getImageWidthCells(),
-						},
-						this.getRegisteredToolDefinition(event.toolName),
-						this.ui,
-						this.sessionManager.getCwd(),
-					);
-					component.setExpanded(this.toolOutputExpanded);
-					this.chatContainer.addChild(component);
-					this.pendingTools.set(event.toolCallId, component);
+					component = this.createToolExecutionComponent(event.toolName, event.toolCallId, event.args);
+					this.addLiveToolExecutionComponent(component, event.toolCallId);
 				}
 				component.markExecutionStarted();
 				this.ui.requestRender();
@@ -3128,7 +3131,8 @@ export class InteractiveMode {
 			}
 
 			case "tool_execution_end": {
-				const component = this.pendingTools.get(event.toolCallId);
+				const component =
+					this.pendingTools.get(event.toolCallId) ?? this.renderedToolComponents?.get(event.toolCallId);
 				if (component) {
 					component.updateResult({ ...event.result, isError: event.isError });
 					this.pendingTools.delete(event.toolCallId);
@@ -3151,6 +3155,8 @@ export class InteractiveMode {
 					this.streamingMessage = undefined;
 				}
 				this.pendingTools.clear();
+				this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+				this.renderedToolComponents.clear();
 
 				this.ui.requestRender();
 				break;
@@ -3193,6 +3199,9 @@ export class InteractiveMode {
 				} else if (event.result) {
 					this.transcriptViewport?.reset();
 					this.chatContainer.clear();
+					this.liveTranscriptTurnRole = undefined;
+					this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+					this.renderedToolComponents.clear();
 					this.rebuildChatFromMessages();
 					this.addMessageToChat(
 						createCompactionSummaryMessage(
@@ -3255,6 +3264,62 @@ export class InteractiveMode {
 				? [{ type: "text", text: message.content }]
 				: message.content.filter((c: { type: string }) => c.type === "text");
 		return textBlocks.map((c) => (c as { text: string }).text).join("");
+	}
+
+	private appendTranscriptTurnHeader(role: TranscriptTurnRole, turnKey: string): void {
+		const lastChild = this.chatContainer.children.at(-1);
+		if (lastChild && !(lastChild instanceof Spacer)) {
+			this.chatContainer.addChild(new Spacer(1));
+		}
+		this.chatContainer.addChild(new TranscriptTurnHeaderComponent(role, turnKey));
+	}
+
+	private ensureLiveTranscriptTurn(role: TranscriptTurnRole): void {
+		if (this.liveTranscriptTurnRole === role) return;
+		this.liveTranscriptTurnSequence += 1;
+		this.appendTranscriptTurnHeader(role, `live:${this.liveTranscriptTurnSequence}`);
+		this.liveTranscriptTurnRole = role;
+	}
+
+	private createToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent {
+		const component = new ToolExecutionComponent(
+			toolName,
+			toolCallId,
+			args,
+			{
+				showImages: this.settingsManager.getShowImages(),
+				imageWidthCells: this.settingsManager.getImageWidthCells(),
+			},
+			this.getRegisteredToolDefinition(toolName),
+			this.ui,
+			this.sessionManager.getCwd(),
+		);
+		component.setExpanded(this.toolOutputExpanded);
+		return component;
+	}
+
+	private addLiveToolExecutionComponent(component: ToolExecutionComponent, toolCallId: string): void {
+		this.ensureLiveTranscriptTurn("assistant");
+		this.chatContainer.addChild(component);
+		this.pendingTools.set(toolCallId, component);
+		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+		this.renderedToolComponents.set(toolCallId, component);
+	}
+
+	private renderOrphanToolResult(message: Extract<AgentMessage, { role: "toolResult" }>): void {
+		const existing = this.renderedToolComponents?.get(message.toolCallId);
+		if (existing) {
+			existing.updateResult(message);
+			this.pendingTools.delete(message.toolCallId);
+			return;
+		}
+
+		const component = this.createToolExecutionComponent(message.toolName, message.toolCallId, {});
+		component.updateResult(message);
+		this.ensureLiveTranscriptTurn("assistant");
+		this.chatContainer.addChild(component);
+		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+		this.renderedToolComponents.set(message.toolCallId, component);
 	}
 
 	/**
@@ -3347,9 +3412,6 @@ export class InteractiveMode {
 			case "user": {
 				const textContent = this.getUserMessageText(message);
 				if (textContent) {
-					if (this.chatContainer.children.length > 0) {
-						this.chatContainer.addChild(new Spacer(1));
-					}
 					const skillBlock = parseSkillBlock(textContent);
 					if (skillBlock) {
 						// Render skill block (collapsible)
@@ -3405,10 +3467,13 @@ export class InteractiveMode {
 	}
 
 	private renderSessionItems(
-		items: readonly RenderSessionItem[],
+		items: readonly TranscriptRenderItem[],
 		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
 		this.pendingTools.clear();
+		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+		this.renderedToolComponents.clear();
+		this.liveTranscriptTurnRole = undefined;
 		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
 		// Cache-miss notices are not persisted; re-derive them from the full entry
 		// list and re-inject them after the assistant messages that paid for them.
@@ -3421,33 +3486,34 @@ export class InteractiveMode {
 			this.updateEditorBorderColor();
 		}
 
-		for (const item of items) {
-			if (isCustomSessionEntry(item)) {
-				this.addCustomEntryToChat(item);
+		let lastTurnRole: TranscriptTurnRole | undefined;
+		for (const group of buildTranscriptGroups(items)) {
+			if (group.kind === "informational") {
+				lastTurnRole = undefined;
+				for (const item of group.items) {
+					if (item.kind === "custom-entry") {
+						this.addCustomEntryToChat(item.entry);
+					} else {
+						this.addMessageToChat(item.message, options);
+					}
+				}
 				continue;
 			}
 
-			const message = item;
-			// Assistant messages need special handling for tool calls
-			if (message.role === "assistant") {
-				this.addMessageToChat(message);
-				// Render tool call components
-				for (const content of message.content) {
-					if (content.type === "toolCall") {
-						const component = new ToolExecutionComponent(
-							content.name,
-							content.id,
-							content.arguments,
-							{
-								showImages: this.settingsManager.getShowImages(),
-								imageWidthCells: this.settingsManager.getImageWidthCells(),
-							},
-							this.getRegisteredToolDefinition(content.name),
-							this.ui,
-							this.sessionManager.getCwd(),
-						);
-						component.setExpanded(this.toolOutputExpanded);
+			this.appendTranscriptTurnHeader(group.role, group.key);
+			lastTurnRole = group.role;
+			for (const item of group.items) {
+				const message = item.message;
+				// Assistant messages need special handling for tool calls.
+				if (message.role === "assistant") {
+					this.addMessageToChat(message);
+					for (const content of message.content) {
+						if (content.type !== "toolCall") continue;
+
+						const component = this.createToolExecutionComponent(content.name, content.id, content.arguments);
 						this.chatContainer.addChild(component);
+						this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+						this.renderedToolComponents.set(content.id, component);
 
 						if (message.stopReason === "aborted" || message.stopReason === "error") {
 							let errorMessage: string;
@@ -3465,27 +3531,34 @@ export class InteractiveMode {
 							renderedPendingTools.set(content.id, component);
 						}
 					}
+					if (message.stopReason !== "aborted" && message.stopReason !== "error") {
+						const miss = cacheMisses.get(message);
+						if (miss) this.addCacheMissNotice(miss);
+					}
+				} else if (message.role === "toolResult") {
+					const component = renderedPendingTools.get(message.toolCallId);
+					if (component) {
+						component.updateResult(message);
+						renderedPendingTools.delete(message.toolCallId);
+					} else {
+						// Keep malformed/orphaned tool results visible without inventing a
+						// new runtime relationship.
+						const orphan = this.createToolExecutionComponent(message.toolName, message.toolCallId, {});
+						orphan.updateResult(message);
+						this.chatContainer.addChild(orphan);
+						this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+						this.renderedToolComponents.set(message.toolCallId, orphan);
+					}
+				} else {
+					this.addMessageToChat(message, options);
 				}
-				if (message.stopReason !== "aborted" && message.stopReason !== "error") {
-					const miss = cacheMisses.get(message);
-					if (miss) this.addCacheMissNotice(miss);
-				}
-			} else if (message.role === "toolResult") {
-				// Match tool results to pending tool components
-				const component = renderedPendingTools.get(message.toolCallId);
-				if (component) {
-					component.updateResult(message);
-					renderedPendingTools.delete(message.toolCallId);
-				}
-			} else {
-				// All other messages use standard rendering
-				this.addMessageToChat(message, options);
 			}
 		}
 
 		for (const [toolCallId, component] of renderedPendingTools) {
 			this.pendingTools.set(toolCallId, component);
 		}
+		this.liveTranscriptTurnRole = lastTurnRole;
 		this.ui.requestRender();
 	}
 
@@ -3499,11 +3572,13 @@ export class InteractiveMode {
 		entries: SessionEntry[],
 		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
 	): void {
-		const items = entries.flatMap((entry): RenderSessionItem[] => {
+		const items = entries.flatMap((entry): TranscriptRenderItem[] => {
 			if (entry.type === "custom") {
-				return [entry];
+				return [{ kind: "custom-entry", key: entry.id, entry }];
 			}
-			return sessionEntryToContextMessages(entry);
+			return sessionEntryToContextMessages(entry).map((message, messageIndex) =>
+				createTranscriptMessageItem(entry, message, messageIndex),
+			);
 		});
 		this.renderSessionItems(items, options);
 	}
@@ -3963,6 +4038,7 @@ export class InteractiveMode {
 		if (this.streamingComponent && this.streamingMessage) {
 			this.streamingComponent.setHideThinkingBlock(this.hideThinkingBlock);
 			this.streamingComponent.updateContent(this.streamingMessage);
+			this.ensureLiveTranscriptTurn("assistant");
 			this.chatContainer.addChild(this.streamingComponent);
 		}
 

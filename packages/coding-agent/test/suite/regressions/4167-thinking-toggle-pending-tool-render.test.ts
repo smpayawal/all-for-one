@@ -50,6 +50,8 @@ type RenderSessionContextThis = {
 	updateEditorBorderColor(): void;
 	getRegisteredToolDefinition(toolName: string): undefined;
 	addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void;
+	appendTranscriptTurnHeader(role: "user" | "assistant", turnKey: string): void;
+	createToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent;
 	renderSessionItems: RenderSessionItems;
 };
 
@@ -63,6 +65,16 @@ type HandleEvent = (this: RenderSessionContextThis, event: AgentSessionEvent) =>
 
 function createFakeInteractiveModeThis(): RenderSessionContextThis {
 	const chatContainer = new Container();
+	const prototype = InteractiveMode.prototype as unknown as {
+		appendTranscriptTurnHeader(this: RenderSessionContextThis, role: "user" | "assistant", turnKey: string): void;
+		createToolExecutionComponent(
+			this: RenderSessionContextThis,
+			toolName: string,
+			toolCallId: string,
+			args: unknown,
+		): ToolExecutionComponent;
+		renderSessionItems: RenderSessionItems;
+	};
 	return {
 		pendingTools: new Map<string, ToolExecutionComponent>(),
 		chatContainer,
@@ -79,8 +91,9 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		isInitialized: true,
 		updateEditorBorderColor: vi.fn(),
 		getRegisteredToolDefinition: (_toolName: string) => undefined,
-		renderSessionItems: (InteractiveMode.prototype as unknown as { renderSessionItems: RenderSessionItems })
-			.renderSessionItems,
+		appendTranscriptTurnHeader: prototype.appendTranscriptTurnHeader,
+		createToolExecutionComponent: prototype.createToolExecutionComponent,
+		renderSessionItems: prototype.renderSessionItems,
 		addMessageToChat(message: AgentMessage) {
 			chatContainer.addChild(new Text(message.role, 0, 0));
 		},
