@@ -1,10 +1,13 @@
-name: Validation test format diagnostic
+name: Validation change format diagnostic
 
 on:
   pull_request:
     branches: [allforone]
     paths:
       - .github/workflows/validation-test-format.yml
+      - .github/workflows/allforone-ci.yml
+      - docs/all-for-one/validation.md
+      - packages/coding-agent/src/extensions/validate/index.ts
       - packages/coding-agent/test/validate-executable-identity.test.ts
 
 permissions:
@@ -29,18 +32,31 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Format test
-        run: npx biome check --write packages/coding-agent/test/validate-executable-identity.test.ts
-
-      - name: Verify test
+      - name: Format final changes
         run: |
-          npx biome check packages/coding-agent/test/validate-executable-identity.test.ts
+          npx biome check --write \
+            .github/workflows/allforone-ci.yml \
+            docs/all-for-one/validation.md \
+            packages/coding-agent/src/extensions/validate/index.ts \
+            packages/coding-agent/test/validate-executable-identity.test.ts
+
+      - name: Verify focused change
+        run: |
+          npx biome check \
+            .github/workflows/allforone-ci.yml \
+            docs/all-for-one/validation.md \
+            packages/coding-agent/src/extensions/validate/index.ts \
+            packages/coding-agent/test/validate-executable-identity.test.ts
           npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/validate-executable-identity.test.ts
 
-      - name: Upload formatted test
+      - name: Upload formatted files
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: validation-test-format
-          path: packages/coding-agent/test/validate-executable-identity.test.ts
+          name: validation-change-format
+          path: |
+            .github/workflows/allforone-ci.yml
+            docs/all-for-one/validation.md
+            packages/coding-agent/src/extensions/validate/index.ts
+            packages/coding-agent/test/validate-executable-identity.test.ts
           if-no-files-found: error
           retention-days: 1
