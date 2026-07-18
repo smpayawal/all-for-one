@@ -46,6 +46,30 @@ The process-focused suites must cover:
 - bounded incomplete-cleanup reporting;
 - no indefinite wait for an unkillable or unverifiable process tree.
 
+## Explicit repository-grounded validation
+
+The hidden built-in validation extension exposes:
+
+```text
+/validate
+/validate list
+/validate check
+/validate typecheck
+/validate lint
+/validate test
+/validate build
+/validate run <number>
+/validate last
+```
+
+Discovery reuses the existing repository validation module. Each result includes the human-readable command, structured executable and arguments, category, source, and `verified` or `inferred` confidence. Node commands come from declared package scripts and an unambiguous package manager. Python, Rust, and Go commands are labeled inferred when configuration indicates the conventional command. Make targets are used only when explicitly declared.
+
+Execution is user-initiated and does not add a model-callable tool. `/validate run` and unambiguous category commands require a trusted project, a dialog-capable UI, and confirmation showing the exact program, argument array, working directory, source, and confidence. The process is spawned directly without a shell, with bounded stdout and stderr capture and a two-minute timeout. Inferred commands receive a stronger warning. Ambiguous categories display choices instead of selecting silently.
+
+Non-interactive modes are discovery-only and fail closed for execution. The command does not install dependencies, accept arbitrary command strings, append shell suffixes, or run multiple checks automatically. `/validate last` shows the most recent bounded result without rerunning it.
+
+This command is a trusted user-initiated extension action. Safe mode continues to authorize model-initiated Bash tool calls; it is not an operating-system sandbox and cannot constrain trusted extension code. The validation command therefore maintains its own narrow boundary: repository-grounded fixed argv, project trust, exact user confirmation, timeout, bounded capture, and no shell.
+
 ## Offline session-efficiency report
 
 Run the privacy-safe report against an existing Pi-compatible session JSONL file:
