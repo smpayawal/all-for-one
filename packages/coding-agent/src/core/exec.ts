@@ -234,11 +234,7 @@ export async function execCommand(
 			});
 		};
 
-		const settle = (
-			code: number,
-			termination: ExecTermination,
-			processTreeCleanup?: ProcessTreeCleanupResult,
-		) => {
+		const settle = (code: number, termination: ExecTermination, processTreeCleanup?: ProcessTreeCleanupResult) => {
 			if (settled) return;
 			settled = true;
 			if (timeoutId) clearTimeout(timeoutId);
