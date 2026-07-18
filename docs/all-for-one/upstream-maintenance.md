@@ -14,6 +14,23 @@ The relationship check reports `main` as an ancestor of `allforone`; use it for 
 | Governance and diagnostics | `.github/workflows/allforone-ci.yml`, `scripts/allforone-*`, upstream verifier, security and validation docs | Keep checks read-only, deterministic, and distinct from production runtime behavior. |
 | Generated catalog boundary | `packages/ai/src/models.generated.ts` and direct provider model files | Treat as generated artifacts. Do not hand-edit them for coding-agent behavior; refresh only through the repository generator when catalog work is explicitly in scope. |
 
+## Current ownership and merge-cost snapshot
+
+Snapshot: `allforone` `ef1d3783fca9474a758664ff9559e8d9af4ad5af` compared with `main` `3da591ab74ab9ab407e72ed882600b2c851fae21`. The branch is 139 commits ahead and 0 behind. Line counts below are directional maintenance signals, not complexity or quality measurements.
+
+| Hot path | Current downstream delta | Narrow owner | Consolidation rule |
+|----------|--------------------------|--------------|--------------------|
+| `packages/agent/src/agent-loop.ts` | +507 / -77 | shared agent lifecycle | Freeze coding-agent policy here; change only when the public runtime boundary cannot express the requirement. |
+| `packages/agent/src/agent.ts` | +249 / -33 | shared agent state and execution | Preserve Pi behavior and require focused lifecycle evidence for further edits. |
+| `packages/coding-agent/src/core/agent-session.ts` | +699 / -78 | coding-agent integration glue | Keep new behavior in focused modules or extensions; avoid adding another service directly to the constructor. |
+| `packages/coding-agent/src/core/compaction/compaction.ts` | +271 / -10 | compaction orchestration | Keep retention, health, evidence, and validation logic in their existing dedicated modules. |
+| `packages/coding-agent/src/core/resource-loader.ts` | +287 / -44 | resource discovery and precedence | Do not add unrelated capability policy or duplicate scanning. |
+| `packages/coding-agent/src/core/skills.ts` | +340 / -24 | skill discovery and metadata | Preserve progressive disclosure; keep duplicative workflows manual-only. |
+| `packages/coding-agent/src/modes/interactive/interactive-mode.ts` | +402 / -56 | terminal interaction and presentation | Keep runtime policy outside the UI seam and review upstream conflicts separately. |
+| `packages/coding-agent/src/utils/shell.ts` | +382 / -84 | cross-platform process lifecycle | Restrict changes to measured cleanup, timeout, and platform-correctness requirements. |
+
+This snapshot establishes ownership and freeze rules only. It does not justify a broad rewrite. Update it after an upstream synchronization or a material consolidation change, and prefer net-diff reduction where it can be achieved without changing behavior or creating a new abstraction.
+
 ## Required sync check
 
 Before an upstream update, inspect the exact changed hot files and run:
