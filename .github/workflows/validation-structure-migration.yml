@@ -7,8 +7,7 @@ on:
       - .github/workflows/validation-structure-migration.yml
 
 permissions:
-  contents: write
-  pull-requests: read
+  contents: read
 
 jobs:
   migrate:
@@ -151,10 +150,16 @@ jobs:
           packages/coding-agent/test/validation-commands.test.ts
           packages/coding-agent/test/validate-extension.test.ts
 
-      - name: Commit migration
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .github/workflows/allforone-ci.yml packages/coding-agent/src/core/validation-commands.ts packages/coding-agent/src/extensions/validate/index.ts packages/coding-agent/src/index.ts packages/coding-agent/test/validation-commands.test.ts packages/coding-agent/test/validate-extension.test.ts
-          git commit -m "test(coding-agent): validate structured command execution"
-          git push origin HEAD:${{ github.head_ref }}
+      - name: Upload migration artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: validation-structure-migration
+          path: |
+            .github/workflows/allforone-ci.yml
+            packages/coding-agent/src/core/validation-commands.ts
+            packages/coding-agent/src/extensions/validate/index.ts
+            packages/coding-agent/src/index.ts
+            packages/coding-agent/test/validation-commands.test.ts
+            packages/coding-agent/test/validate-extension.test.ts
+          if-no-files-found: error
+          retention-days: 1
