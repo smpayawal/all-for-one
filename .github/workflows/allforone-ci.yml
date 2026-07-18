@@ -80,6 +80,7 @@ jobs:
           test/process-cleanup-failure.test.ts
           test/bash-process-tree.test.ts
           test/code-intel.test.ts
+          test/repo-map.test.ts
           test/exec.test.ts
           test/allforone-baseline.test.ts
           test/args.test.ts
@@ -182,6 +183,7 @@ jobs:
           test/process-cleanup-failure.test.ts
           test/bash-process-tree.test.ts
           test/code-intel.test.ts
+          test/repo-map.test.ts
           test/exec.test.ts
           test/bash-close-hang-windows.test.ts
           test/suite/agent-session-bash-persistence.test.ts

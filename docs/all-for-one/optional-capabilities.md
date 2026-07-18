@@ -1,6 +1,12 @@
 # Optional capabilities
 
-Optional safety and integration features stay outside the normal session. They are loaded explicitly as extensions or packages, so the default prompt, process model, and tool registry pay no cost for them.
+Optional capabilities must not enlarge the permanent model tool schema or change Pi's core execution contract. Most safety and integration features remain explicitly loaded extensions or packages. The adaptive repository map is the one bundled dormant capability: it defaults to `auto`, but performs no repository work and injects no context unless strong deterministic signals activate it. It can be disabled with `/repo-map off`, and failure always falls back to normal Pi behavior.
+
+## Adaptive bounded repository map
+
+The hidden built-in repository-map extension provides temporary orientation for broad or unfamiliar repository tasks without adding a model-callable tool or another LLM request. It activates only for strong prompt signals or bounded cross-area exploration without a stable target. Generation uses fixed read-only Git argv calls, canonical workspace checks, local symbol-name extraction, an in-memory cache, and strict file, symbol, time, and character limits.
+
+Use `/repo-map auto`, `/repo-map once`, `/repo-map off`, `/repo-map status`, or `/repo-map show`. Automatic and forced generation both require project trust. The map is injected for one provider request, is not appended to the session, starts no service, installs no dependency, and performs no mutation.
 
 ## Authorization-oriented safe mode
 
