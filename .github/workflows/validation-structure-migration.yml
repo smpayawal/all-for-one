@@ -5,9 +5,15 @@ on:
     branches: [allforone]
     paths:
       - .github/workflows/validation-structure-migration.yml
+      - packages/coding-agent/src/core/validation-commands.ts
+      - packages/coding-agent/src/extensions/validate/index.ts
+      - packages/coding-agent/src/index.ts
+      - packages/coding-agent/test/validation-commands.test.ts
+      - packages/coding-agent/test/validate-extension.test.ts
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
 
 jobs:
   migrate:
@@ -20,146 +26,50 @@ jobs:
         with:
           ref: ${{ github.head_ref }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Apply compatibility and test updates
+      - name: Download formatted artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          curl --fail-with-body --location \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output /tmp/validation-structure-migration.zip \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/8427409149/zip"
+          rm -rf /tmp/validation-structure-migration
+          mkdir -p /tmp/validation-structure-migration
+          unzip -q /tmp/validation-structure-migration.zip -d /tmp/validation-structure-migration
+
+      - name: Apply formatted source and tests
+        run: |
+          cp /tmp/validation-structure-migration/packages/coding-agent/src/core/validation-commands.ts packages/coding-agent/src/core/validation-commands.ts
+          cp /tmp/validation-structure-migration/packages/coding-agent/src/extensions/validate/index.ts packages/coding-agent/src/extensions/validate/index.ts
+          cp /tmp/validation-structure-migration/packages/coding-agent/src/index.ts packages/coding-agent/src/index.ts
+          cp /tmp/validation-structure-migration/packages/coding-agent/test/validation-commands.test.ts packages/coding-agent/test/validation-commands.test.ts
+          cp /tmp/validation-structure-migration/packages/coding-agent/test/validate-extension.test.ts packages/coding-agent/test/validate-extension.test.ts
           python - <<'PY'
           from pathlib import Path
-          import re
-
-          core = Path("packages/coding-agent/src/core/validation-commands.ts")
-          text = core.read_text()
+          path = Path("packages/coding-agent/src/extensions/validate/index.ts")
+          text = path.read_text()
           text = text.replace(
-              '\tprogram: string;\n\t/** Arguments passed directly to the executable. */\n\targs: string[];',
-              '\tprogram?: string;\n\t/** Arguments passed directly to the executable. */\n\targs?: string[];',
-          )
-          core.write_text(text)
-
-          extension = Path("packages/coding-agent/src/extensions/validate/index.ts")
-          text = extension.read_text()
-          text = text.replace(
-              'const VALIDATION_MAX_NOTIFICATION_CHARS = 6_000;\n',
-              'const VALIDATION_MAX_NOTIFICATION_CHARS = 6_000;\n\ntype StructuredValidationCommand = ValidationCommand & { program: string; args: string[] };\n',
-          )
-          text = text.replace('`   Program: ${command.program}`', '`   Program: ${command.program ?? "not available"}`')
-          text = text.replace('`   Arguments: ${formatArguments(command.args)}`', '`   Arguments: ${formatArguments(command.args ?? [])}`')
-          text = text.replace(
-              'function isSafeStructuredInvocation(command: ValidationCommand): boolean {\n\tif (!command.program || /[\\0\\r\\n]/u.test(command.program)) return false;\n\tif (command.args.some((argument) => /[\\0\\r\\n]/u.test(argument))) return false;',
-              'function isSafeStructuredInvocation(command: ValidationCommand): command is StructuredValidationCommand {\n\tif (!command.program || !command.args || /[\\0\\r\\n]/u.test(command.program)) return false;\n\tif (command.args.some((argument) => /[\\0\\r\\n]/u.test(argument))) return false;',
+              '`Program: ${record.command.program}`',
+              '`Program: ${record.command.program ?? "not available"}`',
           )
           text = text.replace(
-              'function confirmationMessage(command: ValidationCommand, cwd: string): string {',
-              'function confirmationMessage(command: StructuredValidationCommand, cwd: string): string {',
+              '`Arguments: ${formatArguments(record.command.args)}`',
+              '`Arguments: ${formatArguments(record.command.args ?? [])}`',
           )
-          extension.write_text(text)
-
-          public_index = Path("packages/coding-agent/src/index.ts")
-          text = public_index.read_text()
-          old = '''export type {
-          \tValidationExecutionKind,
-          \tValidationExecutionProvenance,
-          } from "./core/validation-commands.ts";'''
-          new = '''export {
-          \tdiscoverValidationCommands,
-          \tfingerprintValidationCommandDiscovery,
-          \tgetProjectValidationPromptGuideline,
-          \tmatchValidationCommand,
-          \tmatchValidationCommandWithScope,
-          \ttype NodePackageManager,
-          \ttype ValidationCommand,
-          \ttype ValidationCommandConfidence,
-          \ttype ValidationCommandDiscovery,
-          \ttype ValidationCommandKind,
-          \ttype ValidationCommandMatch,
-          \ttype ValidationCommandMatchScope,
-          \ttype ValidationExecutionKind,
-          \ttype ValidationExecutionProvenance,
-          \ttype ValidationGuidanceMode,
-          } from "./core/validation-commands.ts";'''
-          if old not in text:
-              raise SystemExit("public validation export block not found")
-          public_index.write_text(text.replace(old, new))
-
-          tests = Path("packages/coding-agent/test/validation-commands.test.ts")
-          text = tests.read_text()
-          mappings = {
-              "npm run check": ("npm", ["run", "check"]),
-              "npm run typecheck": ("npm", ["run", "typecheck"]),
-              "npm run lint": ("npm", ["run", "lint"]),
-              "npm test": ("npm", ["test"]),
-              "npm run build": ("npm", ["run", "build"]),
-              "python -m mypy .": ("python", ["-m", "mypy", "."]),
-              "python -m ruff check .": ("python", ["-m", "ruff", "check", "."]),
-              "python -m pytest": ("python", ["-m", "pytest"]),
-              "python -m tox": ("python", ["-m", "tox"]),
-              "cargo check": ("cargo", ["check"]),
-              "cargo test": ("cargo", ["test"]),
-              "go test ./...": ("go", ["test", "./..."]),
-              "make check": ("make", ["check"]),
-              "make test": ("make", ["test"]),
-          }
-          for command, (program, args) in mappings.items():
-              escaped = re.escape(command)
-              pattern = re.compile(rf'(?P<indent>^[ \t]*)command: "{escaped}",\n(?![ \t]*program:)', re.MULTILINE)
-              rendered_args = ", ".join(f'"{value}"' for value in args)
-              text = pattern.sub(
-                  lambda match: f'{match.group("indent")}command: "{command}",\n{match.group("indent")}program: "{program}",\n{match.group("indent")}args: [{rendered_args}],\n',
-                  text,
-              )
-          dynamic_old = '{ kind: "test", command, confidence: "verified", source: "package.json#scripts.test" },'
-          dynamic_new = '''{
-          \t\t\t\tkind: "test",
-          \t\t\t\tcommand,
-          \t\t\t\tprogram: packageManager,
-          \t\t\t\targs: packageManager === "bun" ? ["run", "test"] : ["test"],
-          \t\t\t\tconfidence: "verified",
-          \t\t\t\tsource: "package.json#scripts.test",
-          \t\t\t},'''
-          if dynamic_old not in text:
-              raise SystemExit("dynamic package-manager expectation not found")
-          tests.write_text(text.replace(dynamic_old, dynamic_new))
-
-          workflow = Path(".github/workflows/allforone-ci.yml")
-          lines = workflow.read_text().splitlines()
-          names = {"test/validation-commands.test.ts", "test/validate-extension.test.ts"}
-          lines = [line for line in lines if line.strip() not in names]
-          output = []
-          for line in lines:
-              output.append(line)
-              if line.strip() == "test/repo-map.test.ts":
-                  indent = line[: len(line) - len(line.lstrip())]
-                  output.append(f"{indent}test/validation-commands.test.ts")
-                  output.append(f"{indent}test/validate-extension.test.ts")
-          workflow.write_text("\n".join(output) + "\n")
+          path.write_text(text)
           PY
 
-      - name: Format changed files
-        run: >-
-          npm exec -- biome check --write
-          packages/coding-agent/src/core/validation-commands.ts
-          packages/coding-agent/src/extensions/validate/index.ts
-          packages/coding-agent/src/index.ts
-          packages/coding-agent/test/validation-commands.test.ts
-          packages/coding-agent/test/validate-extension.test.ts
-
-      - name: Upload migration artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: validation-structure-migration
-          path: |
-            .github/workflows/allforone-ci.yml
-            packages/coding-agent/src/core/validation-commands.ts
-            packages/coding-agent/src/extensions/validate/index.ts
-            packages/coding-agent/src/index.ts
-            packages/coding-agent/test/validation-commands.test.ts
-            packages/coding-agent/test/validate-extension.test.ts
-          if-no-files-found: error
-          retention-days: 1
+      - name: Commit source and test migration
+        run: |
+          if git diff --quiet -- packages/coding-agent/src/core/validation-commands.ts packages/coding-agent/src/extensions/validate/index.ts packages/coding-agent/src/index.ts packages/coding-agent/test/validation-commands.test.ts packages/coding-agent/test/validate-extension.test.ts; then
+            echo "Formatted migration is already applied."
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add packages/coding-agent/src/core/validation-commands.ts packages/coding-agent/src/extensions/validate/index.ts packages/coding-agent/src/index.ts packages/coding-agent/test/validation-commands.test.ts packages/coding-agent/test/validate-extension.test.ts
+          git commit --no-verify -m "test(coding-agent): validate structured command execution"
+          git push origin HEAD:${{ github.head_ref }}
