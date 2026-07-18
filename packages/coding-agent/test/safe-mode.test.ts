@@ -63,6 +63,15 @@ describe("safe-mode policy", () => {
 		["awk 'BEGIN { system(\"rm -rf .\") }'", "block"],
 		["cat ~/.ssh/id_rsa", "block"],
 		["cat .env", "block"],
+		["cat .env.local", "block"],
+		["cat auth.json", "block"],
+		["cat ~/.aws/credentials", "block"],
+		["cat ~/.config/gcloud/application_default_credentials.json", "block"],
+		["cat certificate.pem", "block"],
+		["cat signing.key", "block"],
+		["git clean -fd", "block"],
+		["git reset --hard HEAD", "block"],
+		["git diff --output=report.txt", "ask"],
 		["echo $(id)", "block"],
 		["git status\ngit diff", "block"],
 	] as const)("classifies %s as %s", (command, action) => {
@@ -94,6 +103,17 @@ describe("safe-mode policy", () => {
 				expect(result.action).toBe("block");
 				expect(result.reason).toContain("Windows absolute");
 			}
+		} finally {
+			await rm(workspace, { recursive: true, force: true });
+		}
+	});
+
+	it("blocks mutation paths that traverse outside the workspace", async () => {
+		const workspace = await mkdtemp(join(tmpdir(), "safe-mode-workspace-"));
+		try {
+			const result = await validateMutationPaths(writeEvent("../outside.txt"), workspace);
+			expect(result.action).toBe("block");
+			expect(result.reason).toContain("outside the workspace");
 		} finally {
 			await rm(workspace, { recursive: true, force: true });
 		}
@@ -206,6 +226,7 @@ describe("safe-mode policy", () => {
 			await harness.session.prompt("deploy");
 
 			expect(confirmations[0]?.title).toBe('Allow tool "deploy"?');
+			expect(confirmations[0]?.message).not.toMatch(/sandbox|isolation/i);
 			expect(executed).toBe(approved);
 			expect(harness.session.messages.some((message) => message.role === "toolResult" && message.isError)).toBe(
 				!approved,

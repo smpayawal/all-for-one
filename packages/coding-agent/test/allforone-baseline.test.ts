@@ -23,15 +23,18 @@ describe("All-For-One baseline measurements", () => {
 
 	it("defines representative workload categories without executing model tasks", () => {
 		expect(ALLFORONE_BASELINE_TASK_CATEGORIES.map((task) => task.id)).toEqual([
-			"small-bug-fix",
-			"multi-file-feature",
-			"refactor",
-			"test-failure",
-			"unfamiliar-repository-exploration",
-			"large-command-output",
-			"long-session",
-			"documentation-task",
-			"high-risk-architecture-change",
+			"repository-orientation",
+			"small-localized-bug-fix",
+			"multi-file-refactor",
+			"failing-test-diagnosis",
+			"tool-profile-switching",
+			"large-tool-output",
+			"context-compaction",
+			"safe-mode-denial",
+			"interrupted-command",
+			"provider-tool-failure-recovery",
+			"resume-existing-session",
+			"unprofiled-model-fallback",
 		]);
 		expect(
 			ALLFORONE_BASELINE_TASK_CATEGORIES.every((task) => task.executionStatus === "deferred-live-evaluation"),

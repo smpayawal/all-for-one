@@ -73,6 +73,7 @@ describe("execCommand output and termination bounds", () => {
 		expect(result.code).not.toBe(0);
 		expect(result.killed).toBe(true);
 		expect(result.termination).toBe("timeout");
+		expect(result.processTreeCleanup?.completed).toBe(true);
 	});
 
 	it("reports cancellation separately from timeout", async () => {
@@ -87,6 +88,7 @@ describe("execCommand output and termination bounds", () => {
 		expect(result.code).not.toBe(0);
 		expect(result.killed).toBe(true);
 		expect(result.termination).toBe("aborted");
+		expect(result.processTreeCleanup?.completed).toBe(true);
 	});
 
 	it("terminates descendants with the timed-out command", async () => {
@@ -109,6 +111,7 @@ describe("execCommand output and termination bounds", () => {
 
 			expect(result.killed).toBe(true);
 			expect(result.termination).toBe("timeout");
+			expect(result.processTreeCleanup?.completed).toBe(true);
 			expect(await waitForProcessExit(descendantPid, 6500)).toBe(true);
 		} finally {
 			if (descendantPid !== undefined) {
@@ -121,6 +124,44 @@ describe("execCommand output and termination bounds", () => {
 			await rm(tempDir, { recursive: true, force: true });
 		}
 	}, 9000);
+
+	it.skipIf(process.platform === "win32")(
+		"does not resolve while a surviving descendant awaits forced cleanup",
+		async () => {
+			const tempDir = await mkdtemp(join(tmpdir(), "pi-exec-tree-"));
+			const pidPath = join(tempDir, "descendant.pid");
+			let descendantPid: number | undefined;
+			const descendantScript = "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);";
+			const parentScript = [
+				"const { spawn } = require('node:child_process');",
+				"const { writeFileSync } = require('node:fs');",
+				`const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendantScript)}], { stdio: 'ignore' });`,
+				`writeFileSync(${JSON.stringify(pidPath)}, String(child.pid));`,
+				"process.on('SIGTERM', () => process.exit(0));",
+				"setInterval(() => {}, 1000);",
+			].join(" ");
+
+			try {
+				const resultPromise = execCommand(process.execPath, ["-e", parentScript], process.cwd(), { timeout: 100 });
+				descendantPid = await waitForProcessId(pidPath);
+				const result = await resultPromise;
+
+				expect(result.termination).toBe("timeout");
+				expect(result.processTreeCleanup?.completed).toBe(true);
+				expect(await waitForProcessExit(descendantPid, 100)).toBe(true);
+			} finally {
+				if (descendantPid !== undefined) {
+					try {
+						process.kill(descendantPid, "SIGKILL");
+					} catch {
+						// The process tree already terminated.
+					}
+				}
+				await rm(tempDir, { recursive: true, force: true });
+			}
+		},
+		9000,
+	);
 
 	it.skipIf(process.platform === "win32")("reports a child signal termination", async () => {
 		const result = await execCommand(
@@ -148,6 +189,7 @@ describe("execCommand output and termination bounds", () => {
 			expect(result.code).not.toBe(0);
 			expect(result.killed).toBe(true);
 			expect(result.termination).toBe("timeout");
+			expect(result.processTreeCleanup?.completed).toBe(true);
 		},
 		9000,
 	);

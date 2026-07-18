@@ -34,7 +34,7 @@ const SHELL_SYNTAX = /[\r\n;|&<>`$()]/;
 const MUTATING_COMMAND =
 	/^\s*(?:find\b[^\n]*(?:-delete|-exec(?:dir)?\b)|sed\b[^\n]*(?:\s-i(?:\S*|\s|$)|\s--in-place(?:=|\s|$))|awk\b[^\n]*\bsystem\s*\(|git\s+branch\b[^\n]*(?:\s-[dD]\S*|\s--delete(?:=|\s|$)))/i;
 const DENIED_COMMAND =
-	/\b(?:sudo|su|mkfs|fdisk|shutdown|reboot|poweroff|dd)\b|\b(?:rm|rmdir|del)\b[^\n]*(?:-r|--recursive|-f|--force)|(?:curl|wget)[^\n]*\|\s*(?:sh|bash|zsh)\b/i;
+	/\b(?:sudo|su|mkfs|fdisk|shutdown|reboot|poweroff|dd)\b|\b(?:rm|rmdir|del)\b[^\n]*(?:-r|--recursive|-f|--force)|\bgit\s+(?:clean\b|reset\b[^\n]*--hard\b|checkout\b[^\n]*--|restore\b)|(?:curl|wget)[^\n]*\|\s*(?:sh|bash|zsh)\b/i;
 const SENSITIVE_PATH =
 	/(^|[\\/])(?:\.env(?:\.[^\\/]*)?|\.git|node_modules|[^\\/]*(?:credential|secret|token)[^\\/]*|[^\\/]+\.(?:pem|key))(?=[\\/]|$)/i;
 const SENSITIVE_REFERENCE =

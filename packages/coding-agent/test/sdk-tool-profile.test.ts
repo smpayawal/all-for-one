@@ -54,10 +54,14 @@ describe("createAgentSession tool profiles", () => {
 		try {
 			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write", "custom_probe"]);
 			expect(harness.session.agent.toolExecution).toBe("parallel");
+			expect(harness.session.systemPrompt).toContain("- edit:");
+			expect(harness.session.systemPrompt).not.toContain("- apply_patch:");
 
 			await harness.session.setModel(harness.getModel("faux-2")!);
 			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "apply_patch", "write", "custom_probe"]);
 			expect(harness.session.agent.toolExecution).toBe("sequential");
+			expect(harness.session.systemPrompt).toContain("- apply_patch:");
+			expect(harness.session.systemPrompt).not.toContain("- edit:");
 
 			await harness.session.cycleModel();
 			expect(harness.session.model?.id).toBe("faux-1");
@@ -70,6 +74,35 @@ describe("createAgentSession tool profiles", () => {
 			await harness.session.cycleModel();
 			expect(harness.session.model?.id).toBe("faux-2");
 			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "apply_patch", "write", "custom_probe"]);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("keeps a fixed full profile and prompt boundary across model switching", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "Native", reasoning: true },
+				{ id: "faux-2", name: "Patch", reasoning: true },
+			],
+			settings: {
+				codingModelProfiles: {
+					"faux-2": { mutationStrategy: "apply_patch", toolExecution: "sequential" },
+				},
+			},
+			toolProfile: "full",
+		});
+		try {
+			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write", "apply_patch"]);
+			expect(harness.session.systemPrompt).toContain("- edit:");
+			expect(harness.session.systemPrompt).toContain("- apply_patch:");
+
+			await harness.session.setModel(harness.getModel("faux-2")!);
+
+			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write", "apply_patch"]);
+			expect(harness.session.agent.toolExecution).toBe("sequential");
+			expect(harness.session.systemPrompt).toContain("- edit:");
+			expect(harness.session.systemPrompt).toContain("- apply_patch:");
 		} finally {
 			harness.cleanup();
 		}

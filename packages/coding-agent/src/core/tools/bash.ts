@@ -11,7 +11,7 @@ import { waitForChildProcess } from "../../utils/child-process.ts";
 import {
 	getShellConfig,
 	getShellEnv,
-	killProcessTree,
+	terminateProcessTreeAndWait,
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
@@ -116,18 +116,25 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				child.stdin?.end(command);
 			}
 			if (child.pid) trackDetachedChildPid(child.pid);
-			let timedOut = false;
+			let terminationKind: "aborted" | "timeout" | undefined;
+			let cleanupPromise: Promise<unknown> | undefined;
 			let timeoutHandle: NodeJS.Timeout | undefined;
+			const terminate = (kind: "aborted" | "timeout") => {
+				if (terminationKind) return;
+				terminationKind = kind;
+				if (child.pid) {
+					cleanupPromise = terminateProcessTreeAndWait(child.pid, { isolated: process.platform !== "win32" });
+				}
+			};
 			const onAbort = () => {
-				if (child.pid) killProcessTree(child.pid);
+				terminate("aborted");
 			};
 
 			try {
 				// Set timeout if provided.
 				if (timeoutMs !== undefined) {
 					timeoutHandle = setTimeout(() => {
-						timedOut = true;
-						if (child.pid) killProcessTree(child.pid);
+						terminate("timeout");
 					}, timeoutMs);
 				}
 				// Stream stdout and stderr.
@@ -141,14 +148,16 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				// Handle shell spawn errors and wait for the process to terminate without hanging
 				// on inherited stdio handles held by detached descendants.
 				const exitCode = await waitForChildProcess(child);
-				if (signal?.aborted) {
+				if (cleanupPromise) await cleanupPromise;
+				if (terminationKind === "aborted" || (!terminationKind && signal?.aborted)) {
 					throw new Error("aborted");
 				}
-				if (timedOut) {
+				if (terminationKind === "timeout") {
 					throw new Error(`timeout:${timeout}`);
 				}
 				return { exitCode };
 			} finally {
+				if (cleanupPromise) await cleanupPromise.catch(() => {});
 				if (child.pid) untrackDetachedChildPid(child.pid);
 				if (timeoutHandle) clearTimeout(timeoutHandle);
 				if (signal) signal.removeEventListener("abort", onAbort);

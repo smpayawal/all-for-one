@@ -1,93 +1,56 @@
 # All-For-One validation baseline
 
-Date: 2026-07-17
+Date: 2026-07-18
 
-The current secure context/Windows fix section is authoritative for the focused fix branch. Historical evidence from the preceding hardening passes follows and is not evidence for the current implementation commit. An environment or build-artifact limitation is reported as a limitation, not converted into a pass.
+This file records current local evidence for the uncommitted `fix/runtime-release-hardening` worktree. Historical branch names, commit hashes, and CI run IDs from earlier hardening passes are intentionally omitted from the current baseline; they are not evidence for this revision.
 
-## Current context/tool-hook fix validation
+## Revision boundary
 
-| Item | Result |
+| Item | Value |
 | --- | --- |
-| working branch | `smpayawal/fix-secure-context-windows-validation` |
-| base `allforone` commit | `3fa5a2b505b79d4f6b07be46bce98959db03e251` |
-| base `main` commit | `216e672e7c9fc65682553394b74e483c0c9e47f7` |
-| `validatedImplementationCommit` | `74208c65e8522ea9988ebaf2d44782c127f754e8` |
-| `validationEvidenceCommit` | `da9a2408e8fe2b0f1344982f3841a1995de97c51` |
-| `workflowTestedCommit` | `74208c65e8522ea9988ebaf2d44782c127f754e8` |
-| `workflowRunId` | `29568117295` |
-| `main...validatedImplementationCommit` | `0 51`; `main` is an ancestor |
-| implementation worktree after catalog restoration | clean before this documentation follow-up |
+| working branch | `fix/runtime-release-hardening` |
+| implementation base / `HEAD` | `f4d1df9baf439d76154d3cb0cb8685a08c65dbff` |
+| `allforone` | `f4d1df9baf439d76154d3cb0cb8685a08c65dbff` |
+| `main`, `origin/main`, `upstream/main` | `3da591ab74ab9ab407e72ed882600b2c851fae21` |
+| `main...HEAD` | `0 95`; `main` is an ancestor |
+| worktree | intentionally dirty; no commit, push, tag, publication, or PR |
+| remote CI for this revision | not run; Windows coverage remains pending in CI |
+
+## Current checks
 
 | Command or suite | Result | Classification |
 | --- | --- | --- |
-| `node --test scripts/check-clean-worktree.test.mjs` | 4 passed | generated-path allowlist regression coverage |
-| `npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/resource-loader.test.ts test/scoped-context.test.ts test/memory.test.ts` | 3 files, 67 passed | secure instruction loading, scoped-context compatibility, and Windows memory-path regression coverage |
-| `npm --workspace @earendil-works/pi-agent-core exec -- vitest --run test/agent-loop.test.ts` | 1 file, 46 passed | agent-loop compatibility coverage |
-| `npm run check` | pass; Biome checked 832 files and all repository checks completed | repository gate |
-| `node --test scripts/check-clean-worktree.test.mjs` | 4 passed | clean-worktree helper regression coverage |
-| `node --test scripts/check-upstream-relationship.test.mjs` | 3 passed | upstream relationship regression coverage |
-| `node scripts/check-upstream-relationship.mjs --main origin/main --json` | pass; `currentCommit` is `74208c65e8522ea9988ebaf2d44782c127f754e8`, `ahead` 51, `behind` 0, `mainIsAncestor` true | read-only relationship check |
-| `npm test` | exit 1; AI package 18 files failed, 70 passed, 12 skipped; coding-agent 8 files failed, 180 passed, 6 skipped | sandbox denied writes under `/Users/smpayawal/.pi/agent` and tsx IPC paths; a nonexistent-GitHub clone test also could not resolve `github.com`; not converted into a pass |
-| `npm run build` | exit 1; `models.dev`, `openrouter.ai`, and `ai-gateway.vercel.sh` failed DNS resolution, then generated provider modules were missing | generated catalogs were restored; build remains network-blocked locally |
-| All-For-One CI gate in run `29568117295` | passed on `workflowTestedCommit`; build, full test, clean-worktree, focused agent, focused All-For-One, diagnostics, and upstream steps passed | exact-commit Ubuntu gate |
-| `platform-focused (ubuntu-latest)` in run `29568117295` | passed on `workflowTestedCommit` | exact-commit Ubuntu focused job |
-| `platform-focused (macos-latest)` in run `29568117295` | passed on `workflowTestedCommit` | exact-commit macOS focused job |
-| `platform-focused (windows-latest)` in run `29568117295` | passed on `workflowTestedCommit` | exact-commit Windows focused job |
+| `npm run check` | Passed in the final post-documentation invocation; Biome checked 856 files and all repository gate checks completed. | repository gate |
+| `npm run build` | Passed after fetching the network-backed model catalogs; generated catalog side effects were restored. | build and artifact validation |
+| isolated `npm test` | Agent-core: 17 files, 223 passed. AI: 76 files passed, 25 skipped; 558 passed, 738 skipped. Coding-agent: 198 files passed, 7 skipped; 1,928 passed, 49 skipped. TUI completed. Root exit 0. | full workspace suite with disposable configuration |
+| `test/exec.test.ts`, `test/bash-process-tree.test.ts`, `test/process-tree-windows.test.ts` | 12 passed; 2 Windows tests skipped on macOS. | process lifecycle and platform fallback regression coverage |
+| profile tests plus `3592-no-builtin-tools-keeps-extension-tools.test.ts` | 12 passed. | profile switching and extension compatibility |
+| `test/safe-mode.test.ts` | 35 passed. | safe-mode classification and boundary coverage |
+| `npm run doctor:allforone -- --json` | 12/12 checks passed. | local environment diagnostics |
+| `npm run baseline:allforone -- --json` | Passed; all 12 scenario IDs present. | offline evaluation inventory |
+| `npm run baseline:context -- --json` | Passed; schema v2. | deterministic fixture validation |
+| `npm run baseline:execution -- --json` | Passed; schema v2 enforce fixture. | deterministic fixture validation; production enforcement remains off |
+| `npm run evaluate:context -- --help`; `npm run evaluate:execution -- --help` | Both passed. | evaluator availability only |
+| `node --test scripts/check-upstream-relationship.test.mjs scripts/check-clean-worktree.test.mjs` | 7 passed. | governance and generated-file policy regressions |
+| All-For-One workflow YAML parse | Both workflow files parsed successfully. | static CI validation |
+| `npm run release:local -- --out /private/tmp/pi-allforone-release --force --skip-check --skip-test` | Exit 0; four tarballs, Darwin-arm64 Bun binary, Node install, and Bun package install created. | non-publishing artifact/install smoke |
 
-The implementation commit was clean after generated catalog restoration. The documentation commit that records this evidence is intentionally separate from `validatedImplementationCommit`; its SHA is pinned in `validationEvidenceCommit` by the follow-up documentation-only commit. All commit and workflow references above are immutable.
+The no-skip release preflight was attempted first but stopped before packaging in the host environment. Because its output was truncated by the terminal bridge, no narrower failure is claimed. The separately completed `npm run check`, isolated full `npm test`, and `npm run build` provide the preflight evidence used for the artifact-only rerun.
 
-## Historical prior-hardening baseline
+## Packaged CLI smoke
 
-| Check | Result |
-| --- | --- |
-| working branch | `fix/post-audit-hardening` |
-| current branch tip | `3f48b29e818a0ca26090fc59e2cb7ad17e885287` |
-| `main` | `216e672e7c9fc65682553394b74e483c0c9e47f7` |
-| `allforone` | `3258be547c5175043d9fabadace558e27c0f838a` |
-| merge base | `216e672e7c9fc65682553394b74e483c0c9e47f7` |
-| `main...HEAD` | `0 44` |
-| `main` is an ancestor of `HEAD` | yes |
-| `HEAD` is two local commits ahead of `allforone` | yes; `6c7c349`, `3f48b29` |
-| `origin/HEAD` | `origin/main` |
+All commands below ran from `/private/tmp` with disposable `HOME` and `PI_CODING_AGENT_DIR` values:
 
-The branch was created from `allforone`. The hardening implementation is committed locally at `3f48b29` (with the preceding hardening commit `6c7c349`); it has not been pushed, merged, rebased, or tagged during this validation pass.
+| Entry point | Version/help | Offline model list | Interactive start |
+| --- | --- | --- | --- |
+| isolated Node install | passed; `0.80.10` | passed; clean no-models message | entered UI and exited cleanly |
+| isolated Bun package install | passed; `0.80.10` | passed; clean no-models message | not separately exercised; same package contents as Node install |
+| Darwin-arm64 Bun binary | passed; `0.80.10` | passed; clean no-models message | entered UI and exited cleanly |
 
-## Final validation
+JSON print mode emitted the session record and stopped with the expected missing-provider-key error. RPC print mode exited cleanly without a live provider. No credentials were read from the user profile and no live prompt was sent.
 
-| Command or suite | Result | Classification |
-| --- | --- | --- |
-| `npm run check` | pass; Biome checked 832 files and pinned dependencies/imports/shrinkwrap/install-lock/tsgo/browser smoke passed | repository gate passed |
-| `git diff --check` and `node --check scripts/check-clean-worktree.mjs` | passed | static validation |
-| focused coding-agent hardening matrix | 10 files passed, 1 skipped; 183 passed, 2 skipped | pass; escalated only for required temporary IPC resources |
-| focused agent-loop regression | 1 file, 32 passed | pass |
-| `doctor:allforone -- --json` | 12/12 checks passed | pass |
-| `baseline:allforone -- --json` | passed | offline structural baseline |
-| `baseline:context -- --json` | passed; schema v2, capability `context-integrity` | deterministic fixtures |
-| `baseline:execution -- --json` | passed; schema v2, capability `execution-integrity` | deterministic fixtures; default production mode remains off |
-| `evaluate:context -- --help` | passed | CLI available; no live pair supplied |
-| `evaluate:execution -- --help` | passed | CLI available; no live pair supplied |
-| `node --test scripts/check-upstream-relationship.test.mjs` | 3 passed | pass |
-| `node scripts/check-upstream-relationship.mjs --main origin/main --json` | `mainIsAncestor: true`; `ahead: 44`; `behind: 0` | pass; read-only relationship check for current `HEAD` |
-| `npm run build` | pass; fetched provider catalogs and built tui, ai, agent, coding-agent, and orchestrator packages | pass; generated catalog side effects were restored and are not part of this diff |
-| GitHub Actions `All-For-One CI` run `29548893362` | committed `allforone` HEAD `3258be547c5175043d9fabadace558e27c0f838a`; `gate` and `platform-focused` Ubuntu, macOS, and Windows jobs all completed successfully | remote baseline pass; does not cover local commit `3f48b29` |
-| CLI args/tool-registry tests | 2 files, 74 passed | pass; default five-tool surface and optional read-only tools verified |
-| exact workflow All-For-One focused list | 21 files, 368 passed | pass |
-| built CLI `--help` with isolated HOME | passed; title and built-in list include `apply_patch` | pass; host-global lock permission avoided |
-| root `npm test` with host HOME / agent | 17 files, 209 passed | pass |
-| root `npm test` with host HOME / AI | 88 files passed, 12 skipped; 594 passed, 701 skipped | pass |
-| root `npm test` with host HOME / coding-agent | 187 files passed, 6 skipped, 1 failed; 1,821 passed, 47 skipped | exit 1; one user-scoped `.agents` package-state expectation |
-| root `npm test` with host HOME / TUI | passed | package tests completed; aggregate command remained nonzero because coding-agent failed |
-| root `npm test` with isolated HOME / agent | 17 files, 209 passed | pass |
-| root `npm test` with isolated HOME / AI | 75 files passed, 25 skipped; 557 passed, 738 skipped | pass |
-| root `npm test` with isolated HOME and temporary agent dir / coding-agent | 188 files passed, 6 skipped; 1,825 passed, 47 skipped | pass; temporary dir exposed the existing managed `fd` binary without changing user state |
-| root `npm test` with isolated HOME / TUI | passed | aggregate root command passed |
-| workflow platform-focused set on macOS | 10 files passed, 1 skipped; 183 passed, 2 skipped | local pass; the corresponding remote matrix passed for `allforone` HEAD, not local commit `3f48b29` |
-| `check-clean-worktree.mjs --allow-build-generated` after build | rejected unrelated intentional hardening changes; generated catalog paths were allowlisted | expected on the intentionally dirty worktree |
+## Platform and evaluation limits
 
-## Failure classification
+Windows-specific process-tree tests are present in the focused matrix but were skipped on the macOS host. They must pass in the exact-head Windows CI job before platform completion is claimed.
 
-The root `npm test` invocation was run as requested with the host HOME and with an isolated HOME. The host run’s sole failure expected no discovered user skill, but the current machine exposes `/Users/smpayawal/.agents/skills/microsoft-foundry/SKILL.md`. During this follow-up, two isolated full-suite attempts hit existing `footer-data-provider.test.ts` reftable-directory timing waits; that file passed 8/8 in isolation, and bounded retries completed the wrapped full root command with exit 0. The final isolated root command exposed the existing managed `fd` binary through a temporary `PI_CODING_AGENT_DIR` and exited 0; the host-only failure is user-scoped package state rather than a repository regression.
-
-The build was also run because it was explicitly requested and completed successfully with network access to provider model catalogs. It changed generated catalog files as a build side effect; those files were restored to their pre-build state.
-
-The committed `allforone` HEAD passed the remote GitHub Actions `All-For-One CI` run `29548893362`, including the clean-runner gate and Ubuntu, macOS, and Windows platform-focused jobs. That run predates and does not cover local commit `3f48b29`. No live provider/model evaluation, external deployment, or push was performed. Therefore this report makes no quality, latency, cost, token-savings, or provider-tokenization claim. The worktree was clean at local commit `3f48b29` before this evidence-document follow-up; it is intentionally dirty only because these current-revision corrections are not authorized for another commit. The clean-worktree script was previously exercised and correctly rejected the intentionally dirty pre-commit state.
+The 12 real-use scenarios in [baseline.md](baseline.md) are not yet live results. Paired runs are required before making any claim about quality, reliability, latency, token usage, or cost. The current evidence establishes build/test/fixture and packaged-startup behavior only.

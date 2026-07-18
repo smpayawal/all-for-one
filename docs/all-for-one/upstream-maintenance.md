@@ -25,6 +25,12 @@ git diff -- packages/agent packages/coding-agent/src/core/agent-session.ts
 
 The expected maintenance direction is `main -> allforone -> focused branch/PR`. A sync review should classify new upstream conflicts by the table above, preserve the permanent integration branch, and keep optional All-For-One behavior outside the shared agent loop wherever a coding-agent seam is sufficient.
 
+## Branch and exact-head governance
+
+Normal implementation work starts from the latest `allforone` on a focused branch such as `fix/runtime-release-hardening`, then targets a pull request back to `allforone`. Direct commits to `allforone` are exceptional; `main` remains the clean upstream mirror and is never the destination for All-For-One changes. Published branch history is not rewritten, and synchronization from `main` is reviewed separately from feature work.
+
+`.github/workflows/allforone-ci.yml` checks out `github.event.pull_request.head.sha` for pull requests and `github.sha` for pushes, then verifies the checked-out `HEAD` before building or testing. A green workflow therefore applies only to that exact immutable commit. Release, compatibility, or production-readiness claims must name the same commit and its complete required gate; no claim transfers to a later moving branch head automatically.
+
 ## Upstream hot-file freeze
 
 The current upstream-hot-file list is intentionally explicit:

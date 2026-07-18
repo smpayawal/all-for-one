@@ -4,7 +4,7 @@
 
 import { spawn } from "node:child_process";
 import { waitForChildProcess } from "../utils/child-process.ts";
-import { isProcessTreeAlive, killProcessTree } from "../utils/shell.ts";
+import { type ProcessTreeCleanupResult, terminateProcessTreeAndWait } from "../utils/shell.ts";
 
 /**
  * Options for executing shell commands.
@@ -33,6 +33,7 @@ export interface ExecResult {
 	stdoutTruncated?: boolean;
 	stderrTruncated?: boolean;
 	termination?: ExecTermination;
+	processTreeCleanup?: ProcessTreeCleanupResult;
 }
 
 interface CapturedOutput {
@@ -73,11 +74,11 @@ export async function execCommand(
 	options?: ExecOptions,
 ): Promise<ExecResult> {
 	return new Promise((resolve) => {
+		const isolated = process.platform !== "win32";
 		const proc = spawn(command, args, {
 			cwd,
-			// Isolate POSIX descendants so group termination cannot reach the
-			// agent process. Windows uses taskkill /T in killProcessTree().
-			detached: process.platform !== "win32",
+			// Isolate POSIX descendants so group termination cannot reach the agent process.
+			detached: isolated,
 			shell: false,
 			stdio: ["ignore", "pipe", "pipe"],
 			windowsHide: true,
@@ -92,39 +93,69 @@ export async function execCommand(
 		let killed = false;
 		let killReason: Exclude<ExecTermination, "completed" | "signal" | "error"> | undefined;
 		let timeoutId: NodeJS.Timeout | undefined;
-		let forceKillId: NodeJS.Timeout | undefined;
-		let processExited = false;
-		proc.once("exit", () => {
-			processExited = true;
-		});
-		const terminateProcessTree = (signal: "SIGTERM" | "SIGKILL") => {
+		let terminationPromise: Promise<ProcessTreeCleanupResult> | undefined;
+
+		const waitForProcessTreeCleanup = (): Promise<ProcessTreeCleanupResult> => {
 			if (proc.pid !== undefined) {
-				killProcessTree(proc.pid, signal);
-				return;
+				return terminateProcessTreeAndWait(proc.pid, { isolated });
 			}
-			try {
-				proc.kill(signal);
-			} catch {
-				// The child failed before a PID was assigned.
-			}
+
+			return new Promise((cleanupResolve) => {
+				let settled = false;
+				const cleanupListeners = () => {
+					proc.removeListener("spawn", onSpawn);
+					proc.removeListener("error", onError);
+				};
+				const settleCleanup = (result: ProcessTreeCleanupResult) => {
+					if (settled) return;
+					settled = true;
+					cleanupListeners();
+					cleanupResolve(result);
+				};
+				const onSpawn = () => {
+					if (proc.pid === undefined) {
+						settleCleanup({
+							gracefulAttempted: false,
+							forceAttempted: false,
+							completed: false,
+							verified: false,
+							error: "Child spawned without a process id.",
+						});
+						return;
+					}
+					void terminateProcessTreeAndWait(proc.pid, { isolated }).then(settleCleanup, (error) => {
+						settleCleanup({
+							gracefulAttempted: true,
+							forceAttempted: true,
+							completed: false,
+							verified: false,
+							error: error instanceof Error ? error.message : String(error),
+						});
+					});
+				};
+				const onError = (error: Error) => {
+					settleCleanup({
+						gracefulAttempted: false,
+						forceAttempted: false,
+						completed: false,
+						verified: false,
+						error: `Child could not be spawned: ${error.message}`,
+					});
+				};
+				if (proc.pid !== undefined) {
+					onSpawn();
+				} else {
+					proc.once("spawn", onSpawn);
+					proc.once("error", onError);
+				}
+			});
 		};
 
 		const killProcess = (reason: Exclude<ExecTermination, "completed" | "signal" | "error">) => {
 			if (!killed) {
 				killed = true;
 				killReason = reason;
-				terminateProcessTree("SIGTERM");
-				// Force kill after 5 seconds if SIGTERM doesn't work
-				forceKillId = setTimeout(() => {
-					forceKillId = undefined;
-					if (
-						proc.pid !== undefined &&
-						(isProcessTreeAlive(proc.pid) ||
-							(!processExited && proc.exitCode === null && proc.signalCode === null))
-					) {
-						terminateProcessTree("SIGKILL");
-					}
-				}, 5000);
+				terminationPromise = waitForProcessTreeCleanup();
 			}
 		};
 		const onAbort = () => killProcess("aborted");
@@ -153,42 +184,40 @@ export async function execCommand(
 			appendOutput(stderr, Buffer.isBuffer(data) ? data : Buffer.from(String(data)), maxOutputBytes);
 		});
 
-		// Wait for process termination without hanging on inherited stdio handles
-		// held open by detached descendants.
-		waitForChildProcess(proc)
-			.then((code) => {
-				if (timeoutId) clearTimeout(timeoutId);
-				const treeStillAlive = killed && proc.pid !== undefined && isProcessTreeAlive(proc.pid);
-				if (forceKillId && !treeStillAlive) clearTimeout(forceKillId);
-				if (options?.signal) {
-					options.signal.removeEventListener("abort", onAbort);
+		const settle = async (code: number, termination: ExecTermination) => {
+			if (timeoutId) clearTimeout(timeoutId);
+			if (options?.signal) options.signal.removeEventListener("abort", onAbort);
+			let processTreeCleanup: ProcessTreeCleanupResult | undefined;
+			if (terminationPromise) {
+				try {
+					processTreeCleanup = await terminationPromise;
+				} catch (error) {
+					processTreeCleanup = {
+						gracefulAttempted: true,
+						forceAttempted: true,
+						completed: false,
+						verified: false,
+						error: error instanceof Error ? error.message : String(error),
+					};
 				}
-				resolve({
-					stdout: outputText(stdout),
-					stderr: outputText(stderr),
-					code: code ?? 1,
-					killed,
-					stdoutTruncated: stdout.truncated,
-					stderrTruncated: stderr.truncated,
-					termination: killReason ?? (proc.signalCode ? "signal" : "completed"),
-				});
-			})
-			.catch((_err) => {
-				if (timeoutId) clearTimeout(timeoutId);
-				const treeStillAlive = killed && proc.pid !== undefined && isProcessTreeAlive(proc.pid);
-				if (forceKillId && !treeStillAlive) clearTimeout(forceKillId);
-				if (options?.signal) {
-					options.signal.removeEventListener("abort", onAbort);
-				}
-				resolve({
-					stdout: outputText(stdout),
-					stderr: outputText(stderr),
-					code: 1,
-					killed,
-					stdoutTruncated: stdout.truncated,
-					stderrTruncated: stderr.truncated,
-					termination: killReason ?? "error",
-				});
+			}
+			resolve({
+				stdout: outputText(stdout),
+				stderr: outputText(stderr),
+				code,
+				killed,
+				stdoutTruncated: stdout.truncated,
+				stderrTruncated: stderr.truncated,
+				termination,
+				processTreeCleanup,
 			});
+		};
+
+		// Wait for process termination without hanging on inherited stdio handles
+		// held open by detached descendants. A requested tree cleanup is awaited
+		// separately so the result cannot race its force phase.
+		waitForChildProcess(proc)
+			.then((code) => settle(code ?? 1, killReason ?? (proc.signalCode ? "signal" : "completed")))
+			.catch(() => settle(1, killReason ?? "error"));
 	});
 }

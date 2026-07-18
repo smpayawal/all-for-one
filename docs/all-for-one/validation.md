@@ -1,42 +1,51 @@
-# Validation policy and evidence
+# Validation policy and current evidence
 
-The smallest relevant checks run first, followed by the repository gate and the requested full test command. A command is reported as pass, fail, or environment-limited; an environment failure is not converted into a pass.
+Validation starts with the smallest relevant checks, then runs the repository gate, focused regressions, the requested full test command, build, and the non-publishing release smoke. Every result is recorded as passed, failed, or environment-limited; an environment limitation is not converted into a pass.
 
-The current fix branch is `smpayawal/fix-secure-context-windows-validation`, created from `allforone` commit `3fa5a2b505b79d4f6b07be46bce98959db03e251`.
+## Revision and governance boundary
 
-Validation is pinned to immutable commits and a workflow run:
+This evidence applies to the intentionally uncommitted worktree on `fix/runtime-release-hardening`.
 
 ```text
-validatedImplementationCommit: 74208c65e8522ea9988ebaf2d44782c127f754e8
-validationEvidenceCommit: da9a2408e8fe2b0f1344982f3841a1995de97c51
-workflowTestedCommit: 74208c65e8522ea9988ebaf2d44782c127f754e8
-workflowRunId: 29568117295
+implementationBase: f4d1df9baf439d76154d3cb0cb8685a08c65dbff
+allforone:         f4d1df9baf439d76154d3cb0cb8685a08c65dbff
+main:              3da591ab74ab9ab407e72ed882600b2c851fae21
+origin/main:       3da591ab74ab9ab407e72ed882600b2c851fae21
+upstream/main:     3da591ab74ab9ab407e72ed882600b2c851fae21
+main...HEAD:       0 95
 ```
 
-The exact workflow run tested `validatedImplementationCommit`. Its Ubuntu gate and Ubuntu, macOS, and Windows focused jobs all passed, including build, full test, focused test, and clean-worktree steps. `validationEvidenceCommit` identifies the separate documentation commit that records this evidence; it is pinned by a documentation-only follow-up because a commit cannot contain its own SHA. No moving branch-head claim is used.
+`git fetch --all --prune` completed before the implementation audit. The upstream relationship checker passed with `mainIsAncestor: true`, `ahead: 95`, and `behind: 0`. No commit, push, tag, release publication, or pull request was made. The worktree is intentionally dirty because the requested changes remain uncommitted.
 
-Structural diagnostics:
+The CI workflows now check out the exact pull-request head SHA (or the triggering SHA outside pull requests) and verify that the checked-out `HEAD` matches it before reporting evidence. The YAML files parse locally, but no remote CI run exists for this uncommitted branch; Windows-specific results therefore remain a CI responsibility.
 
-```bash
-npm run check
-npm run baseline:allforone -- --json
-npm run baseline:context -- --json
-npm run baseline:execution -- --json
-npm run doctor:allforone -- --json
-node scripts/check-upstream-relationship.mjs --main origin/main --json
-```
+## Local validation
 
-Focused tests use the package-local Vitest runner:
+The following checks passed during this work:
 
-```bash
-cd packages/coding-agent
-HOME=/private/tmp/afo-test-home node node_modules/vitest/dist/cli.js --run <focused-files>
-```
+| Check | Result |
+| --- | --- |
+| `npm run check` | Passed in the final post-documentation run; Biome checked 856 files and the pinned-dependency, import, shrinkwrap, install-lock, TypeScript, and browser-smoke checks completed. |
+| `npm run build` | Passed with network access; TUI, AI, agent, coding-agent, and orchestrator built. Generated provider catalogs were restored afterward. |
+| `npm test` | Passed in an isolated disposable HOME and `PI_CODING_AGENT_DIR`: agent-core 223 passed; AI 558 passed and 738 skipped; coding-agent 1,928 passed and 49 skipped; TUI completed; root exit 0. |
+| Process-tree focused matrix | Passed: 12 tests; 2 Windows tests skipped on macOS. Covers output bounds, timeout/abort, surviving descendants, force cleanup, and root-exits-first fallback. |
+| Profile and extension regressions | Passed: 12 tests, including model-switch profile preservation and the no-built-in-tools extension regression. |
+| Safe-mode focused suite | Passed: 35 tests, including destructive commands, credentials, traversal, symlink/syntax cases, and approval-is-not-isolation coverage. |
+| `doctor:allforone -- --json` | Passed: 12/12 checks. |
+| `baseline:allforone -- --json` | Passed: all 12 required evaluation scenario IDs. |
+| `baseline:context -- --json` | Passed: schema v2. |
+| `baseline:execution -- --json` | Passed: schema v2 enforce fixture. |
+| `evaluate:context -- --help`; `evaluate:execution -- --help` | Passed: both CLIs available; no live paired evaluation was run. |
+| Workflow YAML parse | Passed for both All-For-One workflows. |
+| `node --test scripts/check-upstream-relationship.test.mjs scripts/check-clean-worktree.test.mjs` | Passed: 7 tests. |
+| Non-publishing release artifact phase | Passed: four tarballs, Darwin-arm64 Bun binary, isolated Node install, and isolated Bun package install created under `/private/tmp/pi-allforone-release`. |
 
-The full `npm test` command is explicitly requested for this repository task, although the repository instructions normally prefer `./test.sh` or package-local focused tests. Its final result and failure classification belong in [test-baseline.md](test-baseline.md).
+The first no-skip `release:local` preflight did not reach packaging in the host environment. After the independent check, full-test, and build passes above, the artifact/install phase was rerun with `--skip-check --skip-test` and completed successfully. This is not reported as a full no-skip release-script pass.
 
-The dedicated CI gate builds packages after `npm ci --ignore-scripts` before running the full test command so direct CLI tests resolve fresh workspace distributions. The normal build regenerates network-backed AI catalog sources, so CI first checks that only `packages/ai/src/models.generated.ts`, `packages/ai/src/image-models.generated.ts`, and direct `packages/ai/src/providers/*.models.ts` paths changed, restores only those paths, and then runs a strict clean-worktree assertion; handwritten provider modules, nested provider files, and other changes fail the gate. See the recorded artifact classification in [test-baseline.md](test-baseline.md).
+The isolated artifact smoke from `/private/tmp` passed version and help startup for the Node install, Bun package install, and Bun binary. Offline model listing exited cleanly with the expected no-models message. Node and Bun binary interactive startup entered the UI and exited cleanly. JSON print startup emitted a valid session record before stopping for the absent provider key; RPC print startup exited cleanly. No live provider prompt, paid token, deployment, or publish operation was performed.
 
-The exact workflow result above is the CI evidence for this implementation commit. Local `npm test` and `npm run build` were environment-limited as recorded in [test-baseline.md](test-baseline.md); those failures were not converted into passes. No correctness, latency, token-savings, or cost claim is made from structural fixtures or from the local environment-limited commands.
+## Required platform and live-evaluation follow-up
 
-Live paired task evaluation remains pending. No correctness, latency, token-savings, or cost claim is made from structural fixtures alone.
+The local host is macOS, so the Windows process-tree tests were skipped locally. The Windows CI job must run the PowerShell discovery, awaited `taskkill`, root-exits-first fallback, helper-failure, and descendant-cleanup cases before this work is considered platform-complete.
+
+The 12-scenario real-use evaluation remains a procedure and fixture inventory, not a result. It must be run as paired baseline/All-For-One sessions with the same repository, prompt, model, context, and tool permissions. See [baseline.md](baseline.md). No quality, latency, token, or cost claim is made from deterministic fixtures, smoke checks, or structural diagnostics.
