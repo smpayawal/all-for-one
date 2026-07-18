@@ -88,10 +88,21 @@ jobs:
 
       - name: Validate release utilities
         run: |
+          set -euo pipefail
           node --test scripts/allforone-release.test.mjs
           bash -n scripts/build-allforone-binaries.sh
           npm run build
           node packages/coding-agent/dist/allforone-cli.js --version
+
+          AFO_PACKAGE_DIR="${PWD}/packages/coding-agent" \
+            node packages/coding-agent/dist/allforone-cli.js --help >/dev/null
+
+          conflict_log="$(mktemp)"
+          AFO_OFFLINE=1 PI_OFFLINE=0 \
+            node packages/coding-agent/dist/allforone-cli.js --version >/dev/null 2>"${conflict_log}"
+          grep -Fx \
+            'Warning: Both AFO_OFFLINE and PI_OFFLINE are set with different values; using AFO_OFFLINE.' \
+            "${conflict_log}"
 
       - name: Setup Bun for binary smoke test
         if: github.event_name == 'pull_request'
