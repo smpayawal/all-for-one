@@ -7,7 +7,12 @@ import {
 	type ToolActionStatus,
 } from "../execution-group-state.ts";
 import { type ThemeColor, theme } from "../theme/theme.ts";
-import { formatToolActionSummary, getExecutionGroupTitle, type ToolActionSummaryData } from "../tool-action-summary.ts";
+import {
+	formatToolActionSummary,
+	getExecutionGroupTarget,
+	getExecutionGroupTitle,
+	type ToolActionSummaryData,
+} from "../tool-action-summary.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 
 export interface ExecutionGroupAction extends ToolActionSummaryData {
@@ -20,12 +25,15 @@ function getStatusColor(status: ExecutionGroupStatus): ThemeColor {
 		case "failure":
 			return "error";
 		case "warning":
-		case "cancelled":
 			return "warning";
+		case "cancelled":
+			return "muted";
 		case "running":
-		case "success":
 			return "accent";
+		case "success":
+			return "success";
 		case "pending":
+			return "dim";
 		case "unknown":
 			return "muted";
 	}
@@ -119,7 +127,7 @@ export class ExecutionGroupComponent implements Component {
 		if (this.expanded) {
 			for (const action of this.actionList) lines.push(...action.component.render(normalizedWidth));
 		} else {
-			for (const action of this.actionList) lines.push(formatToolActionSummary(action, normalizedWidth));
+			for (const action of this.actionList) lines.push(this.renderCollapsedAction(action, normalizedWidth));
 		}
 
 		return lines;
@@ -130,23 +138,40 @@ export class ExecutionGroupComponent implements Component {
 		status: ExecutionGroupStatus,
 		summary: ReturnType<typeof summarizeExecutionGroup>,
 	): string {
-		const title = getExecutionGroupTitle(this.actionList);
-		const arrow = this.expanded ? "▼" : "▶";
-		const plainLeft = `${arrow} ${title}`;
-		const plainRight = formatExecutionGroupStatus(summary);
-		const left = `${theme.fg("borderMuted", arrow)} ${theme.bold(theme.fg("toolTitle", title))}`;
-		const right = theme.fg(getStatusColor(status), plainRight);
+		const border = theme.fg("borderAccent", "│");
+		if (width === 1) return border;
 
-		if (visibleWidth(plainRight) >= width) {
-			return padToWidth(truncateToWidth(right, width, ""), width);
+		const innerWidth = width - 1;
+		const title = getExecutionGroupTitle(this.actionList);
+		const target = getExecutionGroupTarget(this.actionList);
+		const arrow = this.expanded ? "▾" : "▸";
+		const plainRight = formatExecutionGroupStatus(summary);
+		const right = theme.fg(getStatusColor(status), plainRight);
+		const leftBase = `${arrow} ${title}`;
+		const styledBase = `${theme.fg("borderAccent", arrow)} ${theme.bold(theme.fg("toolTitle", title))}`;
+		const leftWithTarget = target ? `${leftBase}  ${target}` : leftBase;
+		const styledWithTarget = target ? `${styledBase}  ${theme.fg("mdLink", target)}` : styledBase;
+
+		let headerContent: string;
+		if (visibleWidth(plainRight) >= innerWidth) {
+			headerContent = truncateToWidth(right, innerWidth, "");
+		} else {
+			const leftWidth = Math.max(0, innerWidth - visibleWidth(plainRight) - 1);
+			const left = truncateToWidth(styledWithTarget, leftWidth, "");
+			const plainLeftWidth = Math.min(visibleWidth(leftWithTarget), leftWidth);
+			const gap = Math.max(1, innerWidth - plainLeftWidth - visibleWidth(plainRight));
+			headerContent = `${left}${" ".repeat(gap)}${right}`;
 		}
 
-		const gap = width - visibleWidth(plainLeft) - visibleWidth(plainRight);
-		if (gap >= 1) return padToWidth(`${left}${" ".repeat(gap)}${right}`, width);
+		const filled = padToWidth(truncateToWidth(headerContent, innerWidth, ""), innerWidth);
+		return `${border}${theme.bg("selectedBg", filled)}`;
+	}
 
-		const leftWidth = Math.max(0, width - visibleWidth(plainRight) - 1);
-		const compactLeft = truncateToWidth(left, leftWidth, "");
-		return padToWidth(`${compactLeft} ${right}`, width);
+	private renderCollapsedAction(action: ExecutionGroupAction, width: number): string {
+		const border = theme.fg("borderAccent", "│");
+		if (width === 1) return border;
+		const contentWidth = Math.max(0, width - 2);
+		return `${border} ${formatToolActionSummary(action, contentWidth)}`;
 	}
 }
 
