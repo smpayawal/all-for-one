@@ -1,0 +1,49 @@
+name: Phase 1 metadata synchronization
+
+on:
+  push:
+    branches: [product/phase-01-safe-identity]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase-01-metadata-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout phase branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: product/phase-01-safe-identity
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Refresh generated package metadata
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          npm run shrinkwrap:coding-agent
+          npm run install-lock:coding-agent
+          git diff --check
+
+      - name: Commit generated metadata
+        run: |
+          if git diff --quiet -- package-lock.json packages/coding-agent/npm-shrinkwrap.json packages/coding-agent/install-lock; then
+            echo "Generated package metadata is already current."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json packages/coding-agent/npm-shrinkwrap.json packages/coding-agent/install-lock
+          git commit -m "chore(product): refresh generated package metadata"
+          git push origin HEAD:product/phase-01-safe-identity
