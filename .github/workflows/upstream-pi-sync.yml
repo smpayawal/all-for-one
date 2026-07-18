@@ -213,8 +213,11 @@ jobs:
             printf -- '- Pi baseline commit: `%s`\n' "${MAIN_SHA}"
             echo '- Product base: `allforone`'
             printf -- '- Integration branch: `%s`\n' "${branch}"
+            echo '- Required merge method: create a merge commit'
             echo
             echo 'This pull request was prepared by the controlled upstream synchronization workflow. It must pass the normal All-For-One CI and be reviewed before merge.'
+            echo
+            echo '**Do not squash or rebase this pull request.** The Pi baseline must remain an ancestor of `allforone`.'
             echo
             echo 'No automatic merge is enabled.'
           } > /tmp/upstream-sync-pr.md
@@ -227,4 +230,5 @@ jobs:
 
           gh workflow run allforone-ci.yml --ref "${branch}"
           printf 'Created synchronization pull request: %s\n' "${pr_url}" >> "${GITHUB_STEP_SUMMARY}"
+          echo 'Merge this synchronization pull request with a merge commit. Do not squash or rebase it.' >> "${GITHUB_STEP_SUMMARY}"
           echo 'Dispatched All-For-One CI for the synchronization commit.' >> "${GITHUB_STEP_SUMMARY}"

@@ -42,4 +42,43 @@ for (const forbidden of ["npm publish", "NPM_TOKEN", "scripts/publish.mjs", "scr
 	}
 }
 
-console.log("All-For-One publication policy is valid: GitHub releases only, Pi-compatible npm packages private.");
+const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
+for (const required of [
+	"## All-For-One release and synchronization",
+	"All-For-One releases use `afo-v*` tags and GitHub Releases only.",
+	"Pull requests from `sync/pi-*` must be merged with a merge commit.",
+	"## Upstream Pi release reference",
+]) {
+	if (!agents.includes(required)) {
+		throw new Error(`AGENTS.md is missing downstream release guidance: ${required}`);
+	}
+}
+
+const contributing = readFileSync(join(root, "CONTRIBUTING.md"), "utf8");
+if (!contributing.includes("Do not squash or rebase them because `main` must remain an ancestor of `allforone`.")) {
+	throw new Error("CONTRIBUTING.md must document merge-commit-only handling for sync/pi-* pull requests.");
+}
+
+const releasing = readFileSync(join(root, "RELEASING.md"), "utf8");
+for (const required of ["All-For-One releases are published through GitHub Releases", "A `sync/pi-*` pull request must be merged with a merge commit."]) {
+	if (!releasing.includes(required)) {
+		throw new Error(`RELEASING.md is missing required downstream policy: ${required}`);
+	}
+}
+for (const forbidden of ["npm publish", "npm run publish", "npm run release:patch", "npm run release:minor", "npm run release:major"]) {
+	if (releasing.includes(forbidden)) {
+		throw new Error(`RELEASING.md contains a prohibited downstream release command: ${forbidden}`);
+	}
+}
+
+const syncWorkflow = readFileSync(join(root, ".github/workflows/upstream-pi-sync.yml"), "utf8");
+for (const required of [
+	"Required merge method: create a merge commit",
+	"**Do not squash or rebase this pull request.**",
+]) {
+	if (!syncWorkflow.includes(required)) {
+		throw new Error(`Upstream synchronization workflow is missing merge guidance: ${required}`);
+	}
+}
+
+console.log("All-For-One publication policy is valid: GitHub releases only, Pi-compatible npm packages private, downstream release guidance enforced.");
