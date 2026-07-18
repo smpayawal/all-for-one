@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { applyProductEnvAliases, PRODUCT_ENV_ALIASES } from "../src/allforone/index.ts";
 
@@ -54,5 +56,20 @@ describe("All-For-One environment aliases", () => {
 		applyProductEnvAliases(env);
 
 		expect(env.AFO_PACKAGE_DIR).toBeUndefined();
+	});
+
+	test("normalizes aliases before either CLI loads Pi runtime configuration", () => {
+		for (const relativePath of ["../src/cli.ts", "../src/allforone-cli.ts"]) {
+			const source = readFileSync(resolve(__dirname, relativePath), "utf8");
+			const normalizationIndex = source.indexOf("applyProductEnvAliases()");
+			const runtimeImportIndex = source.indexOf('await import("./main.ts")');
+
+			expect(normalizationIndex).toBeGreaterThan(-1);
+			expect(runtimeImportIndex).toBeGreaterThan(normalizationIndex);
+			expect(source).not.toContain('from "./main.ts"');
+		}
+
+		const piEntrypoint = readFileSync(resolve(__dirname, "../src/cli.ts"), "utf8");
+		expect(piEntrypoint).not.toContain('from "./config.ts"');
 	});
 });
