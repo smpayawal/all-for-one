@@ -74,13 +74,13 @@ This is progressive disclosure: only descriptions are always in context, full in
 
 The coding-agent package ships five dependency-free skills under its native skills directory:
 
-- repository-orientation: bounded repository and instruction mapping before unfamiliar changes
+- repository-orientation: manual-only bounded repository and instruction mapping before unfamiliar changes
 - systematic-debugging: reproduction, earliest-wrong-boundary tracing, and focused regression verification
-- verify-before-completion: proportionate checks and evidence-bounded reporting
+- verify-before-completion: manual-only proportionate checks and evidence-bounded reporting
 - plan-complex-change: manual-only planning for architecture or cross-package work
 - review-diff: manual-only final review for scope, regressions, and missing evidence
 
-The first three are eligible for model invocation through metadata. The planning and review skills remain manual-only and are available through skill commands. The package manifest registers this directory, and the runtime loads it as a low-precedence native resource. The no-skills option disables the bundled set.
+Only `systematic-debugging` is eligible for model invocation through metadata because it provides a distinct root-cause workflow. The other four skills remain available through explicit skill commands without adding their metadata to the permanent model prompt. The package manifest registers this directory, and the runtime loads it as a low-precedence native resource. The no-skills option disables the bundled set.
 
 ## Skill Commands
 
@@ -220,7 +220,7 @@ description: Web search and content extraction via Brave Search API. Use for sea
 ## Setup
 
 ```bash
-cd /path/to/brave-search && npm install
+cd /path/to/skill && npm install
 ```
 
 ## Search
