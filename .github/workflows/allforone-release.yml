@@ -15,6 +15,8 @@ on:
       - 'scripts/allforone-release.test.mjs'
       - 'scripts/build-allforone-binaries.sh'
       - 'scripts/local-release.mjs'
+      - 'scripts/prepare-allforone-release.mjs'
+      - 'scripts/prepare-allforone-release.test.mjs'
       - 'scripts/smoke-allforone-archive.mjs'
       - 'scripts/smoke-allforone-archive.test.mjs'
   push:
@@ -41,6 +43,7 @@ jobs:
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
       source_sha: ${{ steps.release.outputs.source_sha }}
+      is_prerelease: ${{ steps.release.outputs.is_prerelease }}
     steps:
       - name: Checkout release source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -70,6 +73,7 @@ jobs:
             source_sha="$(git rev-parse HEAD)"
           else
             release_tag="${INPUT_TAG:-${REF_NAME}}"
+            version="${release_tag#afo-v}"
           fi
 
           node scripts/allforone-release.mjs validate --tag "${release_tag}" --json
@@ -80,10 +84,18 @@ jobs:
             source_sha="$(git rev-list -n 1 "${release_tag}" --)"
             test "$(git rev-parse HEAD)" = "${source_sha}"
             git merge-base --is-ancestor "${source_sha}" origin/allforone
+            node scripts/prepare-allforone-release.mjs "${version}" --check --json
+          fi
+
+          if [[ "${version}" == *-* ]]; then
+            is_prerelease=true
+          else
+            is_prerelease=false
           fi
 
           echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
           echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
+          echo "is_prerelease=${is_prerelease}" >> "${GITHUB_OUTPUT}"
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
@@ -91,7 +103,10 @@ jobs:
       - name: Validate release utilities
         run: |
           set -euo pipefail
-          node --test scripts/allforone-release.test.mjs scripts/smoke-allforone-archive.test.mjs
+          node --test \
+            scripts/allforone-release.test.mjs \
+            scripts/prepare-allforone-release.test.mjs \
+            scripts/smoke-allforone-archive.test.mjs
           bash -n scripts/build-allforone-binaries.sh
           npm run build
           node packages/coding-agent/dist/allforone-cli.js --version
@@ -343,6 +358,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
       SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+      IS_PRERELEASE: ${{ needs.validate.outputs.is_prerelease }}
     steps:
       - name: Checkout verified release tag
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -401,16 +417,29 @@ jobs:
           trap cleanup_draft ERR
 
           version="${RELEASE_TAG#afo-v}"
-          gh release create "${RELEASE_TAG}" \
-            --verify-tag \
-            --draft \
-            --title "All-For-One ${version}" \
-            --notes-file RELEASE_NOTES.md \
-            "${expected_assets[@]}"
+          release_flags=(
+            --verify-tag
+            --draft
+            --title "All-For-One ${version}"
+            --notes-file RELEASE_NOTES.md
+          )
+          if [[ "${IS_PRERELEASE}" == "true" ]]; then
+            release_flags+=(--prerelease --latest=false)
+          fi
+
+          gh release create "${RELEASE_TAG}" "${release_flags[@]}" "${expected_assets[@]}"
 
           expected_names="$(printf '%s\n' "${expected_assets[@]}" | sort)"
           actual_names="$(gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].name' | sort)"
           test "${actual_names}" = "${expected_names}"
 
+          actual_prerelease="$(gh release view "${RELEASE_TAG}" --json isPrerelease --jq .isPrerelease)"
+          test "${actual_prerelease}" = "${IS_PRERELEASE}"
+
           gh release edit "${RELEASE_TAG}" --draft=false
+
+          if [[ "${IS_PRERELEASE}" == "true" ]]; then
+            is_latest="$(gh release list --limit 100 --json tagName,isLatest --jq ".[] | select(.tagName == \"${RELEASE_TAG}\") | .isLatest")"
+            test "${is_latest}" = "false"
+          fi
           trap - ERR
