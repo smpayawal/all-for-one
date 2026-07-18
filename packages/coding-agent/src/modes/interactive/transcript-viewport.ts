@@ -97,16 +97,12 @@ export class TranscriptViewport implements Component {
 		const visibleLines = lines
 			.slice(metrics.scrollTop, metrics.scrollTop + metrics.contentViewportHeight)
 			.map((line) => truncateToWidth(line, transcriptWidth, ""));
-		while (visibleLines.length < metrics.contentViewportHeight) {
-			visibleLines.push("");
-		}
+		while (visibleLines.length < metrics.contentViewportHeight) visibleLines.push("");
 
 		if (metrics.indicatorVisible) {
 			visibleLines.push(this.renderUnseenIndicator(transcriptWidth, metrics.unseenUpdates));
 		}
-		while (visibleLines.length < viewportHeight) {
-			visibleLines.push("");
-		}
+		while (visibleLines.length < viewportHeight) visibleLines.push("");
 
 		this.previousLines = lines;
 		this.previousWidth = transcriptWidth;
@@ -182,9 +178,19 @@ export class TranscriptViewport implements Component {
 	}
 
 	private renderUnseenIndicator(width: number, unseenUpdates: number): string {
-		const text = theme.fg("muted", `↓ ${unseenUpdates} new updates · End to follow`);
-		const truncated = truncateToWidth(text, width, "");
-		return truncated + " ".repeat(Math.max(0, width - visibleWidth(truncated)));
+		if (width === 0) return "";
+		if (width < 4) {
+			const compact = truncateToWidth(theme.fg("borderAccent", "↓"), width, "");
+			return compact + " ".repeat(Math.max(0, width - visibleWidth(compact)));
+		}
+		const plain = `↓ ${unseenUpdates} new updates · End to follow`;
+		const available = Math.max(0, width - 2);
+		const clippedPlain = truncateToWidth(plain, available, "");
+		const styled = theme.bg("selectedBg", ` ${theme.fg("borderAccent", clippedPlain)} `);
+		const styledWidth = visibleWidth(styled);
+		const left = Math.max(0, Math.floor((width - styledWidth) / 2));
+		const right = Math.max(0, width - styledWidth - left);
+		return `${" ".repeat(left)}${styled}${" ".repeat(right)}`;
 	}
 }
 
