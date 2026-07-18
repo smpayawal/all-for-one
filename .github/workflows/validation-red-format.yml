@@ -1,0 +1,63 @@
+name: Validation red and format diagnostic
+
+on:
+  push:
+    branches: [fix/validation-release-hardening]
+    paths:
+      - .github/workflows/validation-red-format.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Format regression tests
+        run: |
+          npx biome check --write \
+            packages/coding-agent/test/validation-commands.test.ts \
+            packages/coding-agent/test/validate-freshness.test.ts
+
+      - name: Prove stale-selection regression is red
+        shell: bash
+        run: |
+          set +e
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run \
+            test/validate-freshness.test.ts \
+            -t "refuses a numbered command after repository validation discovery changes" \
+            > validation-red.log 2>&1
+          status=$?
+          set -e
+          cat validation-red.log
+          if [ "$status" -eq 0 ]; then
+            echo "Regression test unexpectedly passed before the production fix." >&2
+            exit 1
+          fi
+          grep -q "refuses a numbered command after repository validation discovery changes" validation-red.log
+
+      - name: Upload formatted tests and red evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: validation-red-format
+          path: |
+            packages/coding-agent/test/validation-commands.test.ts
+            packages/coding-agent/test/validate-freshness.test.ts
+            validation-red.log
+          if-no-files-found: error
+          retention-days: 1
