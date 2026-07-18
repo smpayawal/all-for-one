@@ -245,39 +245,41 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 
 				const completion = await Promise.race([
 					childExitPromise.then((exitCode) => ({ kind: "completed" as const, exitCode })),
-					terminationRequested.then(async (kind) => {
-						cleanupResult = await awaitCleanupWithDeadline(
-							cleanupPromise ??
-								Promise.resolve({
-									gracefulAttempted: false,
-									forceAttempted: false,
-									completed: false,
-									verified: false,
-									error: "Process-tree cleanup did not start.",
-								}),
-						);
-						const childExit = await awaitChildExitWithDeadline(
-							childExitPromise,
-							PROCESS_EXIT_AFTER_CLEANUP_MS,
-						);
-						if (!childExit.exited) {
-							cleanupResult = appendCleanupError(
-								cleanupResult,
-								`Root process did not exit within ${PROCESS_EXIT_AFTER_CLEANUP_MS}ms after cleanup.`,
-							);
-							detachUnresponsiveChild(child);
-						}
-						return { kind, exitCode: childExit.exitCode };
-					}),
+					terminationRequested.then((kind) => ({ kind, exitCode: null })),
 				]);
 
-				if (completion.kind === "aborted" || (completion.kind === "completed" && signal?.aborted)) {
-					throw new Error(`aborted${cleanupResult ? cleanupFailureSuffix(cleanupResult) : ""}`);
+				if (completion.kind === "completed" && terminationKind === undefined) {
+					return { exitCode: completion.exitCode };
 				}
-				if (completion.kind === "timeout") {
-					throw new Error(`timeout:${timeout}${cleanupResult ? cleanupFailureSuffix(cleanupResult) : ""}`);
+
+				const effectiveKind: "aborted" | "timeout" =
+					completion.kind === "completed" ? (terminationKind as "aborted" | "timeout") : completion.kind;
+				cleanupResult = await awaitCleanupWithDeadline(
+					cleanupPromise ??
+						Promise.resolve({
+							gracefulAttempted: false,
+							forceAttempted: false,
+							completed: false,
+							verified: false,
+							error: "Process-tree cleanup did not start.",
+						}),
+				);
+				const childExit =
+					completion.kind === "completed"
+						? { exited: true, exitCode: completion.exitCode }
+						: await awaitChildExitWithDeadline(childExitPromise, PROCESS_EXIT_AFTER_CLEANUP_MS);
+				if (!childExit.exited) {
+					cleanupResult = appendCleanupError(
+						cleanupResult,
+						`Root process did not exit within ${PROCESS_EXIT_AFTER_CLEANUP_MS}ms after cleanup.`,
+					);
+					detachUnresponsiveChild(child);
 				}
-				return { exitCode: completion.exitCode };
+
+				if (effectiveKind === "aborted") {
+					throw new Error(`aborted${cleanupFailureSuffix(cleanupResult)}`);
+				}
+				throw new Error(`timeout:${timeout}${cleanupFailureSuffix(cleanupResult)}`);
 			} finally {
 				if (cleanupPromise && cleanupResult === undefined) {
 					cleanupResult = await awaitCleanupWithDeadline(cleanupPromise).catch(() => undefined);
