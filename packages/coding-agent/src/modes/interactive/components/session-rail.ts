@@ -80,9 +80,7 @@ function styleShortcutLine(line: string): string {
 	const segments = line.split(" · ");
 	const styledSegments = segments.map((segment) => {
 		const separator = segment.indexOf(" ");
-		if (separator === -1) {
-			return theme.bold(theme.fg("accent", segment));
-		}
+		if (separator === -1) return theme.bold(theme.fg("accent", segment));
 
 		const shortcut = segment.slice(0, separator);
 		const description = segment.slice(separator);
@@ -113,12 +111,16 @@ export function parseRailProgress(key: string, text: string): SessionRailProgres
 	return label ? { label, completed, total } : undefined;
 }
 
+function sectionTitle(label: string): string {
+	return theme.bold(theme.fg("userMessageText", label));
+}
+
 function formatLifecycle(lifecycle: SessionRailLifecycle): string {
 	switch (lifecycle.kind) {
 		case "idle":
 			return theme.fg("dim", "  Idle");
 		case "agent":
-			return theme.fg("accent", "  Working");
+			return theme.fg("borderAccent", "  Working");
 		case "retry":
 			return theme.fg("warning", `  Retrying ${lifecycle.attempt}/${lifecycle.maxAttempts}`);
 		case "compaction":
@@ -126,9 +128,9 @@ function formatLifecycle(lifecycle: SessionRailLifecycle): string {
 	}
 }
 
-function formatToolEvent(event: SessionRailToolEvent): string {
+function formatToolEvent(event: SessionRailToolEvent, width: number): string {
 	const marker = event.status === "success" ? theme.fg("success", "✓") : theme.fg("error", "×");
-	return `  ${marker} ${railLine(event.toolName, 26)}`;
+	return `  ${marker} ${theme.fg("muted", railLine(event.toolName, Math.max(1, width - 4)))}`;
 }
 
 function formatProgress(progress: SessionRailProgress, width: number): string {
@@ -137,7 +139,7 @@ function formatProgress(progress: SessionRailProgress, width: number): string {
 	const barWidth = Math.max(4, Math.min(10, width - visibleWidth(label) - 5));
 	const filled = Math.round((progress.completed / progress.total) * barWidth);
 	const bar = theme.fg("success", "━".repeat(filled)) + theme.fg("borderMuted", "─".repeat(barWidth - filled));
-	return `  ${label} ${bar}`;
+	return `  ${theme.fg("muted", label)} ${bar}`;
 }
 
 function formatResourceName(resourcePath: string): string {
@@ -149,6 +151,40 @@ function formatResourceList(resources: readonly string[]): string[] {
 	const visibleResources = resources.slice(0, 3).map(formatResourceName);
 	const remaining = resources.length - visibleResources.length;
 	return [...visibleResources, ...(remaining > 0 ? [`+${remaining} more`] : [])];
+}
+
+function createSection(
+	label: string,
+	values: readonly string[],
+	width: number,
+	valueColor: "muted" | "dim" = "dim",
+): string[] {
+	return [sectionTitle(label), ...values.map((value) => theme.fg(valueColor, railLine(`  ${value}`, width)))];
+}
+
+function createCurrentTurnSection(data: SessionRailData, width: number): string[] {
+	const values: string[] = [];
+	if (data.activeTools.length > 0) {
+		values.push(`Running ${data.activeTools[0]}`);
+		if (data.activeTools.length > 1) values.push(`+${data.activeTools.length - 1} more active`);
+	} else if (data.lifecycle.kind === "retry") {
+		values.push(`Retry attempt ${data.lifecycle.attempt}/${data.lifecycle.maxAttempts}`);
+	} else if (data.lifecycle.kind === "compaction") {
+		values.push("Compacting context");
+	} else if (data.lifecycle.kind === "agent") {
+		values.push(data.progress?.label ? `Working on ${data.progress.label}` : "Preparing response");
+	} else {
+		values.push("Waiting for input");
+	}
+	return createSection("CURRENT TURN", values, width, data.lifecycle.kind === "idle" ? "dim" : "muted");
+}
+
+function appendWholeSection(target: string[], section: readonly string[], limit: number): boolean {
+	const separatorHeight = target.length > 0 ? 1 : 0;
+	if (target.length + separatorHeight + section.length > limit) return false;
+	if (separatorHeight > 0) target.push("");
+	target.push(...section);
+	return true;
 }
 
 export class SessionRailComponent implements Component {
@@ -163,62 +199,69 @@ export class SessionRailComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		const lines: string[] = [];
+		const normalizedWidth = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 1;
 		const availableHeight = Math.max(0, Math.floor(this.data.getAvailableHeight()));
-		const addSection = (label: string, values: readonly string[]): void => {
-			lines.push(theme.bold(theme.fg("mdHeading", label)));
-			for (const value of values) {
-				lines.push(theme.fg("dim", railLine(`  ${value}`, width)));
-			}
-		};
-		const addResourceSection = (label: string, resources: readonly string[]): void => {
-			addSection(label, resources.length > 0 ? formatResourceList(resources) : ["—"]);
-		};
+		if (availableHeight === 0) return [];
+
+		const shortcutLines =
+			this.data.shortcutSummary && availableHeight >= 12
+				? wrapRailText(this.data.shortcutSummary, normalizedWidth).map(styleShortcutLine)
+				: [];
+		const helpHeight = shortcutLines.length > 0 ? shortcutLines.length + 1 : 0;
+		const contentLimit = Math.max(0, availableHeight - helpHeight);
+		const lines: string[] = [];
 
 		const title = sanitize(this.data.title);
-		const titleRuleWidth = Math.max(1, width - visibleWidth(title) - 1);
+		const titleRuleWidth = Math.max(1, normalizedWidth - visibleWidth(title) - 1);
 		lines.push(`${theme.bold(theme.fg("accent", title))} ${theme.fg("border", "─".repeat(titleRuleWidth))}`);
-		lines.push("");
-		lines.push(theme.bold(theme.fg("mdHeading", "ACTIVITY")));
-		if (this.data.progress) {
-			lines.push(formatProgress(this.data.progress, width));
-		}
-		lines.push(formatLifecycle(this.data.lifecycle));
+
+		const activity: string[] = [sectionTitle("ACTIVITY")];
+		if (this.data.progress) activity.push(formatProgress(this.data.progress, normalizedWidth));
+		activity.push(formatLifecycle(this.data.lifecycle));
 		const outcomes = [
 			...(this.data.completedTools > 0 ? [`${this.data.completedTools} succeeded`] : []),
 			...(this.data.failedTools > 0 ? [`${this.data.failedTools} failed`] : []),
 		];
-		if (outcomes.length > 0) {
-			lines.push(theme.fg("dim", `  ${outcomes.join(" · ")}`));
+		if (outcomes.length > 0) activity.push(theme.fg("dim", `  ${outcomes.join(" · ")}`));
+		for (const toolName of this.data.activeTools.slice(0, 3)) {
+			activity.push(theme.fg("borderAccent", railLine(`  ● ${toolName}`, normalizedWidth)));
 		}
-		if (this.data.activeTools.length > 0) {
-			for (const toolName of this.data.activeTools.slice(0, 3)) {
-				lines.push(theme.fg("accent", railLine(`  ● ${toolName}`, width)));
-			}
-			if (this.data.activeTools.length > 3) {
-				lines.push(theme.fg("dim", `  +${this.data.activeTools.length - 3} more active`));
-			}
+		if (this.data.activeTools.length > 3) {
+			activity.push(theme.fg("dim", `  +${this.data.activeTools.length - 3} more active`));
 		}
-		for (const event of this.data.recentTools.slice(-3)) {
-			lines.push(theme.fg("dim", formatToolEvent(event)));
-		}
+		for (const event of this.data.recentTools.slice(-3)) activity.push(formatToolEvent(event, normalizedWidth));
 		if (this.data.recentTools.length > 3) {
-			lines.push(theme.fg("dim", `  +${this.data.recentTools.length - 3} more`));
+			activity.push(theme.fg("dim", `  +${this.data.recentTools.length - 3} more`));
 		}
 
-		lines.push("");
-		addResourceSection("CONTEXT / AGENTS", this.data.agents);
-		lines.push("");
-		addResourceSection("SKILLS", this.data.skills);
+		if (contentLimit > lines.length) {
+			lines.push("");
+			lines.push(...activity.slice(0, Math.max(0, contentLimit - lines.length)));
+		}
+		appendWholeSection(lines, createCurrentTurnSection(this.data, normalizedWidth), contentLimit);
+		appendWholeSection(
+			lines,
+			createSection(
+				"CONTEXT / AGENTS",
+				this.data.agents.length > 0 ? formatResourceList(this.data.agents) : ["—"],
+				normalizedWidth,
+			),
+			contentLimit,
+		);
+		appendWholeSection(
+			lines,
+			createSection(
+				"SKILLS",
+				this.data.skills.length > 0 ? formatResourceList(this.data.skills) : ["—"],
+				normalizedWidth,
+			),
+			contentLimit,
+		);
 
-		const shortcutLines =
-			this.data.shortcutSummary && availableHeight >= 12
-				? ["", ...wrapRailText(this.data.shortcutSummary, width).map(styleShortcutLine)]
-				: [];
-		const contentHeight = Math.max(0, availableHeight - shortcutLines.length);
-		const visibleContent = lines.slice(0, contentHeight);
-		const padding = Array.from({ length: Math.max(0, contentHeight - visibleContent.length) }, () => "");
-		return [...visibleContent, ...padding, ...shortcutLines].slice(0, availableHeight);
+		const visibleContent = lines.slice(0, contentLimit);
+		const padding = Array.from({ length: Math.max(0, contentLimit - visibleContent.length) }, () => "");
+		const help = shortcutLines.length > 0 ? ["", ...shortcutLines] : [];
+		return [...visibleContent, ...padding, ...help].slice(0, availableHeight);
 	}
 
 	invalidate(): void {}
