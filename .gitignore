@@ -41,3 +41,6 @@ plans/
 .pi/hf-sessions/
 .pi/hf-sessions-backup/
 collect.sh
+
+# Private All-For-One project documentation
+/docs/
