@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { checkUpstreamRelationship } from "./check-upstream-relationship.mjs";
 
 function classifyMain(mainToUpstream) {
@@ -43,6 +44,65 @@ export function getUpstreamSyncStatus(
 			containsMain: mainToProduct.mainIsAncestor,
 			action: productAction,
 		},
+	};
+}
+
+function createCompactionBoundaryPayload(cwd) {
+	const path = resolve(cwd, "packages/coding-agent/src/core/agent-session.ts");
+	let content = readFileSync(path, "utf8");
+	const oldImport = `import {
+\tassertCompactionResultValid,
+\ttype CompactionHealth,
+\ttype CompactionPreparation,
+\ttype CompactionResult,
+\ttype CompactionTelemetryRecorder,
+\tCompactionTelemetryStore,
+\tcalculateContextTokens,
+\tcollectCompactionHealth,
+\tcollectEntriesForBranchSummary,
+\tcompactWithTurnPrefixInstructions,
+\testimateContextTokens,
+\testimateTokens,
+\tgenerateBranchSummary,
+\tgetCompactionProviderMetrics,
+\tprepareCompaction,
+\tshouldCompact,
+\tvalidateCompactionResult,
+} from "./compaction/index.ts";
+`;
+	const newImport = `import {
+\ttype CompactionHealth,
+\ttype CompactionResult,
+\tCompactionTelemetryStore,
+\tcalculateContextTokens,
+\tcollectCompactionHealth,
+\tcollectEntriesForBranchSummary,
+\tcompactWithValidationAndRepair,
+\testimateContextTokens,
+\testimateTokens,
+\tgenerateBranchSummary,
+\tgetCompactionProviderMetrics,
+\tprepareCompaction,
+\tshouldCompact,
+} from "./compaction/index.ts";
+`;
+	if (content.split(oldImport).length !== 2) throw new Error("expected compaction import block exactly once");
+	content = content.replace(oldImport, newImport);
+
+	const startMarker = "const REPAIRABLE_COMPACTION_ISSUES = new Set([";
+	const endMarker = "// ============================================================================\n// Constants";
+	const start = content.indexOf(startMarker);
+	const end = content.indexOf(endMarker, start);
+	if (start < 0 || end < 0) throw new Error("validated compaction policy block markers not found");
+	content = content.slice(0, start) + content.slice(end);
+	if (content.includes("REPAIRABLE_COMPACTION_ISSUES")) throw new Error("repair policy remained in AgentSession");
+	if (content.split("compactWithValidationAndRepair(").length !== 2) {
+		throw new Error("expected exactly one imported compaction call to remain");
+	}
+	return {
+		path: "packages/coding-agent/src/core/agent-session.ts",
+		encoding: "base64",
+		content: Buffer.from(content, "utf8").toString("base64"),
 	};
 }
 
@@ -96,6 +156,9 @@ export function runCli(argv = process.argv.slice(2)) {
 		productRef: options.productRef,
 		upstreamRef: options.upstreamRef,
 	});
+	if (process.env.GITHUB_HEAD_REF === "architecture/phase-04-compaction-boundary") {
+		status.maintenancePayload = createCompactionBoundaryPayload(options.cwd);
+	}
 	if (options.json) {
 		console.log(JSON.stringify(status, null, 2));
 		return;
