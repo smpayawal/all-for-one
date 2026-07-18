@@ -91,7 +91,7 @@ Standalone releases use tags in the form `afo-vX.Y.Z`. Each release records both
 
 Release assets include archives for supported macOS, Linux, and Windows targets, a release manifest, and SHA-256 checksums. The archives provide `allforone` as the primary executable and retain `afo` and `pi` compatibility launchers.
 
-The internal `@earendil-works/pi-*` packages are not published as part of the All-For-One release workflow. They remain Pi-compatible implementation identifiers.
+All-For-One is distributed through GitHub Releases. The internal `@earendil-works/pi-*` workspace names remain available for source compatibility but are marked private in the downstream branch and are not published to npm. Inherited Pi publish and `v*` release commands fail closed outside the upstream `earendil-works/pi` workspace. Packaging dry runs remain available for validation without enabling publication.
 
 ## Development
 

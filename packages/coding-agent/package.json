@@ -1,6 +1,7 @@
 {
 	"name": "@earendil-works/pi-coding-agent",
 	"version": "0.80.10",
+	"private": true,
 	"description": "All-For-One coding harness CLI based on Pi, with session management and coding tools",
 	"type": "module",
 	"piConfig": {
