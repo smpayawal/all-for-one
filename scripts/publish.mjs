@@ -3,6 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { assertCurrentPiPublicationContext } from "./publication-policy.mjs";
 
 const packages = [
 	{ directory: "packages/ai", name: "@earendil-works/pi-ai" },
@@ -18,6 +19,8 @@ if (unknownArgs.length > 0) {
 	console.error(`Usage: node scripts/publish.mjs [--dry-run]`);
 	process.exit(1);
 }
+
+assertCurrentPiPublicationContext({ dryRun });
 
 function commandForPlatform(command) {
 	return process.platform === "win32" ? `${command}.cmd` : command;
