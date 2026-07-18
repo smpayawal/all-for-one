@@ -6,6 +6,7 @@ import {
 	SESSION_RAIL_MAX_WIDTH,
 	SESSION_RAIL_MIN_WIDTH,
 } from "../responsive-layout.ts";
+import { fillBackgroundLine, fillBackgroundLines } from "./background-fill.ts";
 import { theme } from "../theme/theme.ts";
 
 export interface InteractiveApplicationShellOptions {
@@ -50,7 +51,7 @@ export class InteractiveApplicationShell implements Component {
 				this.tui.showOverlay(this.rail, {
 					anchor: "top-right",
 					nonCapturing: true,
-					visible: (width) => getSessionRailLayout(width).railWidth === railWidth,
+					visible: (width: number) => getSessionRailLayout(width).railWidth === railWidth,
 					width: railWidth,
 				}),
 			);
@@ -58,9 +59,7 @@ export class InteractiveApplicationShell implements Component {
 	}
 
 	getLayout(width = this.tui.terminal.columns, height = this.getTerminalHeight()): ResponsiveLayout {
-		if (this.layout?.terminal.width === width && this.layout.terminal.height === height) {
-			return this.layout;
-		}
+		if (this.layout?.terminal.width === width && this.layout.terminal.height === height) return this.layout;
 
 		const editorLines = this.editor.render(width);
 		const accessoryLines = this.bottomAccessory?.render(width) ?? [];
@@ -99,7 +98,12 @@ export class InteractiveApplicationShell implements Component {
 		const transcriptLines = this.transcript.render(this.layout.transcript.width);
 		const targetTranscriptHeight = Math.max(transcriptLines.length, this.layout.transcript.height);
 		const mainLines = this.renderTranscriptLines(transcriptLines, targetTranscriptHeight, this.layout);
-		return [...mainLines, ...editorLines, ...accessoryLines, ...footerLines];
+		return [
+			...mainLines,
+			...fillBackgroundLines(editorLines, width, "toolPendingBg"),
+			...fillBackgroundLines(accessoryLines, width, "toolPendingBg"),
+			...fillBackgroundLines(footerLines, width, "customMessageBg"),
+		];
 	}
 
 	invalidate(): void {
@@ -113,27 +117,24 @@ export class InteractiveApplicationShell implements Component {
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
-		for (const handle of this.railOverlayHandles) {
-			handle.hide();
-		}
+		for (const handle of this.railOverlayHandles) handle.hide();
 		this.railOverlayHandles.length = 0;
 	}
 
 	private renderTranscriptLines(lines: string[], targetHeight: number, layout: ResponsiveLayout): string[] {
 		if (!layout.rail.visible) {
-			return [...lines, ...Array.from({ length: Math.max(0, targetHeight - lines.length) }, () => "")];
+			const padded = [...lines, ...Array.from({ length: Math.max(0, targetHeight - lines.length) }, () => "")];
+			return fillBackgroundLines(padded, layout.transcript.width, "toolPendingBg");
 		}
 
 		const decoratedLines = lines.map((line) => this.addRailDivider(line, layout.transcript.width));
-		while (decoratedLines.length < targetHeight) {
-			decoratedLines.push(this.addRailDivider("", layout.transcript.width));
-		}
+		while (decoratedLines.length < targetHeight) decoratedLines.push(this.addRailDivider("", layout.transcript.width));
 		return decoratedLines;
 	}
 
 	private addRailDivider(line: string, transcriptWidth: number): string {
 		const truncated = truncateToWidth(line, transcriptWidth, "");
 		const padding = " ".repeat(Math.max(0, transcriptWidth - visibleWidth(truncated)));
-		return `${truncated}${padding}${theme.fg("border", "│")}`;
+		return fillBackgroundLine(`${truncated}${padding}${theme.fg("border", "│")}`, transcriptWidth + 1, "toolPendingBg");
 	}
 }
