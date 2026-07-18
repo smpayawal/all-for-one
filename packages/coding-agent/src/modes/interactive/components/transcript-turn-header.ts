@@ -20,7 +20,7 @@ export class TranscriptTurnHeaderComponent implements Component {
 		if (normalizedWidth === 0) return [];
 
 		const label = this.role === "user" ? USER_LABEL : ASSISTANT_LABEL;
-		const labelColor = this.role === "user" ? "userMessageText" : "accent";
+		const labelColor = this.role === "user" ? "customMessageLabel" : "accent";
 		const styledLabel = theme.bold(theme.fg(labelColor, label));
 		const labelWidth = visibleWidth(styledLabel);
 		const dividerLength = normalizedWidth - labelWidth - 1;
