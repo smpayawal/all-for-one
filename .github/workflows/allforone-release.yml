@@ -14,6 +14,7 @@ on:
       - 'scripts/allforone-release.mjs'
       - 'scripts/allforone-release.test.mjs'
       - 'scripts/build-allforone-binaries.sh'
+      - 'scripts/local-release.mjs'
   push:
     tags:
       - 'afo-v*'
@@ -67,14 +68,18 @@ jobs:
             source_sha="$(git rev-parse HEAD)"
           else
             release_tag="${INPUT_TAG:-${REF_NAME}}"
+          fi
+
+          node scripts/allforone-release.mjs validate --tag "${release_tag}" --json
+
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
             git fetch --no-tags origin allforone
             git fetch --tags origin
-            source_sha="$(git rev-list -n 1 "${release_tag}")"
+            source_sha="$(git rev-list -n 1 "${release_tag}" --)"
             test "$(git rev-parse HEAD)" = "${source_sha}"
             git merge-base --is-ancestor "${source_sha}" origin/allforone
           fi
 
-          node scripts/allforone-release.mjs validate --tag "${release_tag}" --json
           echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
           echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
 
@@ -94,17 +99,27 @@ jobs:
         with:
           bun-version: 1.3.14
 
-      - name: Build and execute Linux release smoke artifact
+      - name: Build and execute release smoke artifacts
         if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           bash scripts/build-allforone-binaries.sh \
             --skip-install \
             --skip-build \
-            --platform linux-x64 \
             --out .artifacts/allforone-release-smoke
 
-          test -f .artifacts/allforone-release-smoke/all-for-one-linux-x64.tar.gz
+          expected_archives=(
+            all-for-one-darwin-arm64.tar.gz
+            all-for-one-darwin-x64.tar.gz
+            all-for-one-linux-arm64.tar.gz
+            all-for-one-linux-x64.tar.gz
+            all-for-one-windows-arm64.zip
+            all-for-one-windows-x64.zip
+          )
+          for archive in "${expected_archives[@]}"; do
+            test -f ".artifacts/allforone-release-smoke/${archive}"
+          done
+
           test -x .artifacts/allforone-release-smoke/linux-x64/allforone
           .artifacts/allforone-release-smoke/linux-x64/allforone --version
           .artifacts/allforone-release-smoke/linux-x64/afo --version
@@ -183,7 +198,18 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+      SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
     steps:
+      - name: Checkout verified release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release tag remains pinned
+        run: test "$(git rev-list -n 1 "${RELEASE_TAG}" --)" = "${SOURCE_SHA}"
+
       - name: Download release payload
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
