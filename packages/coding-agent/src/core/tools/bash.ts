@@ -47,10 +47,6 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 	return timeoutMs;
 }
 
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function appendCleanupError(result: ProcessTreeCleanupResult, message: string): ProcessTreeCleanupResult {
 	return {
 		...result,
@@ -60,39 +56,56 @@ function appendCleanupError(result: ProcessTreeCleanupResult, message: string): 
 	};
 }
 
-async function awaitCleanupWithDeadline(
+function awaitCleanupWithDeadline(
 	cleanupPromise: Promise<ProcessTreeCleanupResult>,
 ): Promise<ProcessTreeCleanupResult> {
-	return Promise.race([
-		cleanupPromise.catch((error) => ({
-			gracefulAttempted: true,
-			forceAttempted: true,
-			completed: false,
-			verified: false,
-			error: error instanceof Error ? error.message : String(error),
-		})),
-		delay(PROCESS_TREE_CLEANUP_DEADLINE_MS).then(
-			(): ProcessTreeCleanupResult => ({
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = (result: ProcessTreeCleanupResult) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeoutId);
+			resolve(result);
+		};
+		const timeoutId = setTimeout(() => {
+			finish({
 				gracefulAttempted: true,
 				forceAttempted: true,
 				completed: false,
 				verified: false,
 				error: `Process-tree cleanup exceeded ${PROCESS_TREE_CLEANUP_DEADLINE_MS}ms.`,
-			}),
-		),
-	]);
+			});
+		}, PROCESS_TREE_CLEANUP_DEADLINE_MS);
+		cleanupPromise.then(finish, (error) => {
+			finish({
+				gracefulAttempted: true,
+				forceAttempted: true,
+				completed: false,
+				verified: false,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		});
+	});
 }
 
-async function awaitChildExitWithDeadline(
+function awaitChildExitWithDeadline(
 	childExitPromise: Promise<number | null>,
 	timeoutMs: number,
 ): Promise<{ exited: boolean; exitCode: number | null }> {
-	return Promise.race([
-		childExitPromise
-			.then((exitCode) => ({ exited: true, exitCode }))
-			.catch(() => ({ exited: true, exitCode: null })),
-		delay(timeoutMs).then(() => ({ exited: false, exitCode: null })),
-	]);
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = (result: { exited: boolean; exitCode: number | null }) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeoutId);
+			resolve(result);
+		};
+		const timeoutId = setTimeout(() => finish({ exited: false, exitCode: null }), timeoutMs);
+		childExitPromise.then(
+			(exitCode) => finish({ exited: true, exitCode }),
+			() => finish({ exited: true, exitCode: null }),
+		);
+	});
 }
 
 function detachUnresponsiveChild(child: ChildProcess): void {
