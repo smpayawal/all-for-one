@@ -254,37 +254,42 @@ function runProcessHelper(
 		child.stdout?.on("data", onData);
 		child.once("error", onError);
 		child.once("close", onClose);
-		timeoutId = setTimeout(() => {
-			timedOut = true;
-			try {
-				child.kill("SIGKILL");
-			} catch {
-				// The helper may already have exited.
-			}
-			hardTimeoutId = setTimeout(() => {
-				settle({ exitCode: null, stdout, error: `helper did not exit after ${timeoutMs}ms` });
-			}, 500);
-		}, Math.max(1, timeoutMs));
+		timeoutId = setTimeout(
+			() => {
+				timedOut = true;
+				try {
+					child.kill("SIGKILL");
+				} catch {
+					// The helper may already have exited.
+				}
+				hardTimeoutId = setTimeout(() => {
+					settle({ exitCode: null, stdout, error: `helper did not exit after ${timeoutMs}ms` });
+				}, 500);
+			},
+			Math.max(1, timeoutMs),
+		);
 	});
 }
 
-const WINDOWS_PROCESS_TREE_QUERY = [
-	"$root = [int]$args[0];",
-	"$all = @(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId, ParentProcessId);",
-	"$ids = New-Object 'System.Collections.Generic.HashSet[int]';",
-	"$pending = New-Object 'System.Collections.Generic.Queue[int]';",
-	"[void]$ids.Add($root);",
-	"[void]$pending.Enqueue($root);",
-	"while ($pending.Count -gt 0) {",
-	"  $parent = $pending.Dequeue();",
-	"  foreach ($item in $all) {",
-	"    if ($item.ParentProcessId -eq $parent -and $ids.Add([int]$item.ProcessId)) {",
-	"      [void]$pending.Enqueue([int]$item.ProcessId);",
-	"    }",
-	"  }",
-	"}",
-	"$ids | Sort-Object",
-].join(" ");
+function buildWindowsProcessTreeQuery(rootPid: number): string {
+	return [
+		`$root = [int]${rootPid};`,
+		"$all = @(Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId, ParentProcessId);",
+		"$ids = New-Object 'System.Collections.Generic.HashSet[int]';",
+		"$pending = New-Object 'System.Collections.Generic.Queue[int]';",
+		"[void]$ids.Add($root);",
+		"[void]$pending.Enqueue($root);",
+		"while ($pending.Count -gt 0) {",
+		"  $parent = $pending.Dequeue();",
+		"  foreach ($item in $all) {",
+		"    if ($item.ParentProcessId -eq $parent -and $ids.Add([int]$item.ProcessId)) {",
+		"      [void]$pending.Enqueue([int]$item.ProcessId);",
+		"    }",
+		"  }",
+		"}",
+		"$ids | Sort-Object",
+	].join(" ");
+}
 
 interface WindowsProcessTreeQuery {
 	pids: number[];
@@ -293,7 +298,7 @@ interface WindowsProcessTreeQuery {
 }
 
 async function queryWindowsProcessTree(rootPid: number): Promise<WindowsProcessTreeQuery> {
-	const args = ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_PROCESS_TREE_QUERY, String(rootPid)];
+	const args = ["-NoProfile", "-NonInteractive", "-Command", buildWindowsProcessTreeQuery(rootPid)];
 	const deadline = Date.now() + WINDOWS_PROCESS_TREE_QUERY_TIMEOUT_MS;
 	const errors: string[] = [];
 
@@ -314,10 +319,7 @@ async function queryWindowsProcessTree(rootPid: number): Promise<WindowsProcessT
 	return {
 		pids: [rootPid],
 		available: false,
-		error: [
-			"PowerShell process-tree discovery is unavailable.",
-			...errors,
-		].join(" "),
+		error: ["PowerShell process-tree discovery is unavailable.", ...errors].join(" "),
 	};
 }
 
