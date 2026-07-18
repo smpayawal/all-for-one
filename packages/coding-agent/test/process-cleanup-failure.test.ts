@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs/promises")>();
+	return {
+		...actual,
+		access: vi.fn(async () => {}),
+	};
+});
+
 vi.mock("../src/utils/child-process.ts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../src/utils/child-process.ts")>();
 	return {
@@ -51,6 +59,8 @@ describe("bounded process cleanup failure", () => {
 			onData: () => {},
 			timeout: 0.001,
 		});
+		await Promise.resolve();
+		await Promise.resolve();
 
 		await vi.advanceTimersByTimeAsync(11_100);
 
