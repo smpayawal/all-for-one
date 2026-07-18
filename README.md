@@ -4,11 +4,11 @@
 
 # All-For-One
 
-*A personal Pi fork with focused coding-workflow changes.*
+*A terminal-first coding harness based on Pi.*
 
-All-For-One is a personal fork of [Pi](https://github.com/earendil-works/pi). It keeps Pi's lightweight, terminal-first, single-agent design while adding a small set of changes for my own development workflow.
+All-For-One is an independently maintained fork of [Pi](https://github.com/earendil-works/pi). It keeps Pi's lightweight, adaptive single-agent architecture while maintaining its own product identity, release direction, and focused coding-workflow changes.
 
-The fork preserves Pi's `pi` command, `.pi` configuration directory, package names, sessions, extensions, SDK, and RPC interfaces.
+The primary command is `allforone`, with `afo` as a short alias. The original `pi` command remains available for compatibility. Existing `.pi` configuration, `PI_*` environment variables, package names, sessions, extensions, SDK exports, and RPC interfaces are intentionally preserved.
 
 ## Changes from Pi
 
@@ -20,17 +20,19 @@ All-For-One currently includes:
 - Optional repository-grounded validation, execution safeguards, compaction diagnostics, and offline maintenance reports.
 - Dedicated CI and upstream relationship checks for the `allforone` branch.
 
-The project remains close to Pi and avoids introducing a separate workflow engine or permanent agent hierarchy.
+The project remains close to Pi and does not introduce a separate workflow engine or permanent agent hierarchy.
 
 ## Relationship to Pi
 
-[Pi](https://github.com/earendil-works/pi) is the upstream project and remains the primary reference for general usage, configuration, providers, extensions, skills, and themes.
+[Pi](https://github.com/earendil-works/pi) remains the architectural upstream and the primary reference for general providers, extensions, skills, themes, and compatibility behavior.
 
 This repository uses the following branch structure:
 
 - `main` tracks upstream Pi.
-- `allforone` contains the All-For-One changes.
+- `allforone` is the official All-For-One development and integration branch.
 - Focused development branches start from `allforone`.
+
+All-For-One releases use an independent product version and record the Pi version used as their compatibility baseline. Internal Pi package versions remain unchanged unless a deliberate package migration is designed and tested.
 
 ## Run from source
 
@@ -42,16 +44,18 @@ cd all-for-one
 
 npm install --ignore-scripts
 npm run build
+node packages/coding-agent/dist/allforone-cli.js
+```
+
+The Pi-compatible source launcher remains available:
+
+```bash
 ./pi-test.sh
 ```
 
-On Windows, run the built CLI directly:
+On Windows, run either built entry point directly with Node.js.
 
-```bash
-node packages/coding-agent/dist/cli.js
-```
-
-Provider authentication, model configuration, settings, and customization follow the standard [Pi documentation](https://pi.dev/docs/latest).
+Provider authentication, model configuration, settings, and customization continue to follow the standard [Pi documentation](https://pi.dev/docs/latest) where All-For-One has not documented a difference.
 
 ## Development
 
