@@ -100,7 +100,7 @@ export function createAllForOneReleaseFiles({ tag, commit, repoRoot = defaultRep
 		generatedAt,
 		commands: metadata.commands,
 		repository: metadata.repository,
-		assets: [...RELEASE_ASSETS, "SHA256SUMS", "RELEASE_NOTES.md"],
+		assets: [...RELEASE_ASSETS, "release-manifest.json", "SHA256SUMS", "RELEASE_NOTES.md"],
 	};
 	return { manifest, notes, metadata };
 }

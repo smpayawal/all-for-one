@@ -198,7 +198,7 @@ const options = parseArgs();
 const repoRoot = process.cwd();
 const rootPackageJson = readPackageJson(repoRoot);
 
-if (rootPackageJson.name !== "pi-monorepo") {
+if (!["pi-monorepo", "all-for-one-monorepo"].includes(rootPackageJson.name)) {
 	throw new Error("Run this script from the repository root");
 }
 
