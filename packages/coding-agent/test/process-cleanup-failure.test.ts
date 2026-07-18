@@ -64,7 +64,9 @@ describe("bounded process cleanup failure", () => {
 
 		await vi.advanceTimersByTimeAsync(11_100);
 
-		await expect(execution).rejects.toThrow("timeout:0.001; process-tree cleanup incomplete");
-		await expect(execution).rejects.toThrow("cleanup exceeded 10000ms");
+		const error = await execution.catch((value: unknown) => value);
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toContain("timeout:0.001; process-tree cleanup incomplete");
+		expect((error as Error).message).toContain("cleanup exceeded 10000ms");
 	});
 });
