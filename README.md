@@ -4,21 +4,19 @@
 
 # All-For-One
 
-*A personal coding harness based on [Pi](https://github.com/earendil-works/pi).*
+*My personal fork of [Pi](https://github.com/earendil-works/pi).*
 
-All-For-One is my fork of Pi, adjusted for the way I use a coding agent day to day. It keeps Pi's small, terminal-first design and adds the tools, context handling, safeguards, and interface changes I prefer.
+All-For-One is a lightweight terminal coding harness based on Pi. I use it as my day-to-day coding agent and maintain a small set of changes that fit the way I work.
 
-The goal is simple: keep the straightforward Pi experience while making it a better fit for my own workflow.
+It keeps Pi's core behavior, so existing `.pi` configuration and the original `pi` command continue to work.
 
-## What is different?
+## What changed
 
 - `allforone` as the main command, with `afo` as a shorter alias.
 - A session rail for activity, tools, loaded context, and skills.
-- Native, patch, and full tool profiles.
-- Project-scoped instructions, local project memory, and built-in coding skills.
-- Optional validation, execution safeguards, and compaction diagnostics.
-
-All-For-One still uses `.pi` and keeps the original `pi` command, settings, sessions, extensions, SDK, and RPC interfaces compatible.
+- Tool profiles for normal editing, patch-based work, or full access.
+- Project instructions, local project memory, and built-in coding skills.
+- Optional validation and execution checks.
 
 ## Run from source
 
@@ -43,9 +41,7 @@ Provider setup, models, themes, extensions, and general configuration continue t
 
 ## Releases
 
-Standalone builds for macOS, Linux, and Windows are published through [GitHub Releases](https://github.com/smpayawal/all-for-one/releases).
-
-The release archives provide `allforone`, `afo`, and the compatible `pi` launcher.
+Standalone releases use GitHub Releases and include builds for macOS, Linux, and Windows. Each archive provides `allforone`, `afo`, and the compatible `pi` launcher.
 
 ## Development
 
