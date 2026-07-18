@@ -1,0 +1,114 @@
+name: Publish All-For-One 0.1.0-rc.1
+
+on:
+  pull_request:
+    branches:
+      - allforone
+    types:
+      - ready_for_review
+
+permissions:
+  actions: write
+  contents: write
+
+concurrency:
+  group: publish-allforone-0.1.0-rc.1
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.pull_request.head.ref == 'release/publish-0.1.0-rc.1'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: afo-v0.1.0-rc.1
+      RELEASE_VERSION: 0.1.0-rc.1
+      TARGET_SHA: 16b83584cafedfb65e57248ca83fb1dfa50e8b50
+    steps:
+      - name: Checkout exact release commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
+
+      - name: Verify release commit and metadata
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin allforone
+          test "$(git rev-parse HEAD)" = "${TARGET_SHA}"
+          test "$(git rev-parse origin/allforone)" = "${TARGET_SHA}"
+          node scripts/prepare-allforone-release.mjs "${RELEASE_VERSION}" --check --json
+          node scripts/allforone-release.mjs validate --tag "${RELEASE_TAG}" --json
+          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag ${RELEASE_TAG} already exists."
+            exit 1
+          fi
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "::error::Release ${RELEASE_TAG} already exists."
+            exit 1
+          fi
+
+      - name: Create annotated release tag
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "${RELEASE_TAG}" "${TARGET_SHA}" -m "All-For-One ${RELEASE_VERSION}"
+          test "$(git cat-file -t "${RELEASE_TAG}")" = 'tag'
+          test "$(git rev-list -n 1 "${RELEASE_TAG}")" = "${TARGET_SHA}"
+          git push origin "refs/tags/${RELEASE_TAG}"
+
+      - name: Dispatch public release workflow
+        run: gh workflow run allforone-release.yml --ref allforone -f tag="${RELEASE_TAG}"
+
+      - name: Wait for public release workflow
+        run: |
+          set -euo pipefail
+          run_id=''
+          for attempt in $(seq 1 60); do
+            run_id="$(gh run list \
+              --workflow allforone-release.yml \
+              --event workflow_dispatch \
+              --limit 30 \
+              --json databaseId,headSha,status \
+              --jq ".[] | select(.headSha == \"${TARGET_SHA}\") | .databaseId" \
+              | head -n 1)"
+            if [[ -n "${run_id}" ]]; then
+              break
+            fi
+            sleep 5
+          done
+          if [[ -z "${run_id}" ]]; then
+            echo '::error::Timed out waiting for the release workflow to start.'
+            exit 1
+          fi
+          echo "Release workflow run: ${run_id}"
+          gh run watch "${run_id}" --exit-status
+
+      - name: Verify published prerelease
+        run: |
+          set -euo pipefail
+          gh release view "${RELEASE_TAG}" --json tagName,isDraft,isPrerelease,assets,url > release.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const release = JSON.parse(readFileSync('release.json', 'utf8'));
+          const expected = [
+            'all-for-one-darwin-arm64.tar.gz',
+            'all-for-one-darwin-x64.tar.gz',
+            'all-for-one-linux-arm64.tar.gz',
+            'all-for-one-linux-x64.tar.gz',
+            'all-for-one-windows-arm64.zip',
+            'all-for-one-windows-x64.zip',
+            'release-manifest.json',
+            'RELEASE_NOTES.md',
+            'SHA256SUMS',
+          ].sort();
+          const actual = release.assets.map((asset) => asset.name).sort();
+          if (release.tagName !== process.env.RELEASE_TAG) throw new Error(`Unexpected tag: ${release.tagName}`);
+          if (release.isDraft) throw new Error('Release is still a draft.');
+          if (!release.isPrerelease) throw new Error('Release is not marked as a prerelease.');
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+            throw new Error(`Unexpected release assets: ${JSON.stringify(actual)}`);
+          }
+          console.log(JSON.stringify({ tag: release.tagName, prerelease: release.isPrerelease, assets: actual, url: release.url }, null, 2));
+          NODE
