@@ -1,7 +1,7 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createHash } from "node:crypto";
 import { lstat, readFile, realpath, stat } from "node:fs/promises";
-import { basename, extname, relative, resolve, sep } from "node:path";
+import { basename, extname, resolve, sep } from "node:path";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
 	ContextEvent,
 	ContextEventResult,
@@ -87,12 +87,36 @@ const REPO_MAP_MAX_SOURCE_BYTES = 256 * 1_024;
 const REPO_MAP_CUSTOM_TYPE = "allforone.repo-map";
 
 const BROAD_SIGNALS: Array<{ pattern: RegExp; label: string; weight: number }> = [
-	{ pattern: /\b(?:repository|project)\s+(?:as a whole|wide|architecture|structure)\b/iu, label: "whole-repository request", weight: 4 },
-	{ pattern: /\b(?:architecture|data flow|execution path|control flow|dependency graph)\b/iu, label: "architecture or flow analysis", weight: 3 },
-	{ pattern: /\b(?:across|between)\s+(?:multiple\s+)?(?:packages|modules|components|layers)\b/iu, label: "cross-package scope", weight: 3 },
-	{ pattern: /\b(?:find|locate|identify|trace)\s+(?:where|how|all|the implementation)\b/iu, label: "implementation discovery", weight: 2 },
-	{ pattern: /\b(?:root cause|unfamiliar bug|broad refactor|repository-wide|project-wide)\b/iu, label: "broad investigation", weight: 3 },
-	{ pattern: /\b(?:review|audit|analy[sz]e)\s+(?:this\s+)?(?:branch|pull request|repository|project|codebase)\b/iu, label: "broad review", weight: 3 },
+	{
+		pattern: /\b(?:repository|project)\s+(?:as a whole|wide|architecture|structure)\b/iu,
+		label: "whole-repository request",
+		weight: 4,
+	},
+	{
+		pattern: /\b(?:architecture|data flow|execution path|control flow|dependency graph)\b/iu,
+		label: "architecture or flow analysis",
+		weight: 3,
+	},
+	{
+		pattern: /\b(?:across|between)\s+(?:multiple\s+)?(?:packages|modules|components|layers)\b/iu,
+		label: "cross-package scope",
+		weight: 3,
+	},
+	{
+		pattern: /\b(?:find|locate|identify|trace)\s+(?:where|how|all|the implementation)\b/iu,
+		label: "implementation discovery",
+		weight: 2,
+	},
+	{
+		pattern: /\b(?:root cause|unfamiliar bug|broad refactor|repository-wide|project-wide)\b/iu,
+		label: "broad investigation",
+		weight: 3,
+	},
+	{
+		pattern: /\b(?:review|audit|analy[sz]e)\s+(?:this\s+)?(?:branch|pull request|repository|project|codebase)\b/iu,
+		label: "broad review",
+		weight: 3,
+	},
 ];
 
 const STOP_WORDS = new Set([
@@ -153,7 +177,9 @@ export function evaluateRepoMapActivation(prompt: string): RepoMapActivationDeci
 
 	const explicitPaths = extractExplicitPaths(normalized);
 	const narrowAction = /\b(?:fix|rename|replace|update|change|remove|add|correct)\b/iu.test(normalized);
-	const broadQualifier = /\b(?:all|across|architecture|whole|repository-wide|project-wide|root cause|trace)\b/iu.test(normalized);
+	const broadQualifier = /\b(?:all|across|architecture|whole|repository-wide|project-wide|root cause|trace)\b/iu.test(
+		normalized,
+	);
 	if (explicitPaths.length === 1 && narrowAction && !broadQualifier && normalized.length < 600) {
 		return {
 			activate: false,
@@ -162,7 +188,10 @@ export function evaluateRepoMapActivation(prompt: string): RepoMapActivationDeci
 			signals,
 		};
 	}
-	if (explicitPaths.length === 0 && /\b(?:investigate|diagnose|understand|refactor|review|audit|analy[sz]e)\b/iu.test(normalized)) {
+	if (
+		explicitPaths.length === 0 &&
+		/\b(?:investigate|diagnose|understand|refactor|review|audit|analy[sz]e)\b/iu.test(normalized)
+	) {
 		score += 1;
 		signals.push("broad action without a target path");
 	}
@@ -190,7 +219,8 @@ function classifyPath(path: string): string {
 	const normalized = normalizeRepoPath(path);
 	const name = basename(normalized).toLowerCase();
 	if (/(?:^|\/)(?:test|tests|__tests__)(?:\/|$)|\.(?:test|spec)\.[^.]+$/u.test(normalized)) return "test";
-	if (name === "package.json" || name === "pyproject.toml" || name === "cargo.toml" || name === "go.mod") return "package manifest";
+	if (name === "package.json" || name === "pyproject.toml" || name === "cargo.toml" || name === "go.mod")
+		return "package manifest";
 	if (/^(?:index|main|mod|lib)\.[^.]+$/u.test(name)) return "entry point";
 	if (/\.(?:md|mdx|rst)$/u.test(name)) return "documentation";
 	if (/\.(?:json|ya?ml|toml|ini)$/u.test(name)) return "configuration";
@@ -395,15 +425,12 @@ async function runGit(
 async function loadGitState(input: RepoMapGenerationInput): Promise<RepoMapGitState> {
 	const [head, statusOutput, trackedOutput, changedOutput, stagedOutput] = await Promise.all([
 		runGit(input.exec, input.cwd, ["rev-parse", "HEAD"], 4_096),
-		runGit(input.exec, input.cwd, ["status", "--porcelain=v1", "-uno"], 128 * 1_024),
+		runGit(input.exec, input.cwd, ["status", "--porcelain=v1"], 128 * 1_024),
 		runGit(input.exec, input.cwd, ["ls-files"]),
 		runGit(input.exec, input.cwd, ["diff", "--name-only"], 128 * 1_024),
 		runGit(input.exec, input.cwd, ["diff", "--cached", "--name-only"], 128 * 1_024),
 	]);
-	const trackedFiles = trackedOutput
-		.split(/\r?\n/u)
-		.map(normalizeRepoPath)
-		.filter(Boolean);
+	const trackedFiles = trackedOutput.split(/\r?\n/u).map(normalizeRepoPath).filter(Boolean);
 	const changedFiles = [...new Set([...changedOutput.split(/\r?\n/u), ...stagedOutput.split(/\r?\n/u)])]
 		.map(normalizeRepoPath)
 		.filter(Boolean)
@@ -423,7 +450,23 @@ async function loadGitState(input: RepoMapGenerationInput): Promise<RepoMapGitSt
 
 async function generateRepoMap(input: RepoMapGenerationInput, cached?: RepoMapSnapshot): Promise<RepoMapSnapshot> {
 	const git = await loadGitState(input);
-	if (cached?.cacheKey === git.cacheKey) return { ...cached, reason: input.reason };
+	if (cached?.cacheKey === git.cacheKey) {
+		const rendered = renderRepoMap({
+			head: cached.head,
+			workingTree: cached.workingTree,
+			reason: input.reason,
+			trackedFileCount: cached.trackedFileCount,
+			consideredFileCount: cached.consideredFileCount,
+			changedFiles: cached.changedFiles,
+			files: cached.files,
+		});
+		return {
+			...cached,
+			reason: input.reason,
+			rendered: rendered.rendered,
+			truncated: rendered.truncated,
+		};
+	}
 	const considered = git.trackedFiles.slice(0, REPO_MAP_MAX_TRACKED_FILES);
 	const ranked = rankRepoMapFiles({
 		files: considered,
@@ -490,19 +533,12 @@ function recordToolActivity(activity: RepoMapActivity, event: ToolCallEvent): vo
 
 function shouldActivateFromActivity(activity: RepoMapActivity): boolean {
 	return (
-		!activity.mutationSeen &&
-		activity.discoveryCalls >= 3 &&
-		activity.readPaths.size >= 4 &&
-		activity.areas.size >= 2
+		!activity.mutationSeen && activity.discoveryCalls >= 3 && activity.readPaths.size >= 4 && activity.areas.size >= 2
 	);
 }
 
 function formatStatus(status: RepoMapStatus): string {
-	const lines = [
-		`Repository map mode: ${status.mode}`,
-		`State: ${status.state}`,
-		`Reason: ${status.reason}`,
-	];
+	const lines = [`Repository map mode: ${status.mode}`, `State: ${status.state}`, `Reason: ${status.reason}`];
 	if (status.head) lines.push(`HEAD: ${status.head.slice(0, 12)}`);
 	if (status.trackedFileCount !== undefined) lines.push(`Tracked paths: ${status.trackedFileCount}`);
 	if (status.representedFileCount !== undefined) lines.push(`Represented paths: ${status.representedFileCount}`);
@@ -546,7 +582,10 @@ export default function repoMapExtension(pi: ExtensionAPI): void {
 		};
 	};
 
-	const injectPendingMap = async (event: ContextEvent, ctx: ExtensionContext): Promise<ContextEventResult | undefined> => {
+	const injectPendingMap = async (
+		event: ContextEvent,
+		ctx: ExtensionContext,
+	): Promise<ContextEventResult | undefined> => {
 		if (!pendingReason) return undefined;
 		if (mode === "off" && !forceOnce) {
 			pendingReason = undefined;
@@ -564,7 +603,10 @@ export default function repoMapExtension(pi: ExtensionAPI): void {
 		pendingReason = undefined;
 		status = { mode, state: "pending", reason };
 		try {
-			cached = await generateRepoMap({ cwd: ctx.cwd, prompt: currentPrompt, reason, readPaths: activity.readPaths, exec: pi.exec }, cached);
+			cached = await generateRepoMap(
+				{ cwd: ctx.cwd, prompt: currentPrompt, reason, readPaths: activity.readPaths, exec: pi.exec },
+				cached,
+			);
 			forceOnce = false;
 			autoInjectedForTask = true;
 			status = {

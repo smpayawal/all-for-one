@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -12,12 +12,12 @@ import type {
 } from "../src/core/extensions/types.ts";
 import repoMapExtension, {
 	evaluateRepoMapActivation,
-	rankRepoMapFiles,
-	renderRepoMap,
 	REPO_MAP_MAX_RANKED_FILES,
 	REPO_MAP_MAX_RENDERED_CHARS,
 	REPO_MAP_MAX_REPRESENTED_FILES,
 	REPO_MAP_MAX_TRACKED_FILES,
+	rankRepoMapFiles,
+	renderRepoMap,
 } from "../src/extensions/repo-map/index.ts";
 
 type EventHandler = (event: unknown, ctx: ExtensionContext) => unknown | Promise<unknown>;
@@ -59,7 +59,10 @@ function createHarness(outputs?: Map<string, string>): ExtensionHarness {
 	return { handlers, commands, execCalls, registeredTools, api };
 }
 
-function handler<TEvent, TResult>(harness: ExtensionHarness, name: string): (event: TEvent, ctx: ExtensionContext) => TResult {
+function handler<TEvent, TResult>(
+	harness: ExtensionHarness,
+	name: string,
+): (event: TEvent, ctx: ExtensionContext) => TResult {
 	const value = harness.handlers.get(name)?.[0];
 	if (!value) throw new Error(`Missing handler: ${name}`);
 	return value as (event: TEvent, ctx: ExtensionContext) => TResult;
@@ -87,7 +90,9 @@ function createRepository(): { cwd: string; cleanup: () => void; tracked: string
 	for (const path of tracked) {
 		const target = join(cwd, path);
 		mkdirSync(join(target, ".."), { recursive: true });
-		const content = path.endsWith(".ts") ? `export function ${path.includes("session") ? "createSession" : "entryPoint"}() {}\n` : "{}\n";
+		const content = path.endsWith(".ts")
+			? `export function ${path.includes("session") ? "createSession" : "entryPoint"}() {}\n`
+			: "{}\n";
 		writeFileSync(target, content);
 	}
 	return { cwd, tracked, cleanup: () => rmSync(cwd, { recursive: true, force: true }) };
@@ -96,7 +101,7 @@ function createRepository(): { cwd: string; cleanup: () => void; tracked: string
 function gitOutputs(tracked: string[]): Map<string, string> {
 	return new Map([
 		["rev-parse HEAD", "0123456789abcdef0123456789abcdef01234567"],
-		["status --porcelain=v1 -uno", ""],
+		["status --porcelain=v1", ""],
 		["ls-files", tracked.join("\n")],
 		["diff --name-only", ""],
 		["diff --cached --name-only", ""],
@@ -116,7 +121,10 @@ describe("adaptive repository map", () => {
 	});
 
 	it("ranks deterministically and enforces candidate bounds", () => {
-		const files = Array.from({ length: REPO_MAP_MAX_TRACKED_FILES + 100 }, (_, index) => `packages/p${index}/src/index.ts`);
+		const files = Array.from(
+			{ length: REPO_MAP_MAX_TRACKED_FILES + 100 },
+			(_, index) => `packages/p${index}/src/index.ts`,
+		);
 		const first = rankRepoMapFiles({ files, prompt: "Review packages/p17 architecture" });
 		const second = rankRepoMapFiles({ files, prompt: "Review packages/p17 architecture" });
 		expect(first).toEqual(second);
@@ -167,10 +175,14 @@ describe("adaptive repository map", () => {
 				ctx,
 			);
 			expect(result?.messages).toHaveLength(1);
-			expect(result?.messages?.[0]).toMatchObject({ role: "custom", customType: "allforone.repo-map", display: false });
+			expect(result?.messages?.[0]).toMatchObject({
+				role: "custom",
+				customType: "allforone.repo-map",
+				display: false,
+			});
 			expect(harness.execCalls).toEqual([
 				{ command: "git", args: ["rev-parse", "HEAD"] },
-				{ command: "git", args: ["status", "--porcelain=v1", "-uno"] },
+				{ command: "git", args: ["status", "--porcelain=v1"] },
 				{ command: "git", args: ["ls-files"] },
 				{ command: "git", args: ["diff", "--name-only"] },
 				{ command: "git", args: ["diff", "--cached", "--name-only"] },
