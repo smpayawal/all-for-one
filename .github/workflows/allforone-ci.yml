@@ -84,6 +84,7 @@ jobs:
           test/validation-commands.test.ts
           test/validate-extension.test.ts
           test/validate-freshness.test.ts
+          test/validate-executable-identity.test.ts
           test/exec.test.ts
           test/allforone-baseline.test.ts
           test/args.test.ts
@@ -190,6 +191,7 @@ jobs:
           test/validation-commands.test.ts
           test/validate-extension.test.ts
           test/validate-freshness.test.ts
+          test/validate-executable-identity.test.ts
           test/exec.test.ts
           test/bash-close-hang-windows.test.ts
           test/suite/agent-session-bash-persistence.test.ts

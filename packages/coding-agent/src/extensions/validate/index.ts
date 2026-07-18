@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { accessSync, constants, readFileSync, realpathSync, statSync } from "node:fs";
+import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../core/extensions/types.ts";
 import {
@@ -14,6 +14,7 @@ import {
 const VALIDATION_TIMEOUT_MS = 120_000;
 const VALIDATION_MAX_OUTPUT_BYTES = 64 * 1_024;
 const VALIDATION_MAX_NOTIFICATION_CHARS = 6_000;
+const WINDOWS_DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD";
 
 type StructuredValidationCommand = ValidationCommand & { program: string; args: string[] };
 
@@ -22,8 +23,24 @@ interface ValidationSelection {
 	sourceFingerprint: string;
 }
 
+interface ValidationExecutableResolutionOptions {
+	env?: NodeJS.ProcessEnv;
+	platform?: NodeJS.Platform;
+}
+
+export type ValidationExecutableResolution =
+	| {
+			status: "resolved";
+			requestedProgram: string;
+			resolvedPath: string;
+			canonicalPath: string;
+			workspaceLocal: boolean;
+	  }
+	| { status: "not-found"; requestedProgram: string };
+
 export interface ValidationRunRecord {
 	command: ValidationCommand;
+	resolvedProgram?: string;
 	cwd: string;
 	code: number;
 	termination: string;
@@ -80,6 +97,7 @@ export function formatValidationRun(record: ValidationRunRecord): string {
 	const header = [
 		`Validation: ${record.command.command}`,
 		`Program: ${record.command.program ?? "not available"}`,
+		...(record.resolvedProgram ? [`Resolved executable: ${record.resolvedProgram}`] : []),
 		`Arguments: ${formatArguments(record.command.args ?? [])}`,
 		`Source: ${record.command.source} (${record.command.confidence})`,
 		`Result: exit ${record.code}; termination ${record.termination}; duration ${Math.round(record.durationMs)} ms`,
@@ -133,6 +151,72 @@ function fingerprintValidationSources(cwd: string, discovery: ValidationCommandD
 	return hash.digest("hex");
 }
 
+function environmentValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
+	const normalized = name.toLowerCase();
+	for (const [key, value] of Object.entries(env)) {
+		if (key.toLowerCase() === normalized) return value;
+	}
+	return undefined;
+}
+
+function isWithinWorkspace(root: string, target: string): boolean {
+	const path = relative(root, target);
+	return path === "" || (!isAbsolute(path) && path !== ".." && !path.startsWith(`..${sep}`));
+}
+
+function executableExtensions(program: string, platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string[] {
+	if (platform !== "win32" || extname(program)) return [""];
+	return (environmentValue(env, "PATHEXT") ?? WINDOWS_DEFAULT_PATHEXT)
+		.split(";")
+		.map((extension) => extension.trim().toLowerCase())
+		.filter(Boolean);
+}
+
+export function resolveValidationExecutable(
+	program: string,
+	cwd: string,
+	options: ValidationExecutableResolutionOptions = {},
+): ValidationExecutableResolution {
+	if (!program || /[\\/\0\r\n]/u.test(program)) return { status: "not-found", requestedProgram: program };
+	const platform = options.platform ?? process.platform;
+	const env = options.env ?? process.env;
+	const pathSeparator = platform === "win32" ? ";" : ":";
+	const pathEntries = (environmentValue(env, "PATH") ?? "").split(pathSeparator);
+	const directories = platform === "win32" ? [cwd, ...pathEntries] : pathEntries;
+	const extensions = executableExtensions(program, platform, env);
+	let workspaceRoot: string;
+	try {
+		workspaceRoot = realpathSync(cwd);
+	} catch {
+		workspaceRoot = resolve(cwd);
+	}
+	const seenDirectories = new Set<string>();
+
+	for (const rawDirectory of directories) {
+		const unquoted = rawDirectory.trim().replace(/^"|"$/gu, "");
+		const directory = resolve(cwd, unquoted || ".");
+		if (seenDirectories.has(directory)) continue;
+		seenDirectories.add(directory);
+		for (const extension of extensions) {
+			const resolvedPath = resolve(directory, `${program}${extension}`);
+			try {
+				const canonicalPath = realpathSync(resolvedPath);
+				if (!statSync(canonicalPath).isFile()) continue;
+				if (platform !== "win32") accessSync(canonicalPath, constants.X_OK);
+				return {
+					status: "resolved",
+					requestedProgram: program,
+					resolvedPath,
+					canonicalPath,
+					workspaceLocal:
+						isWithinWorkspace(workspaceRoot, resolvedPath) || isWithinWorkspace(workspaceRoot, canonicalPath),
+				};
+			} catch {}
+		}
+	}
+	return { status: "not-found", requestedProgram: program };
+}
+
 function notifyDiscoveryChanged(ctx: ExtensionCommandContext, phase: "selected" | "approval"): void {
 	ctx.ui.notify(
 		phase === "selected"
@@ -142,7 +226,31 @@ function notifyDiscoveryChanged(ctx: ExtensionCommandContext, phase: "selected" 
 	);
 }
 
-function confirmationMessage(command: StructuredValidationCommand, cwd: string): string {
+function notifyExecutableUnavailable(
+	ctx: ExtensionCommandContext,
+	resolution: ValidationExecutableResolution,
+	phase: "approval" | "execution",
+): void {
+	if (resolution.status === "not-found") {
+		ctx.ui.notify(
+			`Validation executable ${JSON.stringify(resolution.requestedProgram)} could not be resolved from the host PATH. Nothing was executed.`,
+			"warning",
+		);
+		return;
+	}
+	ctx.ui.notify(
+		phase === "approval"
+			? `Validation executable resolves inside the workspace: ${resolution.canonicalPath}. Nothing was executed.`
+			: "Validation executable identity changed during approval. Nothing was executed; run /validate again.",
+		"warning",
+	);
+}
+
+function confirmationMessage(
+	command: StructuredValidationCommand,
+	cwd: string,
+	executable: Extract<ValidationExecutableResolution, { status: "resolved" }>,
+): string {
 	const warning =
 		command.confidence === "inferred"
 			? "This command was inferred from repository configuration rather than declared as an exact project script."
@@ -151,11 +259,12 @@ function confirmationMessage(command: StructuredValidationCommand, cwd: string):
 		warning,
 		"",
 		`Program: ${command.program}`,
+		`Resolved executable: ${executable.canonicalPath}`,
 		`Arguments: ${formatArguments(command.args)}`,
 		`Working directory: ${cwd}`,
 		`Source: ${command.source}`,
 		"",
-		"The executable will be spawned directly without a shell. Continue?",
+		"The executable identity will be checked again immediately before direct spawn. Continue?",
 	].join("\n");
 }
 
@@ -171,6 +280,18 @@ function selectionMatches(left: ValidationSelection, right: ValidationSelection)
 	return (
 		fingerprintValidationCommandDiscovery(left.discovery) ===
 			fingerprintValidationCommandDiscovery(right.discovery) && left.sourceFingerprint === right.sourceFingerprint
+	);
+}
+
+function executableMatches(
+	left: Extract<ValidationExecutableResolution, { status: "resolved" }>,
+	right: ValidationExecutableResolution,
+): right is Extract<ValidationExecutableResolution, { status: "resolved" }> {
+	return (
+		right.status === "resolved" &&
+		!right.workspaceLocal &&
+		left.resolvedPath === right.resolvedPath &&
+		left.canonicalPath === right.canonicalPath
 	);
 }
 
@@ -209,9 +330,17 @@ async function executeValidation(
 		notifyDiscoveryChanged(ctx, "selected");
 		return undefined;
 	}
+	const approvalExecutable = resolveValidationExecutable(approvalCommand.program, ctx.cwd);
+	if (approvalExecutable.status === "not-found" || approvalExecutable.workspaceLocal) {
+		notifyExecutableUnavailable(ctx, approvalExecutable, "approval");
+		return undefined;
+	}
 
 	await ctx.waitForIdle();
-	const confirmed = await ctx.ui.confirm("Run repository validation?", confirmationMessage(approvalCommand, ctx.cwd));
+	const confirmed = await ctx.ui.confirm(
+		"Run repository validation?",
+		confirmationMessage(approvalCommand, ctx.cwd, approvalExecutable),
+	);
 	if (!confirmed) {
 		ctx.ui.notify("Validation command cancelled.");
 		return undefined;
@@ -227,6 +356,11 @@ async function executeValidation(
 		notifyDiscoveryChanged(ctx, "approval");
 		return undefined;
 	}
+	const executionExecutable = resolveValidationExecutable(executionCommand.program, ctx.cwd);
+	if (!executableMatches(approvalExecutable, executionExecutable)) {
+		notifyExecutableUnavailable(ctx, executionExecutable, "execution");
+		return undefined;
+	}
 
 	const started = performance.now();
 	const result = await pi.exec(executionCommand.program, [...executionCommand.args], {
@@ -237,6 +371,7 @@ async function executeValidation(
 	});
 	return {
 		command: executionCommand,
+		resolvedProgram: executionExecutable.canonicalPath,
 		cwd: ctx.cwd,
 		code: result.code,
 		termination: result.termination ?? "completed",
