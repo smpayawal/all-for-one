@@ -16,7 +16,7 @@ export const RELEASE_ASSETS = [
 	"all-for-one-linux-x64.tar.gz",
 	"all-for-one-windows-arm64.zip",
 	"all-for-one-windows-x64.zip",
-] as const;
+];
 
 function readJson(path) {
 	return JSON.parse(readFileSync(path, "utf8"));
@@ -146,7 +146,11 @@ export function runCli(argv = process.argv.slice(2)) {
 
 	if (options.command === "validate") {
 		const result = validateAllForOneRelease(options.tag);
-		console.log(options.json ? JSON.stringify(result, null, 2) : `Validated ${result.tag} for ${result.product} ${result.version} (Pi base ${result.piBaseline}).`);
+		console.log(
+			options.json
+				? JSON.stringify(result, null, 2)
+				: `Validated ${result.tag} for ${result.product} ${result.version} (Pi base ${result.piBaseline}).`,
+		);
 		return;
 	}
 
