@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
 	ALL_FOR_ONE_WORKSPACE,
@@ -45,4 +47,25 @@ test("allows packaging dry runs without enabling publication", () => {
 		}),
 		{ allowed: true, mode: "dry-run" },
 	);
+});
+
+test("direct inherited publish and release entrypoints fail before mutation", () => {
+	const packageBefore = readFileSync("package.json", "utf8");
+	const versionBefore = JSON.parse(packageBefore).version;
+
+	for (const [script, args] of [
+		["scripts/publish.mjs", []],
+		["scripts/release.mjs", ["patch"]],
+	]) {
+		const result = spawnSync(process.execPath, [script, ...args], {
+			cwd: process.cwd(),
+			encoding: "utf8",
+		});
+		assert.equal(result.status, 1, `${script} unexpectedly succeeded`);
+		assert.match(result.stderr, /does not publish the Pi-compatible workspace packages/);
+	}
+
+	const packageAfter = readFileSync("package.json", "utf8");
+	assert.equal(packageAfter, packageBefore);
+	assert.equal(JSON.parse(packageAfter).version, versionBefore);
 });
