@@ -2,9 +2,12 @@
  * Shared command execution utilities for extensions and custom tools.
  */
 
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { waitForChildProcess } from "../utils/child-process.ts";
 import { type ProcessTreeCleanupResult, terminateProcessTreeAndWait } from "../utils/shell.ts";
+
+const PROCESS_TREE_CLEANUP_DEADLINE_MS = 10_000;
+const PROCESS_EXIT_AFTER_CLEANUP_MS = 1_000;
 
 /**
  * Options for executing shell commands.
@@ -42,6 +45,11 @@ interface CapturedOutput {
 	truncated: boolean;
 }
 
+interface ChildExitResult {
+	exited: boolean;
+	code: number;
+}
+
 function appendOutput(output: CapturedOutput, data: Buffer, maxBytes: number | undefined): void {
 	if (maxBytes === undefined) {
 		output.chunks.push(data);
@@ -61,6 +69,65 @@ function appendOutput(output: CapturedOutput, data: Buffer, maxBytes: number | u
 
 function outputText(output: CapturedOutput): string {
 	return Buffer.concat(output.chunks).toString("utf8");
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function appendCleanupError(result: ProcessTreeCleanupResult, message: string): ProcessTreeCleanupResult {
+	return {
+		...result,
+		completed: false,
+		verified: false,
+		error: [result.error, message].filter(Boolean).join("; "),
+	};
+}
+
+async function awaitCleanupWithDeadline(
+	cleanupPromise: Promise<ProcessTreeCleanupResult>,
+): Promise<ProcessTreeCleanupResult> {
+	return Promise.race([
+		cleanupPromise.catch((error) => ({
+			gracefulAttempted: true,
+			forceAttempted: true,
+			completed: false,
+			verified: false,
+			error: error instanceof Error ? error.message : String(error),
+		})),
+		delay(PROCESS_TREE_CLEANUP_DEADLINE_MS).then(
+			(): ProcessTreeCleanupResult => ({
+				gracefulAttempted: true,
+				forceAttempted: true,
+				completed: false,
+				verified: false,
+				error: `Process-tree cleanup exceeded ${PROCESS_TREE_CLEANUP_DEADLINE_MS}ms.`,
+			}),
+		),
+	]);
+}
+
+async function awaitChildExitWithDeadline(
+	childExitPromise: Promise<number | null>,
+	timeoutMs: number,
+): Promise<ChildExitResult> {
+	return Promise.race([
+		childExitPromise
+			.then((code) => ({ exited: true, code: code ?? 1 }))
+			.catch(() => ({ exited: true, code: 1 })),
+		delay(timeoutMs).then(() => ({ exited: false, code: 1 })),
+	]);
+}
+
+function detachUnresponsiveChild(proc: ChildProcess): void {
+	proc.stdout?.removeAllListeners();
+	proc.stderr?.removeAllListeners();
+	proc.removeAllListeners("error");
+	proc.removeAllListeners("exit");
+	proc.removeAllListeners("close");
+	proc.stdout?.destroy();
+	proc.stderr?.destroy();
+	proc.unref();
 }
 
 /**
@@ -91,9 +158,12 @@ export async function execCommand(
 		const stdout: CapturedOutput = { chunks: [], bytes: 0, truncated: false };
 		const stderr: CapturedOutput = { chunks: [], bytes: 0, truncated: false };
 		let killed = false;
+		let settled = false;
 		let killReason: Exclude<ExecTermination, "completed" | "signal" | "error"> | undefined;
 		let timeoutId: NodeJS.Timeout | undefined;
 		let terminationPromise: Promise<ProcessTreeCleanupResult> | undefined;
+
+		const childExitPromise = waitForChildProcess(proc);
 
 		const waitForProcessTreeCleanup = (): Promise<ProcessTreeCleanupResult> => {
 			if (proc.pid !== undefined) {
@@ -101,14 +171,14 @@ export async function execCommand(
 			}
 
 			return new Promise((cleanupResolve) => {
-				let settled = false;
+				let cleanupSettled = false;
 				const cleanupListeners = () => {
 					proc.removeListener("spawn", onSpawn);
 					proc.removeListener("error", onError);
 				};
 				const settleCleanup = (result: ProcessTreeCleanupResult) => {
-					if (settled) return;
-					settled = true;
+					if (cleanupSettled) return;
+					cleanupSettled = true;
 					cleanupListeners();
 					cleanupResolve(result);
 				};
@@ -151,11 +221,47 @@ export async function execCommand(
 			});
 		};
 
+		const settle = (
+			code: number,
+			termination: ExecTermination,
+			processTreeCleanup?: ProcessTreeCleanupResult,
+		) => {
+			if (settled) return;
+			settled = true;
+			if (timeoutId) clearTimeout(timeoutId);
+			if (options?.signal) options.signal.removeEventListener("abort", onAbort);
+			resolve({
+				stdout: outputText(stdout),
+				stderr: outputText(stderr),
+				code,
+				killed,
+				stdoutTruncated: stdout.truncated,
+				stderrTruncated: stderr.truncated,
+				termination,
+				processTreeCleanup,
+			});
+		};
+
+		const finishTermination = async () => {
+			if (!terminationPromise || !killReason) return;
+			let processTreeCleanup = await awaitCleanupWithDeadline(terminationPromise);
+			const childExit = await awaitChildExitWithDeadline(childExitPromise, PROCESS_EXIT_AFTER_CLEANUP_MS);
+			if (!childExit.exited) {
+				processTreeCleanup = appendCleanupError(
+					processTreeCleanup,
+					`Root process did not exit within ${PROCESS_EXIT_AFTER_CLEANUP_MS}ms after cleanup.`,
+				);
+				detachUnresponsiveChild(proc);
+			}
+			settle(childExit.code, killReason, processTreeCleanup);
+		};
+
 		const killProcess = (reason: Exclude<ExecTermination, "completed" | "signal" | "error">) => {
 			if (!killed) {
 				killed = true;
 				killReason = reason;
 				terminationPromise = waitForProcessTreeCleanup();
+				void finishTermination();
 			}
 		};
 		const onAbort = () => killProcess("aborted");
@@ -184,40 +290,14 @@ export async function execCommand(
 			appendOutput(stderr, Buffer.isBuffer(data) ? data : Buffer.from(String(data)), maxOutputBytes);
 		});
 
-		const settle = async (code: number, termination: ExecTermination) => {
-			if (timeoutId) clearTimeout(timeoutId);
-			if (options?.signal) options.signal.removeEventListener("abort", onAbort);
-			let processTreeCleanup: ProcessTreeCleanupResult | undefined;
-			if (terminationPromise) {
-				try {
-					processTreeCleanup = await terminationPromise;
-				} catch (error) {
-					processTreeCleanup = {
-						gracefulAttempted: true,
-						forceAttempted: true,
-						completed: false,
-						verified: false,
-						error: error instanceof Error ? error.message : String(error),
-					};
-				}
-			}
-			resolve({
-				stdout: outputText(stdout),
-				stderr: outputText(stderr),
-				code,
-				killed,
-				stdoutTruncated: stdout.truncated,
-				stderrTruncated: stderr.truncated,
-				termination,
-				processTreeCleanup,
+		// Normal completion is handled independently. Once cancellation starts,
+		// finishTermination owns settlement so descendant cleanup is awaited.
+		childExitPromise
+			.then((code) => {
+				if (!killed) settle(code ?? 1, proc.signalCode ? "signal" : "completed");
+			})
+			.catch(() => {
+				if (!killed) settle(1, "error");
 			});
-		};
-
-		// Wait for process termination without hanging on inherited stdio handles
-		// held open by detached descendants. A requested tree cleanup is awaited
-		// separately so the result cannot race its force phase.
-		waitForChildProcess(proc)
-			.then((code) => settle(code ?? 1, killReason ?? (proc.signalCode ? "signal" : "completed")))
-			.catch(() => settle(1, killReason ?? "error"));
 	});
 }
