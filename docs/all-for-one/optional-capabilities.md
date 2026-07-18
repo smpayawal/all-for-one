@@ -2,9 +2,13 @@
 
 Optional capabilities must not enlarge the permanent model tool schema or change Pi's core execution contract. Most safety and integration features remain explicitly loaded extensions or packages. The adaptive repository map is the one bundled dormant capability: it defaults to `auto`, but performs no repository work and injects no context unless strong deterministic signals activate it. It can be disabled with `/repo-map off`, and failure always falls back to normal Pi behavior.
 
+## Native inline capability boundary
+
+`--no-extensions` disables discovered user, project, package, and explicitly configured extensions. It does not remove hidden native inline capabilities that are compiled into the coding-agent runtime, including `repo-map` and `validate`. These capabilities register handlers or slash commands through Pi's existing extension boundary, but they do not add model-callable tools. Repository mapping performs no repository work unless activated and can be disabled for the session with `/repo-map off`; validation discovery and execution occur only when `/validate` is explicitly invoked or execution integrity is enabled.
+
 ## Adaptive bounded repository map
 
-The hidden built-in repository-map extension provides temporary orientation for broad or unfamiliar repository tasks without adding a model-callable tool or another LLM request. It activates only for strong prompt signals or bounded cross-area exploration without a stable target. Generation uses three fixed read-only Git argv calls with NUL-delimited filename parsing, explicit output-truncation failure, priority-first path selection, canonical workspace checks, local symbol-name extraction, an in-memory cache, and strict file, symbol, time, and character limits.
+The hidden built-in repository-map extension provides temporary orientation for broad or unfamiliar repository tasks without adding a model-callable tool or another LLM request. It activates only for strong prompt signals or bounded cross-area exploration without a stable target. Generation uses three fixed read-only Git argv calls with NUL-delimited filename parsing, explicit output-truncation failure, priority-first path selection, canonical workspace checks, local symbol-name extraction, an in-memory cache, strict file, symbol, and character limits, and a 7.5-second total response deadline covering Git state, ranking, filesystem checks, and symbol enrichment. If the deadline expires, the map result is discarded and normal Pi behavior continues without injection.
 
 Use `/repo-map auto`, `/repo-map once`, `/repo-map off`, `/repo-map status`, or `/repo-map show`. Automatic and forced generation both require project trust. The map is injected for one provider request, is not appended to the session, starts no service, installs no dependency, and performs no mutation.
 

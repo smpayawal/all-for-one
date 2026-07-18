@@ -35,6 +35,7 @@ const MAX_EXECUTION_INTEGRITY_DISCOVERED_COMMANDS = 32;
 const MAX_EXECUTION_INTEGRITY_LIMITATIONS = 16;
 const ARBITRARY_BASH_LIMITATION =
 	"Arbitrary bash commands may mutate the workspace and are not fully classified by the execution-integrity boundary.";
+const EMPTY_VALIDATION_COMMAND_DISCOVERY: ValidationCommandDiscovery = { ecosystems: [], commands: [] };
 
 export type ValidationEvidenceStatus = "passed" | "failed" | "unverified" | "concurrent-with-mutation";
 
@@ -253,8 +254,9 @@ function getCommand(observation: ExecutionToolObservation): string | undefined {
 export class ExecutionIntegrityTracker {
 	private settings: NormalizedExecutionIntegritySettings;
 	private readonly cwd: string;
-	private discovery: ValidationCommandDiscovery;
-	private discoveryFingerprint: string;
+	private discovery: ValidationCommandDiscovery = EMPTY_VALIDATION_COMMAND_DISCOVERY;
+	private discoveryFingerprint = fingerprintValidationCommandDiscovery(EMPTY_VALIDATION_COMMAND_DISCOVERY);
+	private pendingDiscovery: ValidationCommandDiscovery | undefined;
 	private mutationVersion = 0;
 	private mutationCount = 0;
 	private modifiedPaths: string[] = [];
@@ -266,31 +268,30 @@ export class ExecutionIntegrityTracker {
 	constructor(options: ExecutionIntegrityTrackerOptions) {
 		this.settings = normalizeExecutionIntegritySettings(options.settings);
 		this.cwd = options.cwd;
-		this.discovery = this.limitDiscovery(options.discovery);
-		this.discoveryFingerprint = fingerprintValidationCommandDiscovery(this.discovery);
+		if (this.settings.mode === "off") {
+			this.pendingDiscovery = options.discovery;
+		} else {
+			this.applyDiscovery(options.discovery, false);
+		}
 		this.resetRun();
 	}
 
 	updateSettings(settings: ExecutionIntegritySettings): void {
+		const previousMode = this.settings.mode;
 		this.settings = normalizeExecutionIntegritySettings(settings);
+		if (previousMode === "off" && this.settings.mode !== "off" && this.pendingDiscovery) {
+			const discovery = this.pendingDiscovery;
+			this.pendingDiscovery = undefined;
+			this.applyDiscovery(discovery, false);
+		}
 	}
 
 	updateDiscovery(discovery: ValidationCommandDiscovery): void {
-		const limitedDiscovery = this.limitDiscovery(discovery);
-		const nextFingerprint = fingerprintValidationCommandDiscovery(limitedDiscovery);
-		const changed = nextFingerprint !== this.discoveryFingerprint;
-		this.discovery = limitedDiscovery;
-		this.discoveryFingerprint = nextFingerprint;
-		if (this.settings.mode !== "off") {
-			this.addLimitation(
-				changed
-					? "Validation command discovery changed; prior validation evidence is stale."
-					: "Validation command discovery was refreshed; unchanged fingerprints remain configuration-sensitive.",
-			);
+		if (this.settings.mode === "off") {
+			this.pendingDiscovery = discovery;
+			return;
 		}
-		if (this.settings.mode !== "off" && discovery.commands.length > MAX_EXECUTION_INTEGRITY_DISCOVERED_COMMANDS) {
-			this.addLimitation("The discovered validation command list was bounded for execution-integrity diagnostics.");
-		}
+		this.applyDiscovery(discovery, true);
 	}
 
 	resetRun(): void {
@@ -471,6 +472,24 @@ export class ExecutionIntegrityTracker {
 			lastDecision: this.lastDecision ? { ...this.lastDecision } : undefined,
 			limitations: [...this.limitations],
 		};
+	}
+
+	private applyDiscovery(discovery: ValidationCommandDiscovery, recordRefreshLimitation: boolean): void {
+		const limitedDiscovery = this.limitDiscovery(discovery);
+		const nextFingerprint = fingerprintValidationCommandDiscovery(limitedDiscovery);
+		const changed = nextFingerprint !== this.discoveryFingerprint;
+		this.discovery = limitedDiscovery;
+		this.discoveryFingerprint = nextFingerprint;
+		if (recordRefreshLimitation) {
+			this.addLimitation(
+				changed
+					? "Validation command discovery changed; prior validation evidence is stale."
+					: "Validation command discovery was refreshed; unchanged fingerprints remain configuration-sensitive.",
+			);
+		}
+		if (discovery.commands.length > MAX_EXECUTION_INTEGRITY_DISCOVERED_COMMANDS) {
+			this.addLimitation("The discovered validation command list was bounded for execution-integrity diagnostics.");
+		}
 	}
 
 	private limitDiscovery(discovery: ValidationCommandDiscovery): ValidationCommandDiscovery {

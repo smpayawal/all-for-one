@@ -1,6 +1,7 @@
 ---
 name: verify-before-completion
 description: Run proportionate validation and report only checks that actually ran.
+disable-model-invocation: true
 ---
 
 # Verify before completion

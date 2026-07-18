@@ -1,6 +1,7 @@
 ---
 name: repository-orientation
 description: Identify relevant repository boundaries before making a non-trivial change.
+disable-model-invocation: true
 ---
 
 # Repository orientation
