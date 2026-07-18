@@ -27,6 +27,18 @@ Before creating a release tag:
 6. Build the standalone archives and run the available local smoke tests from outside the repository.
 7. Review the final diff and confirm no Pi package version, package name, configuration path, session format, SDK surface, or RPC contract changed unintentionally.
 
+## Native archive validation
+
+The release workflow downloads and executes the same archives that it is preparing to publish. Publication is blocked unless the following native smoke jobs pass:
+
+- Linux x64 on `ubuntu-latest`;
+- macOS arm64 on `macos-latest`;
+- Windows x64 on `windows-latest`.
+
+Each job verifies `--version` and `--help` for `allforone`, `afo`, and the compatible `pi` launcher in offline mode.
+
+The Linux arm64, macOS x64, and Windows arm64 archives are produced for compatibility testing but are best-effort until they are executed on corresponding native runners or verified hardware.
+
 ## Create the release
 
 All-For-One tags use the form `afo-vX.Y.Z` and must match the product version exactly.
@@ -38,7 +50,7 @@ git tag -a afo-vX.Y.Z -m "All-For-One X.Y.Z"
 git push origin afo-vX.Y.Z
 ```
 
-Pushing the tag starts `.github/workflows/allforone-release.yml`. The workflow validates the tag, rebuilds the standalone archives, generates release notes and a manifest, produces SHA-256 checksums, and publishes a GitHub Release.
+Pushing the tag starts `.github/workflows/allforone-release.yml`. The workflow validates the tag, rebuilds the standalone archives, generates release notes and a manifest, produces SHA-256 checksums, runs native archive smoke tests, and publishes a GitHub Release only after those tests pass.
 
 Do not move, replace, or reuse a published tag. Public releases are immutable. When a release needs correction, prepare a new version.
 
