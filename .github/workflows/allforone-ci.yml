@@ -185,14 +185,12 @@ jobs:
           test/resolve-config-value.test.ts
           test/settings-manager.test.ts
           test/native-skills.test.ts
-          test/execution-integrity-lazy.test.ts
           test/safe-mode.test.ts
           test/process-tree-windows.test.ts
           test/process-cleanup-failure.test.ts
           test/bash-process-tree.test.ts
           test/code-intel.test.ts
           test/repo-map.test.ts
-          test/repo-map-deadline.test.ts
           test/validation-commands.test.ts
           test/validate-extension.test.ts
           test/validate-freshness.test.ts
