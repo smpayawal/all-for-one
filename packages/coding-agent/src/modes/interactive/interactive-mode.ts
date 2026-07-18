@@ -109,6 +109,7 @@ import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DaxnutsComponent } from "./components/daxnuts.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
 import { EarendilAnnouncementComponent } from "./components/earendil-announcement.ts";
+import { ExecutionGroupComponent, type ExecutionGroupAction } from "./components/execution-group.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
@@ -146,6 +147,8 @@ import { TreeSelectorComponent } from "./components/tree-selector.ts";
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
+import type { ToolActionStatus } from "./execution-group-state.ts";
+import { getExecutionGroupKey, splitAssistantMessageContent } from "./execution-groups.ts";
 import { getModelSearchText } from "./model-search.ts";
 import { getSessionRailLayout } from "./responsive-layout.ts";
 import {
@@ -159,7 +162,7 @@ import {
 	stopThemeWatcher,
 	Theme,
 	type ThemeColor,
-	theme,
+	 theme,
 } from "./theme/theme.ts";
 import { InteractiveThemeController } from "./theme/theme-controller.ts";
 import { canHandleTranscriptNavigation, getTranscriptNavigationAction } from "./transcript-navigation.ts";
@@ -393,8 +396,11 @@ export class InteractiveMode {
 	// Tool execution tracking: toolCallId -> component
 	private pendingTools = new Map<string, ToolExecutionComponent>();
 	private renderedToolComponents = new Map<string, ToolExecutionComponent>();
+	private toolExecutionGroups = new Map<string, ExecutionGroupComponent>();
 	private liveTranscriptTurnRole: TranscriptTurnRole | undefined;
 	private liveTranscriptTurnSequence = 0;
+	private liveTranscriptTurnKey: string | undefined;
+	private liveExecutionGroup: ExecutionGroupComponent | undefined;
 
 	// Tool output expansion state
 	private toolOutputExpanded = false;
@@ -2963,6 +2969,9 @@ export class InteractiveMode {
 				this.pendingTools.clear();
 				this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
 				this.renderedToolComponents.clear();
+				this.toolExecutionGroups.clear();
+				this.liveExecutionGroup = undefined;
+				this.liveTranscriptTurnKey = undefined;
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(true);
 				}
@@ -2994,6 +3003,8 @@ export class InteractiveMode {
 			case "entry_appended":
 				if (event.entry.type === "custom") {
 					this.liveTranscriptTurnRole = undefined;
+					this.liveTranscriptTurnKey = undefined;
+					this.liveExecutionGroup = undefined;
 					this.addCustomEntryToChat(event.entry);
 					this.ui.requestRender();
 				}
@@ -3014,14 +3025,18 @@ export class InteractiveMode {
 			case "message_start":
 				if (event.message.role === "custom") {
 					this.liveTranscriptTurnRole = undefined;
+					this.liveTranscriptTurnKey = undefined;
+					this.liveExecutionGroup = undefined;
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
+					this.liveExecutionGroup = undefined;
 					this.ensureLiveTranscriptTurn("user");
 					this.addMessageToChat(event.message);
 					this.updatePendingMessagesDisplay();
 					this.ui.requestRender();
 				} else if (event.message.role === "assistant") {
+					this.liveExecutionGroup = undefined;
 					this.ensureLiveTranscriptTurn("assistant");
 					this.streamingComponent = new AssistantMessageComponent(
 						undefined,
@@ -3032,7 +3047,7 @@ export class InteractiveMode {
 					);
 					this.streamingMessage = event.message;
 					this.chatContainer.addChild(this.streamingComponent);
-					this.streamingComponent.updateContent(this.streamingMessage);
+					this.streamingComponent.updateContent(this.getAssistantDisplayMessage(this.streamingMessage));
 					this.ui.requestRender();
 				}
 				break;
@@ -3041,7 +3056,7 @@ export class InteractiveMode {
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.ensureLiveTranscriptTurn("assistant");
 					this.streamingMessage = event.message;
-					this.streamingComponent.updateContent(this.streamingMessage);
+					this.streamingComponent.updateContent(this.getAssistantDisplayMessage(this.streamingMessage));
 
 					for (const content of this.streamingMessage.content) {
 						if (content.type === "toolCall") {
@@ -3051,7 +3066,7 @@ export class InteractiveMode {
 									content.id,
 									content.arguments,
 								);
-								this.addLiveToolExecutionComponent(component, content.id);
+								this.addLiveToolExecutionComponent(component, content.id, content.name, content.arguments);
 							} else {
 								const component = this.pendingTools.get(content.id);
 								if (component) {
@@ -3082,7 +3097,7 @@ export class InteractiveMode {
 								: "Operation aborted";
 						this.streamingMessage.errorMessage = errorMessage;
 					}
-					this.streamingComponent.updateContent(this.streamingMessage);
+					this.streamingComponent.updateContent(this.getAssistantDisplayMessage(this.streamingMessage));
 
 					if (this.streamingMessage.stopReason === "aborted" || this.streamingMessage.stopReason === "error") {
 						if (!errorMessage) {
@@ -3093,6 +3108,12 @@ export class InteractiveMode {
 								content: [{ type: "text", text: errorMessage }],
 								isError: true,
 							});
+						}
+						for (const toolCallId of this.pendingTools.keys()) {
+							this.updateToolActionStatus(
+								toolCallId,
+								this.streamingMessage.stopReason === "aborted" ? "cancelled" : "failure",
+							);
 						}
 						this.pendingTools.clear();
 					} else {
@@ -3114,9 +3135,10 @@ export class InteractiveMode {
 				let component = this.pendingTools.get(event.toolCallId);
 				if (!component) {
 					component = this.createToolExecutionComponent(event.toolName, event.toolCallId, event.args);
-					this.addLiveToolExecutionComponent(component, event.toolCallId);
+					this.addLiveToolExecutionComponent(component, event.toolCallId, event.toolName, event.args);
 				}
 				component.markExecutionStarted();
+				this.updateToolActionStatus(event.toolCallId, "running");
 				this.ui.requestRender();
 				break;
 			}
@@ -3125,6 +3147,7 @@ export class InteractiveMode {
 				const component = this.pendingTools.get(event.toolCallId);
 				if (component) {
 					component.updateResult({ ...event.partialResult, isError: false }, true);
+					this.updateToolActionStatus(event.toolCallId, "running");
 					this.ui.requestRender();
 				}
 				break;
@@ -3136,6 +3159,7 @@ export class InteractiveMode {
 				if (component) {
 					component.updateResult({ ...event.result, isError: event.isError });
 					this.pendingTools.delete(event.toolCallId);
+					this.updateToolActionStatus(event.toolCallId, event.isError ? "failure" : "success");
 					this.ui.requestRender();
 				}
 				this.finishSessionRailTool?.(event.toolCallId, event.toolName, event.isError);
@@ -3157,6 +3181,9 @@ export class InteractiveMode {
 				this.pendingTools.clear();
 				this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
 				this.renderedToolComponents.clear();
+				this.toolExecutionGroups.clear();
+				this.liveExecutionGroup = undefined;
+				this.liveTranscriptTurnKey = undefined;
 
 				this.ui.requestRender();
 				break;
@@ -3266,6 +3293,11 @@ export class InteractiveMode {
 		return textBlocks.map((c) => (c as { text: string }).text).join("");
 	}
 
+	private getAssistantDisplayMessage(message: AssistantMessage): AssistantMessage {
+		const content = message.content.filter((block) => block.type !== "toolCall");
+		return content.length === message.content.length ? message : { ...message, content };
+	}
+
 	private appendTranscriptTurnHeader(role: TranscriptTurnRole, turnKey: string): void {
 		const lastChild = this.chatContainer.children.at(-1);
 		if (lastChild && !(lastChild instanceof Spacer)) {
@@ -3277,7 +3309,8 @@ export class InteractiveMode {
 	private ensureLiveTranscriptTurn(role: TranscriptTurnRole): void {
 		if (this.liveTranscriptTurnRole === role) return;
 		this.liveTranscriptTurnSequence += 1;
-		this.appendTranscriptTurnHeader(role, `live:${this.liveTranscriptTurnSequence}`);
+		this.liveTranscriptTurnKey = `live:${this.liveTranscriptTurnSequence}`;
+		this.appendTranscriptTurnHeader(role, this.liveTranscriptTurnKey);
 		this.liveTranscriptTurnRole = role;
 	}
 
@@ -3298,28 +3331,97 @@ export class InteractiveMode {
 		return component;
 	}
 
-	private addLiveToolExecutionComponent(component: ToolExecutionComponent, toolCallId: string): void {
-		this.ensureLiveTranscriptTurn("assistant");
-		this.chatContainer.addChild(component);
-		this.pendingTools.set(toolCallId, component);
-		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
-		this.renderedToolComponents.set(toolCallId, component);
+	private createExecutionGroup(groupKey: string): ExecutionGroupComponent {
+		const group = new ExecutionGroupComponent(groupKey, true);
+		this.chatContainer.addChild(group);
+		return group;
 	}
 
-	private renderOrphanToolResult(message: Extract<AgentMessage, { role: "toolResult" }>): void {
+	private attachToolActionToGroup(
+		group: ExecutionGroupComponent,
+		toolCall: { id: string; name: string; arguments: unknown },
+		component: ToolExecutionComponent,
+		status: ToolActionStatus,
+	): ToolExecutionComponent {
+		let action: ExecutionGroupAction | undefined = group.getAction(toolCall.id);
+		if (!action) {
+			const previousGroup = this.toolExecutionGroups.get(toolCall.id);
+			if (previousGroup && previousGroup !== group) {
+				action = previousGroup.removeAction(toolCall.id);
+				if (previousGroup.actionCount === 0) this.chatContainer.removeChild(previousGroup);
+			}
+		}
+
+		const actionComponent = action?.component ?? this.renderedToolComponents.get(toolCall.id) ?? component;
+		group.addAction({
+			id: toolCall.id,
+			toolName: toolCall.name,
+			args: toolCall.arguments,
+			status,
+			component: actionComponent,
+		});
+		this.toolExecutionGroups.set(toolCall.id, group);
+		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
+		this.renderedToolComponents.set(toolCall.id, actionComponent);
+		return actionComponent;
+	}
+
+	private updateToolActionStatus(toolCallId: string, status: ToolActionStatus): void {
+		this.toolExecutionGroups.get(toolCallId)?.updateActionStatus(toolCallId, status);
+	}
+
+	private addLiveToolExecutionComponent(
+		component: ToolExecutionComponent,
+		toolCallId: string,
+		toolName: string,
+		args: unknown,
+		status: ToolActionStatus = "pending",
+	): void {
+		this.ensureLiveTranscriptTurn("assistant");
+		let group = this.liveExecutionGroup;
+		if (!group) {
+			group = this.createExecutionGroup(getExecutionGroupKey(this.liveTranscriptTurnKey ?? "live", [toolCallId]));
+			this.liveExecutionGroup = group;
+		}
+		const actionComponent = this.attachToolActionToGroup(
+			group,
+			{ id: toolCallId, name: toolName, arguments: args },
+			component,
+			status,
+		);
+		if (status === "pending" || status === "running") {
+			this.pendingTools.set(toolCallId, actionComponent);
+		} else {
+			this.pendingTools.delete(toolCallId);
+		}
+	}
+
+	private renderOrphanToolResult(
+		message: Extract<AgentMessage, { role: "toolResult" }>,
+		options?: { group?: ExecutionGroupComponent; groupKey?: string },
+	): void {
 		const existing = this.renderedToolComponents?.get(message.toolCallId);
 		if (existing) {
 			existing.updateResult(message);
 			this.pendingTools.delete(message.toolCallId);
+			this.updateToolActionStatus(message.toolCallId, message.isError ? "failure" : "success");
 			return;
 		}
 
 		const component = this.createToolExecutionComponent(message.toolName, message.toolCallId, {});
 		component.updateResult(message);
-		this.ensureLiveTranscriptTurn("assistant");
-		this.chatContainer.addChild(component);
-		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
-		this.renderedToolComponents.set(message.toolCallId, component);
+		const group =
+			options?.group ??
+			this.liveExecutionGroup ??
+			this.createExecutionGroup(
+				options?.groupKey ?? getExecutionGroupKey(this.liveTranscriptTurnKey ?? "live", [message.toolCallId]),
+			);
+		this.attachToolActionToGroup(
+			group,
+			{ id: message.toolCallId, name: message.toolName, arguments: {} },
+			component,
+			message.isError ? "failure" : "success",
+		);
 	}
 
 	/**
@@ -3466,6 +3568,96 @@ export class InteractiveMode {
 		}
 	}
 
+	private getAssistantToolTerminalStatus(message: AssistantMessage): ToolActionStatus | undefined {
+		if (message.stopReason === "aborted") return "cancelled";
+		if (message.stopReason === "error") return "failure";
+		return undefined;
+	}
+
+	private createAssistantSegmentMessage(
+		message: AssistantMessage,
+		content: AssistantMessage["content"],
+		isFinalSegment: boolean,
+	): AssistantMessage {
+		if (isFinalSegment && content === message.content) return message;
+		return {
+			...message,
+			content,
+			stopReason: isFinalSegment ? message.stopReason : "stop",
+			errorMessage: isFinalSegment ? message.errorMessage : undefined,
+		};
+	}
+
+	private renderHistoricalAssistantMessage(
+		message: AssistantMessage,
+		turnKey: string,
+		renderedPendingTools: Map<string, ToolExecutionComponent>,
+		cacheMisses: Map<AssistantMessage, CacheMiss>,
+	): void {
+		const segments = splitAssistantMessageContent(message);
+		if (segments.length === 1 && segments[0]?.kind === "assistant") {
+			this.addMessageToChat(message);
+			const miss = cacheMisses.get(message);
+			if (miss && message.stopReason !== "aborted" && message.stopReason !== "error") {
+				this.addCacheMissNotice(miss);
+			}
+			return;
+		}
+
+		const terminalStatus = this.getAssistantToolTerminalStatus(message);
+		let toolSequence = 0;
+		for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex += 1) {
+			const segment = segments[segmentIndex]!;
+			if (segment.kind === "assistant") {
+				const isFinalSegment = segmentIndex === segments.length - 1;
+				if (segment.content.length > 0 || isFinalSegment) {
+					this.chatContainer.addChild(
+						new AssistantMessageComponent(
+							this.createAssistantSegmentMessage(message, segment.content, isFinalSegment),
+							this.hideThinkingBlock,
+							this.getMarkdownThemeWithSettings(),
+							this.hiddenThinkingLabel,
+							this.outputPad,
+						),
+					);
+				}
+				continue;
+			}
+
+			const group = this.createExecutionGroup(
+				getExecutionGroupKey(
+					turnKey,
+					segment.calls.map((toolCall) => toolCall.id),
+					toolSequence,
+				),
+			);
+			toolSequence += 1;
+			for (const toolCall of segment.calls) {
+				const component = this.createToolExecutionComponent(toolCall.name, toolCall.id, toolCall.arguments);
+				const actionComponent = this.attachToolActionToGroup(
+					group,
+					toolCall,
+					component,
+					terminalStatus ?? "pending",
+				);
+				if (terminalStatus) {
+					const errorMessage =
+						message.stopReason === "aborted"
+							? this.session.retryAttempt > 0
+								? `Aborted after ${this.session.retryAttempt} retry attempt${this.session.retryAttempt > 1 ? "s" : ""}`
+								: "Operation aborted"
+							: message.errorMessage || "Error";
+					actionComponent.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
+				} else {
+					renderedPendingTools.set(toolCall.id, actionComponent);
+				}
+			}
+		}
+
+		const miss = cacheMisses.get(message);
+		if (miss && !terminalStatus) this.addCacheMissNotice(miss);
+	}
+
 	private renderSessionItems(
 		items: readonly TranscriptRenderItem[],
 		options: { updateFooter?: boolean; populateHistory?: boolean } = {},
@@ -3473,7 +3665,10 @@ export class InteractiveMode {
 		this.pendingTools.clear();
 		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
 		this.renderedToolComponents.clear();
+		this.toolExecutionGroups.clear();
 		this.liveTranscriptTurnRole = undefined;
+		this.liveTranscriptTurnKey = undefined;
+		this.liveExecutionGroup = undefined;
 		const renderedPendingTools = new Map<string, ToolExecutionComponent>();
 		// Cache-miss notices are not persisted; re-derive them from the full entry
 		// list and re-inject them after the assistant messages that paid for them.
@@ -3506,48 +3701,19 @@ export class InteractiveMode {
 				const message = item.message;
 				// Assistant messages need special handling for tool calls.
 				if (message.role === "assistant") {
-					this.addMessageToChat(message);
-					for (const content of message.content) {
-						if (content.type !== "toolCall") continue;
-
-						const component = this.createToolExecutionComponent(content.name, content.id, content.arguments);
-						this.chatContainer.addChild(component);
-						this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
-						this.renderedToolComponents.set(content.id, component);
-
-						if (message.stopReason === "aborted" || message.stopReason === "error") {
-							let errorMessage: string;
-							if (message.stopReason === "aborted") {
-								const retryAttempt = this.session.retryAttempt;
-								errorMessage =
-									retryAttempt > 0
-										? `Aborted after ${retryAttempt} retry attempt${retryAttempt > 1 ? "s" : ""}`
-										: "Operation aborted";
-							} else {
-								errorMessage = message.errorMessage || "Error";
-							}
-							component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
-						} else {
-							renderedPendingTools.set(content.id, component);
-						}
-					}
-					if (message.stopReason !== "aborted" && message.stopReason !== "error") {
-						const miss = cacheMisses.get(message);
-						if (miss) this.addCacheMissNotice(miss);
-					}
+					this.renderHistoricalAssistantMessage(message, group.key, renderedPendingTools, cacheMisses);
 				} else if (message.role === "toolResult") {
 					const component = renderedPendingTools.get(message.toolCallId);
 					if (component) {
 						component.updateResult(message);
 						renderedPendingTools.delete(message.toolCallId);
+						this.updateToolActionStatus(message.toolCallId, message.isError ? "failure" : "success");
 					} else {
 						// Keep malformed/orphaned tool results visible without inventing a
 						// new runtime relationship.
-						const orphan = this.createToolExecutionComponent(message.toolName, message.toolCallId, {});
-						orphan.updateResult(message);
-						this.chatContainer.addChild(orphan);
-						this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
-						this.renderedToolComponents.set(message.toolCallId, orphan);
+						this.renderOrphanToolResult(message, {
+							groupKey: getExecutionGroupKey(group.key, [message.toolCallId], 0),
+						});
 					}
 				} else {
 					this.addMessageToChat(message, options);
@@ -3559,6 +3725,8 @@ export class InteractiveMode {
 			this.pendingTools.set(toolCallId, component);
 		}
 		this.liveTranscriptTurnRole = lastTurnRole;
+		this.liveTranscriptTurnKey = undefined;
+		this.liveExecutionGroup = undefined;
 		this.ui.requestRender();
 	}
 
@@ -4029,6 +4197,19 @@ export class InteractiveMode {
 	private toggleThinkingBlockVisibility(): void {
 		this.hideThinkingBlock = !this.hideThinkingBlock;
 		this.settingsManager.setHideThinkingBlock(this.hideThinkingBlock);
+		const liveToolComponents = new Map<string, ToolExecutionComponent>();
+		const liveToolStatuses = new Map<string, ToolActionStatus>();
+		if (this.streamingMessage) {
+			for (const content of this.streamingMessage.content) {
+				if (content.type !== "toolCall") continue;
+				const component = this.renderedToolComponents.get(content.id);
+				if (component) liveToolComponents.set(content.id, component);
+				liveToolStatuses.set(
+					content.id,
+					this.toolExecutionGroups.get(content.id)?.getAction(content.id)?.status ?? "pending",
+				);
+			}
+		}
 
 		// Rebuild chat from session messages
 		this.chatContainer.clear();
@@ -4037,9 +4218,22 @@ export class InteractiveMode {
 		// If streaming, re-add the streaming component with updated visibility and re-render
 		if (this.streamingComponent && this.streamingMessage) {
 			this.streamingComponent.setHideThinkingBlock(this.hideThinkingBlock);
-			this.streamingComponent.updateContent(this.streamingMessage);
+			this.streamingComponent.updateContent(this.getAssistantDisplayMessage(this.streamingMessage));
 			this.ensureLiveTranscriptTurn("assistant");
 			this.chatContainer.addChild(this.streamingComponent);
+			for (const content of this.streamingMessage.content) {
+				if (content.type !== "toolCall") continue;
+				const component =
+					liveToolComponents.get(content.id) ??
+					this.createToolExecutionComponent(content.name, content.id, content.arguments);
+				this.addLiveToolExecutionComponent(
+					component,
+					content.id,
+					content.name,
+					content.arguments,
+					liveToolStatuses.get(content.id) ?? "pending",
+				);
+			}
 		}
 
 		this.showStatus(`Thinking blocks: ${this.hideThinkingBlock ? "hidden" : "visible"}`);
@@ -4418,6 +4612,8 @@ export class InteractiveMode {
 						for (const child of this.chatContainer.children) {
 							if (child instanceof ToolExecutionComponent) {
 								child.setShowImages(enabled);
+							} else if (child instanceof ExecutionGroupComponent) {
+								child.setShowImages(enabled);
 							}
 						}
 					},
@@ -4425,6 +4621,8 @@ export class InteractiveMode {
 						this.settingsManager.setImageWidthCells(width);
 						for (const child of this.chatContainer.children) {
 							if (child instanceof ToolExecutionComponent) {
+								child.setImageWidthCells(width);
+							} else if (child instanceof ExecutionGroupComponent) {
 								child.setImageWidthCells(width);
 							}
 						}
