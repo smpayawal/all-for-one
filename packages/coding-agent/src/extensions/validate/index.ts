@@ -11,6 +11,8 @@ const VALIDATION_TIMEOUT_MS = 120_000;
 const VALIDATION_MAX_OUTPUT_BYTES = 64 * 1_024;
 const VALIDATION_MAX_NOTIFICATION_CHARS = 6_000;
 
+type StructuredValidationCommand = ValidationCommand & { program: string; args: string[] };
+
 export interface ValidationRunRecord {
 	command: ValidationCommand;
 	cwd: string;
@@ -30,8 +32,8 @@ function formatArguments(args: readonly string[]): string {
 function formatCommandEntry(command: ValidationCommand, index: number): string {
 	return [
 		`${index + 1}. [${command.kind}] ${command.command}`,
-		`   Program: ${command.program}`,
-		`   Arguments: ${formatArguments(command.args)}`,
+		`   Program: ${command.program ?? "not available"}`,
+		`   Arguments: ${formatArguments(command.args ?? [])}`,
 		`   Source: ${command.source}`,
 		`   Confidence: ${command.confidence}`,
 	].join("\n");
@@ -68,24 +70,26 @@ function compactOutput(text: string): string {
 export function formatValidationRun(record: ValidationRunRecord): string {
 	const header = [
 		`Validation: ${record.command.command}`,
-		`Program: ${record.command.program}`,
-		`Arguments: ${formatArguments(record.command.args)}`,
+		`Program: ${record.command.program ?? "not available"}`,
+		`Arguments: ${formatArguments(record.command.args ?? [])}`,
 		`Source: ${record.command.source} (${record.command.confidence})`,
 		`Result: exit ${record.code}; termination ${record.termination}; duration ${Math.round(record.durationMs)} ms`,
 	];
 	const body: string[] = [];
-	if (record.stdout.trim()) body.push(`stdout${record.stdoutTruncated ? " (truncated)" : ""}:\n${record.stdout.trim()}`);
-	if (record.stderr.trim()) body.push(`stderr${record.stderrTruncated ? " (truncated)" : ""}:\n${record.stderr.trim()}`);
+	if (record.stdout.trim())
+		body.push(`stdout${record.stdoutTruncated ? " (truncated)" : ""}:\n${record.stdout.trim()}`);
+	if (record.stderr.trim())
+		body.push(`stderr${record.stderrTruncated ? " (truncated)" : ""}:\n${record.stderr.trim()}`);
 	return compactOutput([...header, ...body].join("\n"));
 }
 
-function isSafeStructuredInvocation(command: ValidationCommand): boolean {
-	if (!command.program || /[\0\r\n]/u.test(command.program)) return false;
+function isSafeStructuredInvocation(command: ValidationCommand): command is StructuredValidationCommand {
+	if (!command.program || !command.args || /[\0\r\n]/u.test(command.program)) return false;
 	if (command.args.some((argument) => /[\0\r\n]/u.test(argument))) return false;
 	return [command.program, ...command.args].join(" ") === command.command;
 }
 
-function confirmationMessage(command: ValidationCommand, cwd: string): string {
+function confirmationMessage(command: StructuredValidationCommand, cwd: string): string {
 	const warning =
 		command.confidence === "inferred"
 			? "This command was inferred from repository configuration rather than declared as an exact project script."
@@ -112,11 +116,17 @@ async function executeValidation(
 		return undefined;
 	}
 	if (!ctx.hasUI) {
-		ctx.ui.notify("Validation execution requires an interactive approval channel. Use /validate list only.", "warning");
+		ctx.ui.notify(
+			"Validation execution requires an interactive approval channel. Use /validate list only.",
+			"warning",
+		);
 		return undefined;
 	}
 	if (!isSafeStructuredInvocation(command)) {
-		ctx.ui.notify("The discovered validation command has an invalid structured invocation and was not executed.", "error");
+		ctx.ui.notify(
+			"The discovered validation command has an invalid structured invocation and was not executed.",
+			"error",
+		);
 		return undefined;
 	}
 
@@ -171,7 +181,10 @@ export default function validationExtension(pi: ExtensionAPI): void {
 		const record = await executeValidation(pi, command, ctx);
 		if (!record) return;
 		lastRun = record;
-		ctx.ui.notify(formatValidationRun(record), record.code === 0 && record.termination === "completed" ? "info" : "error");
+		ctx.ui.notify(
+			formatValidationRun(record),
+			record.code === 0 && record.termination === "completed" ? "info" : "error",
+		);
 	};
 
 	pi.registerCommand("validate", {
@@ -198,7 +211,10 @@ export default function validationExtension(pi: ExtensionAPI): void {
 				lastDiscovery = discovery;
 				const command = index === undefined ? undefined : discovery.commands[index];
 				if (!command) {
-					ctx.ui.notify("Unknown validation command number. Run /validate list to refresh the choices.", "warning");
+					ctx.ui.notify(
+						"Unknown validation command number. Run /validate list to refresh the choices.",
+						"warning",
+					);
 					return;
 				}
 				await runCommand(command, ctx);
@@ -217,10 +233,7 @@ export default function validationExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
-			ctx.ui.notify(
-				"Usage: /validate [list|check|typecheck|lint|test|build|run <number>|last]",
-				"warning",
-			);
+			ctx.ui.notify("Usage: /validate [list|check|typecheck|lint|test|build|run <number>|last]", "warning");
 		},
 	});
 }

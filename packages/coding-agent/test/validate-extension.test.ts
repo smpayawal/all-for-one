@@ -3,12 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext } from "../src/core/extensions/types.ts";
+import { discoverValidationCommands } from "../src/core/validation-commands.ts";
 import validationExtension, {
 	formatValidationCommandList,
 	formatValidationRun,
 	type ValidationRunRecord,
 } from "../src/extensions/validate/index.ts";
-import { discoverValidationCommands } from "../src/core/validation-commands.ts";
 
 type CommandHandler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 
@@ -89,7 +89,10 @@ describe("explicit validation extension", () => {
 	});
 
 	it("lists exact structured invocations and provenance", async () => {
-		writeFileSync(join(cwd, "package.json"), JSON.stringify({ scripts: { check: "biome check .", test: "vitest run" } }));
+		writeFileSync(
+			join(cwd, "package.json"),
+			JSON.stringify({ scripts: { check: "biome check .", test: "vitest run" } }),
+		);
 		writeFileSync(join(cwd, "package-lock.json"), "{}");
 		const notifications: Array<{ message: string; type?: string }> = [];
 		const harness = createHarness();

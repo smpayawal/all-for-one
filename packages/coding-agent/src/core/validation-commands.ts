@@ -20,9 +20,9 @@ export interface ValidationCommand {
 	/** Human-readable command retained for compatibility and display. */
 	command: string;
 	/** Executable passed directly to spawn without shell parsing. */
-	program: string;
+	program?: string;
 	/** Arguments passed directly to the executable. */
-	args: string[];
+	args?: string[];
 	confidence: ValidationCommandConfidence;
 	source: string;
 }
@@ -174,7 +174,13 @@ function discoverNode(
 		const invocation = nodeScriptInvocation(packageManager, script);
 		addCommand(
 			commands,
-			createValidationCommand(kind, invocation.program, invocation.args, "verified", `package.json#scripts.${script}`),
+			createValidationCommand(
+				kind,
+				invocation.program,
+				invocation.args,
+				"verified",
+				`package.json#scripts.${script}`,
+			),
 		);
 	}
 
