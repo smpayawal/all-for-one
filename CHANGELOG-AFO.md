@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added native archive smoke validation for macOS arm64, Linux x64, and Windows x64 before release publication.
 - Added fail-closed publication checks for inherited Pi package and release commands.
 - Added `AFO_*` aliases for the public Pi runtime environment variables, with explicit All-For-One precedence and conflict diagnostics.
 - Added a controlled upstream Pi synchronization workflow with read-only drift reporting, verified `main` fast-forwards, and review-only `sync/pi-*` pull requests.

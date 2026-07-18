@@ -43,6 +43,8 @@ Provider setup, models, themes, extensions, and general configuration continue t
 
 Standalone releases use GitHub Releases and include builds for macOS, Linux, and Windows. Each archive provides `allforone`, `afo`, and the compatible `pi` launcher.
 
+Publication is gated by native archive smoke tests for macOS arm64, Linux x64, and Windows x64. See [RELEASING.md](RELEASING.md) for the release process and current platform coverage.
+
 ## Development
 
 ```bash
