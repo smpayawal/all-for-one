@@ -3,13 +3,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createBashToolDefinition } from "../src/core/tools/bash.ts";
-import type { ValidationCommandDiscovery } from "../src/core/validation-commands.ts";
+import type {
+	ValidationCommand,
+	ValidationCommandConfidence,
+	ValidationCommandDiscovery,
+	ValidationCommandKind,
+} from "../src/core/validation-commands.ts";
 import {
 	discoverValidationCommands,
 	getProjectValidationPromptGuideline,
 	matchValidationCommand,
 	matchValidationCommandWithScope,
 } from "../src/core/validation-commands.ts";
+
+function expectedCommand(
+	kind: ValidationCommandKind,
+	command: string,
+	program: string,
+	args: string[],
+	confidence: ValidationCommandConfidence,
+	source: string,
+): ValidationCommand {
+	return { kind, command, program, args, confidence, source };
+}
 
 describe("validation command discovery", () => {
 	let cwd: string;
@@ -44,18 +60,32 @@ describe("validation command discovery", () => {
 			packageManager: "npm",
 			packageManagers: ["npm"],
 			commands: [
-				{ kind: "check", command: "npm run check", confidence: "verified", source: "package.json#scripts.check" },
-				{
-					kind: "typecheck",
-					command: "npm run typecheck",
-					program: "npm",
-					args: ["run", "typecheck"],
-					confidence: "verified",
-					source: "package.json#scripts.typecheck",
-				},
-				{ kind: "lint", command: "npm run lint", confidence: "verified", source: "package.json#scripts.lint" },
-				{ kind: "test", command: "npm test", confidence: "verified", source: "package.json#scripts.test" },
-				{ kind: "build", command: "npm run build", confidence: "verified", source: "package.json#scripts.build" },
+				expectedCommand(
+					"check",
+					"npm run check",
+					"npm",
+					["run", "check"],
+					"verified",
+					"package.json#scripts.check",
+				),
+				expectedCommand(
+					"typecheck",
+					"npm run typecheck",
+					"npm",
+					["run", "typecheck"],
+					"verified",
+					"package.json#scripts.typecheck",
+				),
+				expectedCommand("lint", "npm run lint", "npm", ["run", "lint"], "verified", "package.json#scripts.lint"),
+				expectedCommand("test", "npm test", "npm", ["test"], "verified", "package.json#scripts.test"),
+				expectedCommand(
+					"build",
+					"npm run build",
+					"npm",
+					["run", "build"],
+					"verified",
+					"package.json#scripts.build",
+				),
 			],
 		});
 	});
@@ -71,14 +101,14 @@ describe("validation command discovery", () => {
 		const result = discoverValidationCommands(cwd);
 		expect(result.packageManager).toBe(packageManager);
 		expect(result.commands).toEqual([
-			{
-				kind: "test",
+			expectedCommand(
+				"test",
 				command,
-				program: packageManager,
-				args: packageManager === "bun" ? ["run", "test"] : ["test"],
-				confidence: "verified",
-				source: "package.json#scripts.test",
-			},
+				packageManager,
+				packageManager === "bun" ? ["run", "test"] : ["test"],
+				"verified",
+				"package.json#scripts.test",
+			),
 		]);
 	});
 
@@ -100,9 +130,23 @@ describe("validation command discovery", () => {
 		expect(discoverValidationCommands(cwd)).toEqual({
 			ecosystems: ["python"],
 			commands: [
-				{ kind: "typecheck", command: "python -m mypy .", confidence: "inferred", source: "pyproject.toml" },
-				{ kind: "lint", command: "python -m ruff check .", confidence: "inferred", source: "pyproject.toml" },
-				{ kind: "test", command: "python -m pytest", confidence: "inferred", source: "pyproject.toml" },
+				expectedCommand(
+					"typecheck",
+					"python -m mypy .",
+					"python",
+					["-m", "mypy", "."],
+					"inferred",
+					"pyproject.toml",
+				),
+				expectedCommand(
+					"lint",
+					"python -m ruff check .",
+					"python",
+					["-m", "ruff", "check", "."],
+					"inferred",
+					"pyproject.toml",
+				),
+				expectedCommand("test", "python -m pytest", "python", ["-m", "pytest"], "inferred", "pyproject.toml"),
 			],
 		});
 	});
@@ -114,9 +158,9 @@ describe("validation command discovery", () => {
 		expect(discoverValidationCommands(cwd)).toEqual({
 			ecosystems: ["rust", "go"],
 			commands: [
-				{ kind: "check", command: "cargo check", confidence: "inferred", source: "Cargo.toml" },
-				{ kind: "test", command: "cargo test", confidence: "inferred", source: "Cargo.toml" },
-				{ kind: "test", command: "go test ./...", confidence: "inferred", source: "go.mod" },
+				expectedCommand("check", "cargo check", "cargo", ["check"], "inferred", "Cargo.toml"),
+				expectedCommand("test", "cargo test", "cargo", ["test"], "inferred", "Cargo.toml"),
+				expectedCommand("test", "go test ./...", "go", ["test", "./..."], "inferred", "go.mod"),
 			],
 		});
 	});
@@ -127,8 +171,8 @@ describe("validation command discovery", () => {
 		expect(discoverValidationCommands(cwd)).toEqual({
 			ecosystems: ["make"],
 			commands: [
-				{ kind: "check", command: "make check", confidence: "verified", source: "Makefile#check" },
-				{ kind: "test", command: "make test", confidence: "verified", source: "Makefile#test" },
+				expectedCommand("check", "make check", "make", ["check"], "verified", "Makefile#check"),
+				expectedCommand("test", "make test", "make", ["test"], "verified", "Makefile#test"),
 			],
 		});
 	});

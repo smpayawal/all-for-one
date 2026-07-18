@@ -1,7 +1,11 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../core/extensions/types.ts";
 import {
 	discoverValidationCommands,
+	fingerprintValidationCommandDiscovery,
 	type ValidationCommand,
 	type ValidationCommandDiscovery,
 	type ValidationCommandKind,
@@ -12,6 +16,11 @@ const VALIDATION_MAX_OUTPUT_BYTES = 64 * 1_024;
 const VALIDATION_MAX_NOTIFICATION_CHARS = 6_000;
 
 type StructuredValidationCommand = ValidationCommand & { program: string; args: string[] };
+
+interface ValidationSelection {
+	discovery: ValidationCommandDiscovery;
+	sourceFingerprint: string;
+}
 
 export interface ValidationRunRecord {
 	command: ValidationCommand;
@@ -89,6 +98,50 @@ function isSafeStructuredInvocation(command: ValidationCommand): command is Stru
 	return [command.program, ...command.args].join(" ") === command.command;
 }
 
+function validationCommandIdentity(command: ValidationCommand): string {
+	return JSON.stringify({
+		kind: command.kind,
+		command: command.command,
+		program: command.program,
+		args: command.args,
+		confidence: command.confidence,
+		source: command.source,
+	});
+}
+
+function findEquivalentCommand(
+	discovery: ValidationCommandDiscovery,
+	command: ValidationCommand,
+): ValidationCommand | undefined {
+	const identity = validationCommandIdentity(command);
+	return discovery.commands.find((candidate) => validationCommandIdentity(candidate) === identity);
+}
+
+function fingerprintValidationSources(cwd: string, discovery: ValidationCommandDiscovery): string {
+	const sources = [...new Set(discovery.commands.map((command) => command.source.split("#", 1)[0]))].sort();
+	const hash = createHash("sha256");
+	for (const source of sources) {
+		hash.update(source);
+		hash.update("\0");
+		try {
+			hash.update(readFileSync(resolve(cwd, source)));
+		} catch {
+			hash.update("<unavailable>");
+		}
+		hash.update("\0");
+	}
+	return hash.digest("hex");
+}
+
+function notifyDiscoveryChanged(ctx: ExtensionCommandContext, phase: "selected" | "approval"): void {
+	ctx.ui.notify(
+		phase === "selected"
+			? "Repository validation discovery changed since it was selected. Run /validate list again."
+			: "Repository validation discovery changed during approval. Nothing was executed; run /validate list again.",
+		"warning",
+	);
+}
+
 function confirmationMessage(command: StructuredValidationCommand, cwd: string): string {
 	const warning =
 		command.confidence === "inferred"
@@ -106,9 +159,25 @@ function confirmationMessage(command: StructuredValidationCommand, cwd: string):
 	].join("\n");
 }
 
+function createSelection(ctx: ExtensionCommandContext): ValidationSelection {
+	const discovery = discoverValidationCommands(ctx.cwd);
+	return {
+		discovery,
+		sourceFingerprint: fingerprintValidationSources(ctx.cwd, discovery),
+	};
+}
+
+function selectionMatches(left: ValidationSelection, right: ValidationSelection): boolean {
+	return (
+		fingerprintValidationCommandDiscovery(left.discovery) ===
+			fingerprintValidationCommandDiscovery(right.discovery) && left.sourceFingerprint === right.sourceFingerprint
+	);
+}
+
 async function executeValidation(
 	pi: ExtensionAPI,
 	command: ValidationCommand,
+	expectedSelection: ValidationSelection,
 	ctx: ExtensionCommandContext,
 ): Promise<ValidationRunRecord | undefined> {
 	if (!ctx.isProjectTrusted()) {
@@ -130,22 +199,44 @@ async function executeValidation(
 		return undefined;
 	}
 
+	const approvalSelection = createSelection(ctx);
+	if (!selectionMatches(approvalSelection, expectedSelection)) {
+		notifyDiscoveryChanged(ctx, "selected");
+		return undefined;
+	}
+	const approvalCommand = findEquivalentCommand(approvalSelection.discovery, command);
+	if (!approvalCommand || !isSafeStructuredInvocation(approvalCommand)) {
+		notifyDiscoveryChanged(ctx, "selected");
+		return undefined;
+	}
+
 	await ctx.waitForIdle();
-	const confirmed = await ctx.ui.confirm("Run repository validation?", confirmationMessage(command, ctx.cwd));
+	const confirmed = await ctx.ui.confirm("Run repository validation?", confirmationMessage(approvalCommand, ctx.cwd));
 	if (!confirmed) {
 		ctx.ui.notify("Validation command cancelled.");
 		return undefined;
 	}
 
+	const executionSelection = createSelection(ctx);
+	if (!selectionMatches(executionSelection, approvalSelection)) {
+		notifyDiscoveryChanged(ctx, "approval");
+		return undefined;
+	}
+	const executionCommand = findEquivalentCommand(executionSelection.discovery, approvalCommand);
+	if (!executionCommand || !isSafeStructuredInvocation(executionCommand)) {
+		notifyDiscoveryChanged(ctx, "approval");
+		return undefined;
+	}
+
 	const started = performance.now();
-	const result = await pi.exec(command.program, [...command.args], {
+	const result = await pi.exec(executionCommand.program, [...executionCommand.args], {
 		cwd: ctx.cwd,
 		signal: ctx.signal,
 		timeout: VALIDATION_TIMEOUT_MS,
 		maxOutputBytes: VALIDATION_MAX_OUTPUT_BYTES,
 	});
 	return {
-		command,
+		command: executionCommand,
 		cwd: ctx.cwd,
 		code: result.code,
 		termination: result.termination ?? "completed",
@@ -157,10 +248,6 @@ async function executeValidation(
 	};
 }
 
-function discover(ctx: ExtensionCommandContext): ValidationCommandDiscovery {
-	return discoverValidationCommands(ctx.cwd);
-}
-
 function parseIndex(value: string): number | undefined {
 	if (!/^\d+$/u.test(value)) return undefined;
 	const index = Number.parseInt(value, 10) - 1;
@@ -168,17 +255,21 @@ function parseIndex(value: string): number | undefined {
 }
 
 export default function validationExtension(pi: ExtensionAPI): void {
-	let lastDiscovery: ValidationCommandDiscovery | undefined;
+	let lastSelection: ValidationSelection | undefined;
 	let lastRun: ValidationRunRecord | undefined;
 
-	const showList = (ctx: ExtensionCommandContext, filter?: ValidationCommandKind): ValidationCommandDiscovery => {
-		lastDiscovery = discover(ctx);
-		ctx.ui.notify(formatValidationCommandList(lastDiscovery, filter));
-		return lastDiscovery;
+	const showList = (ctx: ExtensionCommandContext, filter?: ValidationCommandKind): ValidationSelection => {
+		lastSelection = createSelection(ctx);
+		ctx.ui.notify(formatValidationCommandList(lastSelection.discovery, filter));
+		return lastSelection;
 	};
 
-	const runCommand = async (command: ValidationCommand, ctx: ExtensionCommandContext): Promise<void> => {
-		const record = await executeValidation(pi, command, ctx);
+	const runCommand = async (
+		command: ValidationCommand,
+		selection: ValidationSelection,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const record = await executeValidation(pi, command, selection, ctx);
 		if (!record) return;
 		lastRun = record;
 		ctx.ui.notify(
@@ -207,9 +298,9 @@ export default function validationExtension(pi: ExtensionAPI): void {
 					return;
 				}
 				const index = parseIndex(args[1]);
-				const discovery = lastDiscovery ?? discover(ctx);
-				lastDiscovery = discovery;
-				const command = index === undefined ? undefined : discovery.commands[index];
+				const selection = lastSelection ?? createSelection(ctx);
+				lastSelection = selection;
+				const command = index === undefined ? undefined : selection.discovery.commands[index];
 				if (!command) {
 					ctx.ui.notify(
 						"Unknown validation command number. Run /validate list to refresh the choices.",
@@ -217,19 +308,22 @@ export default function validationExtension(pi: ExtensionAPI): void {
 					);
 					return;
 				}
-				await runCommand(command, ctx);
+				await runCommand(command, selection, ctx);
 				return;
 			}
 			if (["check", "typecheck", "lint", "test", "build"].includes(action)) {
 				const kind = action as ValidationCommandKind;
-				const discovery = discover(ctx);
-				lastDiscovery = discovery;
-				const matches = discovery.commands.filter((command) => command.kind === kind);
+				const selection = createSelection(ctx);
+				lastSelection = selection;
+				const matches = selection.discovery.commands.filter((command) => command.kind === kind);
 				if (matches.length === 1) {
-					await runCommand(matches[0], ctx);
+					await runCommand(matches[0], selection, ctx);
 					return;
 				}
-				ctx.ui.notify(formatValidationCommandList(discovery, kind), matches.length > 1 ? "warning" : "info");
+				ctx.ui.notify(
+					formatValidationCommandList(selection.discovery, kind),
+					matches.length > 1 ? "warning" : "info",
+				);
 				return;
 			}
 
