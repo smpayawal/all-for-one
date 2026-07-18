@@ -46,6 +46,21 @@ The process-focused suites must cover:
 - bounded incomplete-cleanup reporting;
 - no indefinite wait for an unkillable or unverifiable process tree.
 
+## Offline session-efficiency report
+
+Run the privacy-safe report against an existing Pi-compatible session JSONL file:
+
+```text
+npm run report:session -- <session.jsonl>
+npm run report:session -- <session.jsonl> --json
+```
+
+The report reads the file offline and does not modify the session. It reports only recorded evidence such as model and thinking configuration, token counts when present, assistant turns, tool success and failure counts, repeated reads, mutation and validation calls, truncation, compaction, cancellation, timeout, and trustworthy timestamp duration.
+
+The report deliberately excludes prompt text, assistant text, file contents, tool-output contents, secrets, environment values, and monetary cost estimates. Missing evidence remains `null` or is described as not recorded; it is never inferred as a successful or zero-cost result.
+
+Use this report for controlled paired comparisons where repository revision, prompt, model, thinking level, permissions, tool profile, and initial state are held constant. A report is measurement evidence, not proof that one configuration is better.
+
 ## Packaging and runtime smoke
 
 Before a release, run the non-publishing local release flow and exercise the generated Node and Bun entry points where supported:
