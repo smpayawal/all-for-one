@@ -2,11 +2,34 @@
 
 All-For-One releases are published through GitHub Releases from the `allforone` branch. Internal Pi-compatible workspace packages remain private and are not published to npm.
 
+## Prepare release metadata
+
+Use the downstream preparation command so the product version, root lockfile metadata, and changelog remain aligned:
+
+```bash
+npm run release:afo:prepare -- 0.1.0-rc.1 --date YYYY-MM-DD
+```
+
+The command updates:
+
+- the All-For-One version in `package.json`;
+- the matching root version fields in `package-lock.json`;
+- `packages/coding-agent/src/allforone/product.ts`;
+- `CHANGELOG-AFO.md`, moving the current `Unreleased` notes into a dated version section.
+
+It does not change the versions of the private Pi-compatible workspace packages, create a commit, create a tag, push a branch, or publish a release.
+
+Review the generated diff before committing. To inspect a prepared release state without modifying files, use:
+
+```bash
+npm run release:afo:prepare -- 0.1.0-rc.1 --check --json
+```
+
 ## Release requirements
 
 Before creating a release tag:
 
-1. Confirm the release commit is on `allforone`.
+1. Confirm the prepared release commit is on `allforone`.
 2. Confirm `main` is an ancestor of the release commit:
 
    ```bash
@@ -14,8 +37,14 @@ Before creating a release tag:
    ```
 
 3. Confirm the All-For-One version in `package.json` matches `packages/coding-agent/src/allforone/product.ts`.
-4. Confirm `CHANGELOG-AFO.md` describes the release accurately.
-5. Run the complete validation set:
+4. Confirm `CHANGELOG-AFO.md` contains the matching dated version section.
+5. Verify the prepared release state:
+
+   ```bash
+   npm run release:afo:prepare -- X.Y.Z --check --json
+   ```
+
+6. Run the complete validation set:
 
    ```bash
    npm ci --ignore-scripts
@@ -24,8 +53,8 @@ Before creating a release tag:
    ./test.sh
    ```
 
-6. Build the standalone archives and run the available local smoke tests from outside the repository.
-7. Review the final diff and confirm no Pi package version, package name, configuration path, session format, SDK surface, or RPC contract changed unintentionally.
+7. Build the standalone archives and run the available local smoke tests from outside the repository.
+8. Review the final diff and confirm no Pi package version, package name, configuration path, session format, SDK surface, or RPC contract changed unintentionally.
 
 ## Native archive validation
 
@@ -39,20 +68,43 @@ Each job verifies `--version` and `--help` for `allforone`, `afo`, and the compa
 
 The Linux arm64, macOS x64, and Windows arm64 archives are produced for compatibility testing but are best-effort until they are executed on corresponding native runners or verified hardware.
 
-## Create the release
+## Create a release candidate
 
-All-For-One tags use the form `afo-vX.Y.Z` and must match the product version exactly.
+Release candidates use semantic prerelease versions and tags such as:
 
-Create an annotated tag only after the release commit has passed validation:
+```text
+afo-v0.1.0-rc.1
+```
+
+Prepare and validate the matching version before creating the tag. The release workflow publishes prerelease tags as GitHub prereleases and explicitly prevents them from becoming the latest stable release.
+
+Create an annotated tag only after the prepared release commit has passed validation:
+
+```bash
+git tag -a afo-v0.1.0-rc.1 -m "All-For-One 0.1.0-rc.1"
+git push origin afo-v0.1.0-rc.1
+```
+
+## Create a stable release
+
+Stable tags use the form `afo-vX.Y.Z` and must match the prepared product version exactly.
 
 ```bash
 git tag -a afo-vX.Y.Z -m "All-For-One X.Y.Z"
 git push origin afo-vX.Y.Z
 ```
 
-Pushing the tag starts `.github/workflows/allforone-release.yml`. The workflow validates the tag, rebuilds the standalone archives, generates release notes and a manifest, produces SHA-256 checksums, runs native archive smoke tests, and publishes a GitHub Release only after those tests pass.
+Pushing an All-For-One tag starts `.github/workflows/allforone-release.yml`. The workflow validates the tag and prepared changelog state, rebuilds the standalone archives, generates release notes and a manifest, produces SHA-256 checksums, runs native archive smoke tests, and publishes a GitHub Release only after those tests pass.
 
 Do not move, replace, or reuse a published tag. Public releases are immutable. When a release needs correction, prepare a new version.
+
+## Failed release handling
+
+- Validation or native smoke failures prevent publication.
+- A draft created during a failed publish attempt is removed by the workflow.
+- A transient failure may be retried only while the tag still points to the same verified source commit.
+- When source changes are required, do not move the existing tag. Prepare and publish the next version, such as `rc.2`.
+- Never edit a published release to replace its source artifacts.
 
 ## Verify the published release
 
