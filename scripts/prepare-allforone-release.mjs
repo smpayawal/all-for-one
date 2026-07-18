@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const defaultRepoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const PRODUCT_VERSION_PATTERN = /^(\tversion:\s*")([^"]+)(",?)$/m;
 
 export function validateAllForOneVersion(version) {
 	if (!VERSION_PATTERN.test(version)) {
@@ -21,17 +22,17 @@ export function isPrereleaseVersion(version) {
 }
 
 export function extractProductVersion(source) {
-	const matches = [...source.matchAll(/\bversion:\s*"([^"]+)"/g)];
+	const matches = [...source.matchAll(new RegExp(PRODUCT_VERSION_PATTERN.source, "gm"))];
 	if (matches.length !== 1) {
 		throw new Error(`Expected one All-For-One product version, found ${matches.length}.`);
 	}
-	return matches[0][1];
+	return matches[0][2];
 }
 
 export function updateProductVersion(source, version) {
 	validateAllForOneVersion(version);
 	extractProductVersion(source);
-	return source.replace(/\bversion:\s*"[^"]+"/, `version: "${version}"`);
+	return source.replace(PRODUCT_VERSION_PATTERN, `$1${version}$3`);
 }
 
 function escapeRegExp(value) {
