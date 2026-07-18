@@ -23,6 +23,17 @@
 - Never hardcode key checks (e.g. `matchesKey(keyData, "ctrl+x")`). Add defaults to `DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS` so they stay configurable.
 - Never modify `packages/ai/src/models.generated.ts` directly; update `packages/ai/scripts/generate-models.ts` instead, then regenerate. Including the resulting `models.generated.ts` diff is always OK, even if regeneration includes unrelated upstream model metadata changes.
 
+## All-For-One release and synchronization
+
+These rules apply on `allforone` and branches derived from it and override the inherited Pi release guidance later in this file.
+
+- Follow [RELEASING.md](RELEASING.md) for All-For-One releases.
+- All-For-One releases use `afo-v*` tags and GitHub Releases only.
+- Never run the inherited Pi package publication or release commands on `allforone`, including `npm run publish`, `npm run release:patch`, `npm run release:minor`, `npm run release:major`, or `npm run release:fix-links`.
+- Keep the internal `@earendil-works/pi-*` workspace packages private downstream.
+- Pull requests from `sync/pi-*` must be merged with a merge commit. Never squash or rebase an upstream synchronization pull request because `main` must remain an ancestor of `allforone`.
+- After an upstream synchronization merge, run the upstream relationship check against the resulting `allforone` head.
+
 ## Commands
 
 - After code changes (not docs): `npm run check` (full output, no tail). Fix all errors, warnings, and infos before committing. Does not run tests.
@@ -66,7 +77,7 @@ If rebase conflicts occur:
 
 ## Issues and PRs
 
-See `CONTRIBUTING.md` for the contributor gate (auto-close workflows, `lgtm`/`lgtmi`, quality bar).
+See `CONTRIBUTING.md` for public contribution guidance and `RELEASING.md` for the downstream release process.
 
 When reviewing PRs:
 
@@ -117,7 +128,9 @@ Attribution:
 - Internal (from issues): `Fixed foo bar ([#123](https://github.com/earendil-works/pi-mono/issues/123))`
 - External contributions: `Added feature X ([#456](https://github.com/earendil-works/pi-mono/pull/456) by [@username](https://github.com/username))`
 
-## Releasing
+## Upstream Pi release reference
+
+This section is retained only to understand native Pi maintenance. Do not run these commands on `allforone` or branches derived from it. Use [RELEASING.md](RELEASING.md) for All-For-One.
 
 **Lockstep versioning**: all packages share one version; every release updates all together. `patch` = fixes + additions, `minor` = breaking changes. No major releases.
 
@@ -151,11 +164,9 @@ Attribution:
    ```
    Use `npm_config_min_release_age=0` only for the release command. The repo's normal npm age gate can otherwise block the release lockfile refresh when the current workspace package version was published recently. Review any lockfile or shrinkwrap diffs the release creates before push.
 
-   The release script bumps all package versions, updates changelogs, regenerates release artifacts, runs `npm run check`, commits `Release vX.Y.Z`, tags `vX.Y.Z`, adds fresh `## [Unreleased]` changelog sections, commits `Add [Unreleased] section for next cycle`, then pushes `main` and the tag. Do not rerun the release script after a tag was pushed.
-
 4. **CI publishes npm packages**: pushing the `vX.Y.Z` tag triggers `.github/workflows/build-binaries.yml`. The `publish-npm` job uses npm trusted publishing through GitHub Actions OIDC with environment `npm-publish`; no local `npm publish`, `npm whoami`, OTP, or WebAuthn flow is required.
 
-5. **If CI publish fails**: inspect the failed `publish-npm` job. The publish helper is idempotent and skips package versions already present on npm, so rerun the tag workflow after fixing CI or transient npm issues. Do not rerun `npm run release:patch` or `npm run release:minor` for the same version.
+5. **If CI publish fails**: inspect the failed `publish-npm` job. The publish helper is idempotent and skips package versions already present on npm, so rerun the tag workflow after fixing CI or transient npm issues. Do not rerun the Pi release script for the same version.
 
 ## All-For-One downstream compatibility
 
