@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.0-rc.1] - 2026-07-19
+
 ### Added
 
 - Added deterministic All-For-One release preparation with aligned product version, lockfile metadata, and dated changelog sections.
