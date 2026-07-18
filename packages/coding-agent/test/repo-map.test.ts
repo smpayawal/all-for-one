@@ -12,12 +12,14 @@ import type {
 } from "../src/core/extensions/types.ts";
 import repoMapExtension, {
 	evaluateRepoMapActivation,
+	parseRepoMapStatusPaths,
 	REPO_MAP_MAX_RANKED_FILES,
 	REPO_MAP_MAX_RENDERED_CHARS,
 	REPO_MAP_MAX_REPRESENTED_FILES,
 	REPO_MAP_MAX_TRACKED_FILES,
 	rankRepoMapFiles,
 	renderRepoMap,
+	selectRepoMapFiles,
 } from "../src/extensions/repo-map/index.ts";
 
 type EventHandler = (event: unknown, ctx: ExtensionContext) => unknown | Promise<unknown>;
@@ -31,7 +33,7 @@ interface ExtensionHarness {
 	api: ExtensionAPI;
 }
 
-function createHarness(outputs?: Map<string, string>): ExtensionHarness {
+function createHarness(outputs?: Map<string, string>, truncatedKeys = new Set<string>()): ExtensionHarness {
 	const handlers = new Map<string, EventHandler[]>();
 	const commands = new Map<string, CommandHandler>();
 	const execCalls: Array<{ command: string; args: string[] }> = [];
@@ -53,6 +55,8 @@ function createHarness(outputs?: Map<string, string>): ExtensionHarness {
 				code: 0,
 				killed: false,
 				termination: "completed" as const,
+				stdoutTruncated: truncatedKeys.has(key),
+				stderrTruncated: false,
 			};
 		},
 	} as unknown as ExtensionAPI;
@@ -100,11 +104,9 @@ function createRepository(): { cwd: string; cleanup: () => void; tracked: string
 
 function gitOutputs(tracked: string[]): Map<string, string> {
 	return new Map([
-		["rev-parse HEAD", "0123456789abcdef0123456789abcdef01234567"],
-		["status --porcelain=v1", ""],
-		["ls-files", tracked.join("\n")],
-		["diff --name-only", ""],
-		["diff --cached --name-only", ""],
+		["rev-parse HEAD", "0123456789abcdef0123456789abcdef01234567\n"],
+		["status --porcelain=v1 -z", ""],
+		["ls-files -z", `${tracked.join("\0")}\0`],
 	]);
 }
 
@@ -131,6 +133,34 @@ describe("adaptive repository map", () => {
 		expect(first).toHaveLength(REPO_MAP_MAX_RANKED_FILES);
 		expect(first[0]?.path).toContain("p17");
 		expect(first.every((candidate) => Number.isFinite(candidate.score))).toBe(true);
+	});
+
+	it("parses NUL-delimited status paths without corrupting whitespace or rename pairs", () => {
+		const output =
+			" M packages/a file.ts\0R  packages/new name.ts\0packages/old name.ts\0?? packages/untracked file.ts\0";
+		expect(parseRepoMapStatusPaths(output)).toEqual([
+			"packages/a file.ts",
+			"packages/new name.ts",
+			"packages/old name.ts",
+			"packages/untracked file.ts",
+		]);
+	});
+
+	it("prioritizes changed, read, and task-matched paths before the tracked-file bound", () => {
+		const trackedFiles = Array.from(
+			{ length: REPO_MAP_MAX_TRACKED_FILES + 200 },
+			(_, index) => `packages/p${index}/src/index.ts`,
+		);
+		const lateTarget = trackedFiles.at(-1);
+		if (!lateTarget) throw new Error("Missing late target fixture");
+		const selected = selectRepoMapFiles({
+			trackedFiles,
+			prompt: `Review ${lateTarget} architecture`,
+			changedFiles: new Set(["packages/untracked change.ts"]),
+			readPaths: new Set(["packages/read-late.ts"]),
+		});
+		expect(selected).toHaveLength(REPO_MAP_MAX_TRACKED_FILES);
+		expect(selected.slice(0, 3)).toEqual([lateTarget, "packages/untracked change.ts", "packages/read-late.ts"]);
 	});
 
 	it("renders bounded orientation instead of source contents", () => {
@@ -182,16 +212,40 @@ describe("adaptive repository map", () => {
 			});
 			expect(harness.execCalls).toEqual([
 				{ command: "git", args: ["rev-parse", "HEAD"] },
-				{ command: "git", args: ["status", "--porcelain=v1"] },
-				{ command: "git", args: ["ls-files"] },
-				{ command: "git", args: ["diff", "--name-only"] },
-				{ command: "git", args: ["diff", "--cached", "--name-only"] },
+				{ command: "git", args: ["status", "--porcelain=v1", "-z"] },
+				{ command: "git", args: ["ls-files", "-z"] },
 			]);
 			const second = await handler<ContextEvent, Promise<ContextEventResult | undefined>>(harness, "context")(
 				{ type: "context", messages: [] },
 				ctx,
 			);
 			expect(second).toBeUndefined();
+		} finally {
+			repository.cleanup();
+		}
+	});
+
+	it("fails closed instead of injecting an incomplete map when Git output is truncated", async () => {
+		const repository = createRepository();
+		try {
+			const notifications: string[] = [];
+			const harness = createHarness(gitOutputs(repository.tracked), new Set(["ls-files -z"]));
+			repoMapExtension(harness.api);
+			const ctx = createContext(repository.cwd, true, notifications);
+			handler<{ prompt: string }, void>(harness, "before_agent_start")(
+				{ prompt: "Analyze the project architecture as a whole" },
+				ctx,
+			);
+			expect(
+				await handler<ContextEvent, Promise<ContextEventResult | undefined>>(harness, "context")(
+					{ type: "context", messages: [] },
+					ctx,
+				),
+			).toBeUndefined();
+			const command = harness.commands.get("repo-map");
+			if (!command) throw new Error("repo-map command was not registered");
+			await command("status", ctx as ExtensionCommandContext);
+			expect(notifications.join("\n")).toContain("output exceeded the configured bound");
 		} finally {
 			repository.cleanup();
 		}

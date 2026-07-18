@@ -4,7 +4,7 @@ Optional capabilities must not enlarge the permanent model tool schema or change
 
 ## Adaptive bounded repository map
 
-The hidden built-in repository-map extension provides temporary orientation for broad or unfamiliar repository tasks without adding a model-callable tool or another LLM request. It activates only for strong prompt signals or bounded cross-area exploration without a stable target. Generation uses fixed read-only Git argv calls, canonical workspace checks, local symbol-name extraction, an in-memory cache, and strict file, symbol, time, and character limits.
+The hidden built-in repository-map extension provides temporary orientation for broad or unfamiliar repository tasks without adding a model-callable tool or another LLM request. It activates only for strong prompt signals or bounded cross-area exploration without a stable target. Generation uses three fixed read-only Git argv calls with NUL-delimited filename parsing, explicit output-truncation failure, priority-first path selection, canonical workspace checks, local symbol-name extraction, an in-memory cache, and strict file, symbol, time, and character limits.
 
 Use `/repo-map auto`, `/repo-map once`, `/repo-map off`, `/repo-map status`, or `/repo-map show`. Automatic and forced generation both require project trust. The map is injected for one provider request, is not appended to the session, starts no service, installs no dependency, and performs no mutation.
 

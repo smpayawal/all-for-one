@@ -144,7 +144,7 @@ const STOP_WORDS = new Set([
 ]);
 
 function normalizeRepoPath(path: string): string {
-	return path.trim().replaceAll("\\", "/").replace(/^\.\//u, "");
+	return path.replaceAll("\\", "/").replace(/^\.\//u, "");
 }
 
 function extractExplicitPaths(prompt: string): string[] {
@@ -161,6 +161,57 @@ function taskTerms(prompt: string): string[] {
 				?.filter((term) => !STOP_WORDS.has(term)) ?? [],
 		),
 	].slice(0, 24);
+}
+
+export function parseRepoMapNulPaths(output: string): string[] {
+	return [...new Set(output.split("\0").map(normalizeRepoPath).filter(Boolean))];
+}
+
+export function parseRepoMapStatusPaths(output: string): string[] {
+	const records = output.split("\0");
+	const paths: string[] = [];
+	for (let index = 0; index < records.length; index += 1) {
+		const record = records[index];
+		if (!record || record.length < 4) continue;
+		const status = record.slice(0, 2);
+		const path = normalizeRepoPath(record.slice(3));
+		if (path) paths.push(path);
+		if (/[RC]/u.test(status)) {
+			const originalPath = normalizeRepoPath(records[index + 1] ?? "");
+			if (originalPath) paths.push(originalPath);
+			index += 1;
+		}
+	}
+	return [...new Set(paths)].sort();
+}
+
+export function selectRepoMapFiles(input: {
+	trackedFiles: readonly string[];
+	prompt: string;
+	changedFiles?: ReadonlySet<string>;
+	readPaths?: ReadonlySet<string>;
+}): string[] {
+	const tracked = input.trackedFiles.map(normalizeRepoPath).filter(Boolean);
+	const trackedSet = new Set(tracked);
+	const changed = [...(input.changedFiles ?? [])].map(normalizeRepoPath).filter(Boolean);
+	const read = [...(input.readPaths ?? [])].map(normalizeRepoPath).filter(Boolean);
+	const explicit = extractExplicitPaths(input.prompt).filter(
+		(path) => trackedSet.has(path) || changed.includes(path) || read.includes(path),
+	);
+	const terms = taskTerms(input.prompt);
+	const taskMatches = tracked.filter((path) => {
+		const lower = path.toLowerCase();
+		return terms.some((term) => lower.includes(term));
+	});
+	const selected: string[] = [];
+	const seen = new Set<string>();
+	for (const path of [...explicit, ...changed, ...read, ...taskMatches, ...tracked]) {
+		if (!path || seen.has(path)) continue;
+		seen.add(path);
+		selected.push(path);
+		if (selected.length >= REPO_MAP_MAX_TRACKED_FILES) break;
+	}
+	return selected;
 }
 
 export function evaluateRepoMapActivation(prompt: string): RepoMapActivationDecision {
@@ -419,31 +470,31 @@ async function runGit(
 		const detail = result.stderr.trim() || result.stdout.trim() || `git exited with code ${result.code}`;
 		throw new Error(detail.slice(0, 240));
 	}
-	return result.stdout.trim();
+	if (result.stdoutTruncated || result.stderrTruncated) {
+		throw new Error(`git ${args.join(" ")} output exceeded the configured bound`);
+	}
+	return result.stdout;
 }
 
 async function loadGitState(input: RepoMapGenerationInput): Promise<RepoMapGitState> {
-	const [head, statusOutput, trackedOutput, changedOutput, stagedOutput] = await Promise.all([
+	const [headOutput, statusOutput, trackedOutput] = await Promise.all([
 		runGit(input.exec, input.cwd, ["rev-parse", "HEAD"], 4_096),
-		runGit(input.exec, input.cwd, ["status", "--porcelain=v1"], 128 * 1_024),
-		runGit(input.exec, input.cwd, ["ls-files"]),
-		runGit(input.exec, input.cwd, ["diff", "--name-only"], 128 * 1_024),
-		runGit(input.exec, input.cwd, ["diff", "--cached", "--name-only"], 128 * 1_024),
+		runGit(input.exec, input.cwd, ["status", "--porcelain=v1", "-z"], 128 * 1_024),
+		runGit(input.exec, input.cwd, ["ls-files", "-z"]),
 	]);
-	const trackedFiles = trackedOutput.split(/\r?\n/u).map(normalizeRepoPath).filter(Boolean);
-	const changedFiles = [...new Set([...changedOutput.split(/\r?\n/u), ...stagedOutput.split(/\r?\n/u)])]
-		.map(normalizeRepoPath)
-		.filter(Boolean)
-		.sort();
+	const head = headOutput.trim();
+	const trackedFiles = parseRepoMapNulPaths(trackedOutput);
+	const changedFiles = parseRepoMapStatusPaths(statusOutput);
 	const focus = taskTerms(input.prompt).sort().join(",");
+	const reads = [...input.readPaths].map(normalizeRepoPath).sort().join("\0");
 	const cacheKey = createHash("sha256")
 		.update(head)
 		.update("\0")
 		.update(statusOutput)
 		.update("\0")
-		.update(changedFiles.join("\n"))
-		.update("\0")
 		.update(focus)
+		.update("\0")
+		.update(reads)
 		.digest("hex");
 	return { head, status: statusOutput, trackedFiles, changedFiles, cacheKey };
 }
@@ -467,7 +518,12 @@ async function generateRepoMap(input: RepoMapGenerationInput, cached?: RepoMapSn
 			truncated: rendered.truncated,
 		};
 	}
-	const considered = git.trackedFiles.slice(0, REPO_MAP_MAX_TRACKED_FILES);
+	const considered = selectRepoMapFiles({
+		trackedFiles: git.trackedFiles,
+		prompt: input.prompt,
+		changedFiles: new Set(git.changedFiles),
+		readPaths: input.readPaths,
+	});
 	const ranked = rankRepoMapFiles({
 		files: considered,
 		prompt: input.prompt,
