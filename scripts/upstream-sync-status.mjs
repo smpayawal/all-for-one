@@ -162,7 +162,11 @@ export function runCli(argv = process.argv.slice(2)) {
 		upstreamRef: options.upstreamRef,
 	});
 	if (process.env.GITHUB_HEAD_REF === "architecture/phase-04-compaction-boundary") {
-		status.maintenancePayload = createCompactionBoundaryPayload(options.cwd);
+		try {
+			status.maintenancePayload = createCompactionBoundaryPayload(options.cwd);
+		} catch (error) {
+			status.maintenanceError = error instanceof Error ? error.message : String(error);
+		}
 	}
 	if (options.json) {
 		console.log(JSON.stringify(status, null, 2));
