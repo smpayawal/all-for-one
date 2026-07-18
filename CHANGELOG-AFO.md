@@ -15,6 +15,7 @@
 
 ### Changed
 
+- Moved deterministic compaction validation and bounded repair policy behind the compaction package boundary, reducing downstream policy in the Pi-owned session orchestration hotspot.
 - Updated repository and package metadata to identify All-For-One as the maintained downstream project.
 - Made `read`, `bash`, `edit`, `write`, and `apply_patch` the canonical default active tools.
 - Kept execution-integrity enforcement opt-in and mode-aware validation guidance bounded.
