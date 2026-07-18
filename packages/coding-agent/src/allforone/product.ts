@@ -2,7 +2,7 @@ export const PRODUCT = {
 	name: "All-For-One",
 	command: "allforone",
 	aliases: ["afo", "pi"],
-	version: "0.1.0",
+	version: "0.1.0-rc.1",
 	repository: "https://github.com/smpayawal/all-for-one",
 	upstream: {
 		name: "Pi",
