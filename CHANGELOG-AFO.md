@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added fail-closed publication checks for inherited Pi package and release commands.
 - Added `AFO_*` aliases for the public Pi runtime environment variables, with explicit All-For-One precedence and conflict diagnostics.
 - Added a controlled upstream Pi synchronization workflow with read-only drift reporting, verified `main` fast-forwards, and review-only `sync/pi-*` pull requests.
 - Added synchronization status reporting and tests for current, fast-forward, main-ahead, product-behind, and divergent histories.
@@ -16,6 +17,7 @@
 
 ### Changed
 
+- Marked the Pi-compatible workspace packages private in the All-For-One branch and formalized GitHub Releases as the downstream distribution path.
 - Moved product identity and presentation helpers behind the All-For-One-owned `src/allforone` boundary.
 - Updated repository and package metadata to identify All-For-One as the maintained downstream project.
 - Made `read`, `bash`, `edit`, `write`, and `apply_patch` the canonical default active tools.
