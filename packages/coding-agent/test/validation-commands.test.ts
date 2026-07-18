@@ -48,6 +48,8 @@ describe("validation command discovery", () => {
 				{
 					kind: "typecheck",
 					command: "npm run typecheck",
+					program: "npm",
+					args: ["run", "typecheck"],
 					confidence: "verified",
 					source: "package.json#scripts.typecheck",
 				},
@@ -69,7 +71,14 @@ describe("validation command discovery", () => {
 		const result = discoverValidationCommands(cwd);
 		expect(result.packageManager).toBe(packageManager);
 		expect(result.commands).toEqual([
-			{ kind: "test", command, confidence: "verified", source: "package.json#scripts.test" },
+			{
+				kind: "test",
+				command,
+				program: packageManager,
+				args: packageManager === "bun" ? ["run", "test"] : ["test"],
+				confidence: "verified",
+				source: "package.json#scripts.test",
+			},
 		]);
 	});
 
@@ -243,18 +252,24 @@ describe("validation command discovery", () => {
 				{
 					kind: "test" as const,
 					command: "npm test",
+					program: "npm",
+					args: ["test"],
 					confidence: "verified" as const,
 					source: "package.json#scripts.test",
 				},
 				{
 					kind: "test" as const,
 					command: "cargo test",
+					program: "cargo",
+					args: ["test"],
 					confidence: "inferred" as const,
 					source: "Cargo.toml",
 				},
 				{
 					kind: "test" as const,
 					command: "python -m pytest",
+					program: "python",
+					args: ["-m", "pytest"],
 					confidence: "inferred" as const,
 					source: "pyproject.toml",
 				},

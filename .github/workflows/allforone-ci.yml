@@ -81,6 +81,8 @@ jobs:
           test/bash-process-tree.test.ts
           test/code-intel.test.ts
           test/repo-map.test.ts
+          test/validation-commands.test.ts
+          test/validate-extension.test.ts
           test/exec.test.ts
           test/allforone-baseline.test.ts
           test/args.test.ts
@@ -184,10 +186,11 @@ jobs:
           test/bash-process-tree.test.ts
           test/code-intel.test.ts
           test/repo-map.test.ts
+          test/validation-commands.test.ts
+          test/validate-extension.test.ts
           test/exec.test.ts
           test/bash-close-hang-windows.test.ts
           test/suite/agent-session-bash-persistence.test.ts
-          test/validation-commands.test.ts
 
       - name: Restore generated catalogs after validation
         run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
