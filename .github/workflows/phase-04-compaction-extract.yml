@@ -1,0 +1,104 @@
+name: Phase 4 compaction extraction
+
+on:
+  push:
+    branches: [architecture/phase-04-compaction-boundary]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase-04-compaction-extract
+  cancel-in-progress: true
+
+jobs:
+  extract:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout phase branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: architecture/phase-04-compaction-boundary
+          fetch-depth: 0
+
+      - name: Move policy behind compaction boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          session_path = Path('packages/coding-agent/src/core/agent-session.ts')
+          content = session_path.read_text()
+
+          old_import = '''import {
+	assertCompactionResultValid,
+	type CompactionHealth,
+	type CompactionPreparation,
+	type CompactionResult,
+	type CompactionTelemetryRecorder,
+	CompactionTelemetryStore,
+	calculateContextTokens,
+	collectCompactionHealth,
+	collectEntriesForBranchSummary,
+	compactWithTurnPrefixInstructions,
+	estimateContextTokens,
+	estimateTokens,
+	generateBranchSummary,
+	getCompactionProviderMetrics,
+	prepareCompaction,
+	shouldCompact,
+	validateCompactionResult,
+} from "./compaction/index.ts";
+'''
+          new_import = '''import {
+	type CompactionHealth,
+	type CompactionResult,
+	CompactionTelemetryStore,
+	calculateContextTokens,
+	collectCompactionHealth,
+	collectEntriesForBranchSummary,
+	compactWithValidationAndRepair,
+	estimateContextTokens,
+	estimateTokens,
+	generateBranchSummary,
+	getCompactionProviderMetrics,
+	prepareCompaction,
+	shouldCompact,
+} from "./compaction/index.ts";
+'''
+          if content.count(old_import) != 1:
+              raise SystemExit('expected compaction import block not found exactly once')
+          content = content.replace(old_import, new_import, 1)
+
+          start_marker = 'const REPAIRABLE_COMPACTION_ISSUES = new Set(['
+          end_marker = '// ============================================================================\n// Constants'
+          start = content.find(start_marker)
+          end = content.find(end_marker, start)
+          if start < 0 or end < 0:
+              raise SystemExit('validated compaction policy block markers not found')
+          content = content[:start] + content[end:]
+
+          if 'REPAIRABLE_COMPACTION_ISSUES' in content:
+              raise SystemExit('repair policy remained in agent-session.ts')
+          if content.count('compactWithValidationAndRepair(') != 1:
+              raise SystemExit('expected exactly one imported compaction call to remain')
+          session_path.write_text(content)
+
+          index_path = Path('packages/coding-agent/src/core/compaction/index.ts')
+          index = index_path.read_text()
+          export_line = 'export * from "./validated-compaction.ts";\n'
+          if export_line not in index:
+              index += export_line
+          index_path.write_text(index)
+          PY
+
+          git diff --check
+
+      - name: Commit extraction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/coding-agent/src/core/agent-session.ts packages/coding-agent/src/core/compaction/index.ts
+          git commit -m "refactor(compaction): isolate validation and repair policy"
+          git push origin HEAD:architecture/phase-04-compaction-boundary
