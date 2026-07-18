@@ -1,0 +1,267 @@
+from pathlib import Path
+
+
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected one match, found {count}")
+    return text.replace(old, new, 1)
+
+
+source = Path("packages/coding-agent/src/extensions/repo-map/index.ts")
+text = source.read_text()
+text = replace_once(
+    text,
+    'function normalizeRepoPath(path: string): string {\n\treturn path.trim().replaceAll("\\\\", "/").replace(/^\\.\\//u, "");\n}',
+    'function normalizeRepoPath(path: string): string {\n\treturn path.replaceAll("\\\\", "/").replace(/^\\.\\//u, "");\n}',
+    "preserve filename whitespace",
+)
+anchor = 'export function evaluateRepoMapActivation(prompt: string): RepoMapActivationDecision {'
+helpers = r'''export function parseRepoMapNulPaths(output: string): string[] {
+	return [...new Set(output.split("\0").map(normalizeRepoPath).filter(Boolean))];
+}
+
+export function parseRepoMapStatusPaths(output: string): string[] {
+	const records = output.split("\0");
+	const paths: string[] = [];
+	for (let index = 0; index < records.length; index += 1) {
+		const record = records[index];
+		if (!record || record.length < 4) continue;
+		const status = record.slice(0, 2);
+		const path = normalizeRepoPath(record.slice(3));
+		if (path) paths.push(path);
+		if (/[RC]/u.test(status)) {
+			const originalPath = normalizeRepoPath(records[index + 1] ?? "");
+			if (originalPath) paths.push(originalPath);
+			index += 1;
+		}
+	}
+	return [...new Set(paths)].sort();
+}
+
+export function selectRepoMapFiles(input: {
+	trackedFiles: readonly string[];
+	prompt: string;
+	changedFiles?: ReadonlySet<string>;
+	readPaths?: ReadonlySet<string>;
+}): string[] {
+	const tracked = input.trackedFiles.map(normalizeRepoPath).filter(Boolean);
+	const trackedSet = new Set(tracked);
+	const changed = [...(input.changedFiles ?? [])].map(normalizeRepoPath).filter(Boolean);
+	const read = [...(input.readPaths ?? [])].map(normalizeRepoPath).filter(Boolean);
+	const explicit = extractExplicitPaths(input.prompt).filter(
+		(path) => trackedSet.has(path) || changed.includes(path) || read.includes(path),
+	);
+	const terms = taskTerms(input.prompt);
+	const taskMatches = tracked.filter((path) => {
+		const lower = path.toLowerCase();
+		return terms.some((term) => lower.includes(term));
+	});
+	const selected: string[] = [];
+	const seen = new Set<string>();
+	for (const path of [...explicit, ...changed, ...read, ...taskMatches, ...tracked]) {
+		if (!path || seen.has(path)) continue;
+		seen.add(path);
+		selected.push(path);
+		if (selected.length >= REPO_MAP_MAX_TRACKED_FILES) break;
+	}
+	return selected;
+}
+
+'''
+text = replace_once(text, anchor, helpers + anchor, "NUL and priority helpers")
+old_run = r'''async function runGit(
+	exec: ExtensionAPI["exec"],
+	cwd: string,
+	args: string[],
+	maxOutputBytes = REPO_MAP_MAX_GIT_OUTPUT_BYTES,
+): Promise<string> {
+	const result = await exec("git", args, {
+		cwd,
+		timeout: REPO_MAP_GIT_TIMEOUT_MS,
+		maxOutputBytes,
+	});
+	if (result.code !== 0 || result.termination === "timeout" || result.termination === "aborted") {
+		const detail = result.stderr.trim() || result.stdout.trim() || `git exited with code ${result.code}`;
+		throw new Error(detail.slice(0, 240));
+	}
+	return result.stdout.trim();
+}
+
+async function loadGitState(input: RepoMapGenerationInput): Promise<RepoMapGitState> {
+	const [head, statusOutput, trackedOutput, changedOutput, stagedOutput] = await Promise.all([
+		runGit(input.exec, input.cwd, ["rev-parse", "HEAD"], 4_096),
+		runGit(input.exec, input.cwd, ["status", "--porcelain=v1"], 128 * 1_024),
+		runGit(input.exec, input.cwd, ["ls-files"]),
+		runGit(input.exec, input.cwd, ["diff", "--name-only"], 128 * 1_024),
+		runGit(input.exec, input.cwd, ["diff", "--cached", "--name-only"], 128 * 1_024),
+	]);
+	const trackedFiles = trackedOutput.split(/\r?\n/u).map(normalizeRepoPath).filter(Boolean);
+	const changedFiles = [...new Set([...changedOutput.split(/\r?\n/u), ...stagedOutput.split(/\r?\n/u)])]
+		.map(normalizeRepoPath)
+		.filter(Boolean)
+		.sort();
+	const focus = taskTerms(input.prompt).sort().join(",");
+	const cacheKey = createHash("sha256")
+		.update(head)
+		.update("\0")
+		.update(statusOutput)
+		.update("\0")
+		.update(changedFiles.join("\n"))
+		.update("\0")
+		.update(focus)
+		.digest("hex");
+	return { head, status: statusOutput, trackedFiles, changedFiles, cacheKey };
+}'''
+new_run = r'''async function runGit(
+	exec: ExtensionAPI["exec"],
+	cwd: string,
+	args: string[],
+	maxOutputBytes = REPO_MAP_MAX_GIT_OUTPUT_BYTES,
+): Promise<string> {
+	const result = await exec("git", args, {
+		cwd,
+		timeout: REPO_MAP_GIT_TIMEOUT_MS,
+		maxOutputBytes,
+	});
+	if (result.code !== 0 || result.termination === "timeout" || result.termination === "aborted") {
+		const detail = result.stderr.trim() || result.stdout.trim() || `git exited with code ${result.code}`;
+		throw new Error(detail.slice(0, 240));
+	}
+	if (result.stdoutTruncated || result.stderrTruncated) {
+		throw new Error(`git ${args.join(" ")} output exceeded the configured bound`);
+	}
+	return result.stdout;
+}
+
+async function loadGitState(input: RepoMapGenerationInput): Promise<RepoMapGitState> {
+	const [headOutput, statusOutput, trackedOutput] = await Promise.all([
+		runGit(input.exec, input.cwd, ["rev-parse", "HEAD"], 4_096),
+		runGit(input.exec, input.cwd, ["status", "--porcelain=v1", "-z"], 128 * 1_024),
+		runGit(input.exec, input.cwd, ["ls-files", "-z"]),
+	]);
+	const head = headOutput.trim();
+	const trackedFiles = parseRepoMapNulPaths(trackedOutput);
+	const changedFiles = parseRepoMapStatusPaths(statusOutput);
+	const focus = taskTerms(input.prompt).sort().join(",");
+	const reads = [...input.readPaths].map(normalizeRepoPath).sort().join("\0");
+	const cacheKey = createHash("sha256")
+		.update(head)
+		.update("\0")
+		.update(statusOutput)
+		.update("\0")
+		.update(focus)
+		.update("\0")
+		.update(reads)
+		.digest("hex");
+	return { head, status: statusOutput, trackedFiles, changedFiles, cacheKey };
+}'''
+text = replace_once(text, old_run, new_run, "bounded Git state")
+text = replace_once(
+    text,
+    "const considered = git.trackedFiles.slice(0, REPO_MAP_MAX_TRACKED_FILES);",
+    "const considered = selectRepoMapFiles({\n\t\ttrackedFiles: git.trackedFiles,\n\t\tprompt: input.prompt,\n\t\tchangedFiles: new Set(git.changedFiles),\n\t\treadPaths: input.readPaths,\n\t});",
+    "priority selection",
+)
+source.write_text(text)
+
+
+test = Path("packages/coding-agent/test/repo-map.test.ts")
+text = test.read_text()
+text = replace_once(
+    text,
+    "\trankRepoMapFiles,\n\trenderRepoMap,",
+    "\tparseRepoMapStatusPaths,\n\trankRepoMapFiles,\n\trenderRepoMap,\n\tselectRepoMapFiles,",
+    "test imports",
+)
+text = replace_once(
+    text,
+    "function createHarness(outputs?: Map<string, string>): ExtensionHarness {",
+    "function createHarness(outputs?: Map<string, string>, truncatedKeys = new Set<string>()): ExtensionHarness {",
+    "harness truncation input",
+)
+text = replace_once(
+    text,
+    '\t\t\t\ttermination: "completed" as const,\n\t\t\t};',
+    '\t\t\t\ttermination: "completed" as const,\n\t\t\t\tstdoutTruncated: truncatedKeys.has(key),\n\t\t\t\tstderrTruncated: false,\n\t\t\t};',
+    "harness truncation result",
+)
+old_outputs = '''\treturn new Map([\n\t\t["rev-parse HEAD", "0123456789abcdef0123456789abcdef01234567"],\n\t\t["status --porcelain=v1", ""],\n\t\t["ls-files", tracked.join("\\n")],\n\t\t["diff --name-only", ""],\n\t\t["diff --cached --name-only", ""],\n\t]);'''
+new_outputs = '''\treturn new Map([\n\t\t["rev-parse HEAD", "0123456789abcdef0123456789abcdef01234567\\n"],\n\t\t["status --porcelain=v1 -z", ""],\n\t\t["ls-files -z", `${tracked.join("\\0")}\\0`],\n\t]);'''
+text = replace_once(text, old_outputs, new_outputs, "NUL git fixtures")
+text = replace_once(
+    text,
+    '''\t\t\texpect(harness.execCalls).toEqual([\n\t\t\t\t{ command: "git", args: ["rev-parse", "HEAD"] },\n\t\t\t\t{ command: "git", args: ["status", "--porcelain=v1"] },\n\t\t\t\t{ command: "git", args: ["ls-files"] },\n\t\t\t\t{ command: "git", args: ["diff", "--name-only"] },\n\t\t\t\t{ command: "git", args: ["diff", "--cached", "--name-only"] },\n\t\t\t]);''',
+    '''\t\t\texpect(harness.execCalls).toEqual([\n\t\t\t\t{ command: "git", args: ["rev-parse", "HEAD"] },\n\t\t\t\t{ command: "git", args: ["status", "--porcelain=v1", "-z"] },\n\t\t\t\t{ command: "git", args: ["ls-files", "-z"] },\n\t\t\t]);''',
+    "three Git calls",
+)
+anchor = '\n\tit("renders bounded orientation instead of source contents", () => {'
+tests = r'''
+
+	it("parses NUL-delimited status paths without corrupting whitespace or rename pairs", () => {
+		const output = " M packages/a file.ts\0R  packages/new name.ts\0packages/old name.ts\0?? packages/untracked file.ts\0";
+		expect(parseRepoMapStatusPaths(output)).toEqual([
+			"packages/a file.ts",
+			"packages/new name.ts",
+			"packages/old name.ts",
+			"packages/untracked file.ts",
+		]);
+	});
+
+	it("prioritizes changed, read, and task-matched paths before the tracked-file bound", () => {
+		const trackedFiles = Array.from(
+			{ length: REPO_MAP_MAX_TRACKED_FILES + 200 },
+			(_, index) => `packages/p${index}/src/index.ts`,
+		);
+		const lateTarget = trackedFiles.at(-1);
+		if (!lateTarget) throw new Error("Missing late target fixture");
+		const selected = selectRepoMapFiles({
+			trackedFiles,
+			prompt: `Review ${lateTarget} architecture`,
+			changedFiles: new Set(["packages/untracked change.ts"]),
+			readPaths: new Set(["packages/read-late.ts"]),
+		});
+		expect(selected).toHaveLength(REPO_MAP_MAX_TRACKED_FILES);
+		expect(selected.slice(0, 3)).toEqual([lateTarget, "packages/untracked change.ts", "packages/read-late.ts"]);
+	});
+'''
+text = replace_once(text, anchor, tests + anchor, "parser and selection tests")
+error_anchor = '\n\tit("does no repository work for a narrow task or an untrusted project", async () => {'
+error_test = r'''
+
+	it("fails closed instead of injecting an incomplete map when Git output is truncated", async () => {
+		const repository = createRepository();
+		try {
+			const notifications: string[] = [];
+			const harness = createHarness(gitOutputs(repository.tracked), new Set(["ls-files -z"]));
+			repoMapExtension(harness.api);
+			const ctx = createContext(repository.cwd, true, notifications);
+			handler<{ prompt: string }, void>(harness, "before_agent_start")(
+				{ prompt: "Analyze the project architecture as a whole" },
+				ctx,
+			);
+			expect(
+				await handler<ContextEvent, Promise<ContextEventResult | undefined>>(harness, "context")(
+					{ type: "context", messages: [] },
+					ctx,
+				),
+			).toBeUndefined();
+			const command = harness.commands.get("repo-map");
+			if (!command) throw new Error("repo-map command was not registered");
+			await command("status", ctx as ExtensionCommandContext);
+			expect(notifications.join("\n")).toContain("output exceeded the configured bound");
+		} finally {
+			repository.cleanup();
+		}
+	});
+'''
+text = replace_once(text, error_anchor, error_test + error_anchor, "truncation test")
+test.write_text(text)
+
+
+docs = Path("docs/all-for-one/optional-capabilities.md")
+text = docs.read_text()
+old = "Generation uses fixed read-only Git argv calls, canonical workspace checks, local symbol-name extraction, an in-memory cache, and strict file, symbol, time, and character limits."
+new = "Generation uses three fixed read-only Git argv calls with NUL-delimited filename parsing, explicit output-truncation failure, priority-first path selection, canonical workspace checks, local symbol-name extraction, an in-memory cache, and strict file, symbol, time, and character limits."
+text = replace_once(text, old, new, "repository map documentation")
+docs.write_text(text)
