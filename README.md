@@ -23,7 +23,7 @@ The current `allforone` branch adds or records:
 - offline baseline, doctor, and evaluator commands, with a read-only upstream relationship check; and
 - focused branch CI and validation documentation.
 
-These are repository-level capabilities and diagnostics. No measured quality, latency, token, cost, or performance improvement is claimed from them. Enforcement remains opt-in where documented. See the [All-For-One documentation](docs/all-for-one/).
+These are repository-level capabilities and diagnostics. No measured quality, latency, token, cost, or performance improvement is claimed from them. Enforcement remains opt-in where documented. Detailed internal engineering notes and evaluation records are intentionally maintained outside this public repository.
 
 ## Packages
 
@@ -49,7 +49,7 @@ npm run check
 ./pi-test.sh
 ```
 
-`./pi-test.sh` runs the `pi` CLI from source. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations, [AGENTS.md](AGENTS.md) for repository rules, and the [All-For-One validation notes](docs/all-for-one/validation.md) for focused checks.
+`./pi-test.sh` runs the `pi` CLI from source. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and [AGENTS.md](AGENTS.md) for repository rules.
 
 ## Upstream compatibility
 
