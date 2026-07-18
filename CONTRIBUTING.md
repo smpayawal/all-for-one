@@ -18,6 +18,8 @@ All-For-One is an independent downstream project based on Pi. Keep changes small
 - Do not add All-For-One features to `main`.
 - Do not merge `allforone` into `main` or rewrite its published history.
 
+Upstream synchronization branches use the form `sync/pi-*`. These pull requests must be merged with a merge commit. Do not squash or rebase them because `main` must remain an ancestor of `allforone`.
+
 ## Validation
 
 Run the smallest relevant checks before opening a pull request. At minimum, use `npm run check`; run `./test.sh` when the change affects runtime behavior or test coverage. Do not claim that tests passed unless they were actually run.
@@ -32,3 +34,7 @@ npm run check
 ```
 
 Report any check that was not run or was limited by the environment. Follow the repository rules in [AGENTS.md](AGENTS.md).
+
+## Releases
+
+All-For-One releases use `afo-v*` tags and GitHub Releases. The inherited Pi package publication commands are not part of the downstream release process. See [RELEASING.md](RELEASING.md).
