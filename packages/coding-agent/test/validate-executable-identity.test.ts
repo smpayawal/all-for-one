@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -45,7 +45,7 @@ describe("validation executable identity", () => {
 			status: "resolved",
 			workspaceLocal: false,
 		});
-		expect(result?.canonicalPath).toBe(executable);
+		expect(result?.canonicalPath).toBe(realpathSync(executable));
 	});
 
 	it.each(["linux", "win32"] as const)("detects a workspace-local shadow executable on %s", (platform) => {
