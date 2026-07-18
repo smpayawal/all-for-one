@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../core/extensions/types.ts";
 import {
 	discoverValidationCommands,
+	fingerprintValidationCommandDiscovery,
 	type ValidationCommand,
 	type ValidationCommandDiscovery,
 	type ValidationCommandKind,
@@ -89,6 +90,34 @@ function isSafeStructuredInvocation(command: ValidationCommand): command is Stru
 	return [command.program, ...command.args].join(" ") === command.command;
 }
 
+function validationCommandIdentity(command: ValidationCommand): string {
+	return JSON.stringify({
+		kind: command.kind,
+		command: command.command,
+		program: command.program,
+		args: command.args,
+		confidence: command.confidence,
+		source: command.source,
+	});
+}
+
+function findEquivalentCommand(
+	discovery: ValidationCommandDiscovery,
+	command: ValidationCommand,
+): ValidationCommand | undefined {
+	const identity = validationCommandIdentity(command);
+	return discovery.commands.find((candidate) => validationCommandIdentity(candidate) === identity);
+}
+
+function notifyDiscoveryChanged(ctx: ExtensionCommandContext, phase: "selected" | "approval"): void {
+	ctx.ui.notify(
+		phase === "selected"
+			? "Repository validation discovery changed since it was selected. Run /validate list again."
+			: "Repository validation discovery changed during approval. Nothing was executed; run /validate list again.",
+		"warning",
+	);
+}
+
 function confirmationMessage(command: StructuredValidationCommand, cwd: string): string {
 	const warning =
 		command.confidence === "inferred"
@@ -106,9 +135,14 @@ function confirmationMessage(command: StructuredValidationCommand, cwd: string):
 	].join("\n");
 }
 
+function discover(ctx: ExtensionCommandContext): ValidationCommandDiscovery {
+	return discoverValidationCommands(ctx.cwd);
+}
+
 async function executeValidation(
 	pi: ExtensionAPI,
 	command: ValidationCommand,
+	expectedDiscovery: ValidationCommandDiscovery,
 	ctx: ExtensionCommandContext,
 ): Promise<ValidationRunRecord | undefined> {
 	if (!ctx.isProjectTrusted()) {
@@ -130,22 +164,53 @@ async function executeValidation(
 		return undefined;
 	}
 
+	const approvalDiscovery = discover(ctx);
+	if (
+		fingerprintValidationCommandDiscovery(approvalDiscovery) !==
+		fingerprintValidationCommandDiscovery(expectedDiscovery)
+	) {
+		notifyDiscoveryChanged(ctx, "selected");
+		return undefined;
+	}
+	const approvalCommand = findEquivalentCommand(approvalDiscovery, command);
+	if (!approvalCommand || !isSafeStructuredInvocation(approvalCommand)) {
+		notifyDiscoveryChanged(ctx, "selected");
+		return undefined;
+	}
+
 	await ctx.waitForIdle();
-	const confirmed = await ctx.ui.confirm("Run repository validation?", confirmationMessage(command, ctx.cwd));
+	const confirmed = await ctx.ui.confirm(
+		"Run repository validation?",
+		confirmationMessage(approvalCommand, ctx.cwd),
+	);
 	if (!confirmed) {
 		ctx.ui.notify("Validation command cancelled.");
 		return undefined;
 	}
 
+	const executionDiscovery = discover(ctx);
+	if (
+		fingerprintValidationCommandDiscovery(executionDiscovery) !==
+		fingerprintValidationCommandDiscovery(approvalDiscovery)
+	) {
+		notifyDiscoveryChanged(ctx, "approval");
+		return undefined;
+	}
+	const executionCommand = findEquivalentCommand(executionDiscovery, approvalCommand);
+	if (!executionCommand || !isSafeStructuredInvocation(executionCommand)) {
+		notifyDiscoveryChanged(ctx, "approval");
+		return undefined;
+	}
+
 	const started = performance.now();
-	const result = await pi.exec(command.program, [...command.args], {
+	const result = await pi.exec(executionCommand.program, [...executionCommand.args], {
 		cwd: ctx.cwd,
 		signal: ctx.signal,
 		timeout: VALIDATION_TIMEOUT_MS,
 		maxOutputBytes: VALIDATION_MAX_OUTPUT_BYTES,
 	});
 	return {
-		command,
+		command: executionCommand,
 		cwd: ctx.cwd,
 		code: result.code,
 		termination: result.termination ?? "completed",
@@ -155,10 +220,6 @@ async function executeValidation(
 		stdoutTruncated: result.stdoutTruncated === true,
 		stderrTruncated: result.stderrTruncated === true,
 	};
-}
-
-function discover(ctx: ExtensionCommandContext): ValidationCommandDiscovery {
-	return discoverValidationCommands(ctx.cwd);
 }
 
 function parseIndex(value: string): number | undefined {
@@ -177,8 +238,12 @@ export default function validationExtension(pi: ExtensionAPI): void {
 		return lastDiscovery;
 	};
 
-	const runCommand = async (command: ValidationCommand, ctx: ExtensionCommandContext): Promise<void> => {
-		const record = await executeValidation(pi, command, ctx);
+	const runCommand = async (
+		command: ValidationCommand,
+		discovery: ValidationCommandDiscovery,
+		ctx: ExtensionCommandContext,
+	): Promise<void> => {
+		const record = await executeValidation(pi, command, discovery, ctx);
 		if (!record) return;
 		lastRun = record;
 		ctx.ui.notify(
@@ -217,7 +282,7 @@ export default function validationExtension(pi: ExtensionAPI): void {
 					);
 					return;
 				}
-				await runCommand(command, ctx);
+				await runCommand(command, discovery, ctx);
 				return;
 			}
 			if (["check", "typecheck", "lint", "test", "build"].includes(action)) {
@@ -226,7 +291,7 @@ export default function validationExtension(pi: ExtensionAPI): void {
 				lastDiscovery = discovery;
 				const matches = discovery.commands.filter((command) => command.kind === kind);
 				if (matches.length === 1) {
-					await runCommand(matches[0], ctx);
+					await runCommand(matches[0], discovery, ctx);
 					return;
 				}
 				ctx.ui.notify(formatValidationCommandList(discovery, kind), matches.length > 1 ? "warning" : "info");
