@@ -8,17 +8,17 @@ on:
       - .github/scripts/repo-map-hardening.py
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout exact head
+      - name: Checkout target branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: fix/repo-map-bounded-completeness
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -41,13 +41,15 @@ jobs:
           npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/repo-map.test.ts
           npm run check
 
-      - name: Upload exact files
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: repo-map-hardening-files
-          path: |
-            packages/coding-agent/src/extensions/repo-map/index.ts
-            packages/coding-agent/test/repo-map.test.ts
+      - name: Commit validated files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            packages/coding-agent/src/extensions/repo-map/index.ts \
+            packages/coding-agent/test/repo-map.test.ts \
             docs/all-for-one/optional-capabilities.md
-          if-no-files-found: error
-          retention-days: 1
+          git diff --cached --check
+          git commit -m "fix: harden bounded repository-map completeness"
+          git push origin HEAD:fix/repo-map-bounded-completeness
