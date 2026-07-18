@@ -34,7 +34,7 @@ jobs:
 
       - name: Format focused changes
         run: |
-          npx biome check --write \
+          npx biome format --write \
             scripts/session-efficiency-report.ts \
             scripts/session-efficiency-report.test.ts \
             docs/all-for-one/validation.md
