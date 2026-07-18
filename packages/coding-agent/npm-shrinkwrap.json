@@ -32,6 +32,8 @@
 				"@mariozechner/clipboard": "0.3.9"
 			},
 			"bin": {
+				"allforone": "dist/allforone-cli.js",
+				"afo": "dist/allforone-cli.js",
 				"pi": "dist/cli.js"
 			},
 			"engines": {
