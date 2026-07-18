@@ -32,12 +32,6 @@ jobs:
       - name: Apply evidence-quality hardening
         run: python3 .github/scripts/session-report-hardening.py
 
-      - name: Format focused TypeScript
-        run: |
-          npx biome format --write \
-            scripts/session-efficiency-report.ts \
-            scripts/session-efficiency-report.test.ts
-
       - name: Run focused tests
         shell: bash
         run: |
