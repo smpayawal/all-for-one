@@ -1,7 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
-import { formatProductVersion, PRODUCT, rewriteProductCommandInHelp } from "../src/product.ts";
+import { formatProductVersion, PRODUCT, rewriteProductCommandInHelp } from "../src/allforone/index.ts";
 
 describe("All-For-One product identity", () => {
 	test("uses an independent product version with an explicit Pi baseline", () => {
@@ -30,6 +30,11 @@ describe("All-For-One product identity", () => {
 			pi: "dist/cli.js",
 		});
 		expect(codingAgentPackage.piConfig.configDir).toBe(".pi");
+	});
+
+	test("keeps product identity in the All-For-One-owned source boundary", () => {
+		expect(existsSync(resolve(__dirname, "../src/allforone/product.ts"))).toBe(true);
+		expect(existsSync(resolve(__dirname, "../src/product.ts"))).toBe(false);
 	});
 
 	test("rewrites help command examples without renaming Pi compatibility identifiers", () => {

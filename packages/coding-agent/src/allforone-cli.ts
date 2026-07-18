@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
+import { formatProductVersion, PRODUCT, rewriteProductCommandInHelp } from "./allforone/index.ts";
 import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { main } from "./main.ts";
-import { formatProductVersion, PRODUCT, rewriteProductCommandInHelp } from "./product.ts";
 
 process.title = PRODUCT.command;
 process.env.PI_CODING_AGENT = "true";

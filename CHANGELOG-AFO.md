@@ -15,6 +15,7 @@
 
 ### Changed
 
+- Moved product identity and presentation helpers behind the All-For-One-owned `src/allforone` boundary.
 - Updated repository and package metadata to identify All-For-One as the maintained downstream project.
 - Made `read`, `bash`, `edit`, `write`, and `apply_patch` the canonical default active tools.
 - Kept execution-integrity enforcement opt-in and mode-aware validation guidance bounded.

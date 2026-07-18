@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
-import { PRODUCT } from "../product.ts";
+import { PRODUCT } from "../allforone/index.ts";
 
 process.title = PRODUCT.command;
 process.emitWarning = (() => {}) as typeof process.emitWarning;

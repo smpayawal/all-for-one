@@ -10,7 +10,7 @@ on:
       - 'packages/coding-agent/package.json'
       - 'packages/coding-agent/src/allforone-cli.ts'
       - 'packages/coding-agent/src/bun/allforone-cli.ts'
-      - 'packages/coding-agent/src/product.ts'
+      - 'packages/coding-agent/src/allforone/**'
       - 'scripts/allforone-release.mjs'
       - 'scripts/allforone-release.test.mjs'
       - 'scripts/build-allforone-binaries.sh'
