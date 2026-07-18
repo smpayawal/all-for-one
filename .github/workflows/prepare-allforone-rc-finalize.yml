@@ -1,0 +1,46 @@
+name: Prepare All-For-One RC Finalize
+
+on:
+  pull_request:
+    branches:
+      - allforone
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    if: github.event.pull_request.head.ref == 'release/0.1.0-rc.1-finalize'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone release branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git clone --quiet --depth 1 --branch "${HEAD_REF}" "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
+
+      - name: Prepare release metadata
+        run: node scripts/prepare-allforone-release.mjs 0.1.0-rc.1 --date 2026-07-19 --json
+
+      - name: Verify prepared release metadata
+        run: node scripts/prepare-allforone-release.mjs 0.1.0-rc.1 --check --json
+
+      - name: Commit prepared release
+        env:
+          PI_ALLOW_LOCKFILE_CHANGE: '1'
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/prepare-allforone-rc-finalize.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json packages/coding-agent/src/allforone/product.ts CHANGELOG-AFO.md .github/workflows/prepare-allforone-rc-finalize.yml
+          git commit -m 'chore: prepare All-For-One 0.1.0-rc.1'
+          git push origin HEAD:"${HEAD_REF}"
