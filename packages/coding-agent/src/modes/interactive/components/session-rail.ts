@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { theme } from "../theme/theme.ts";
+import { type ThemeColor, theme } from "../theme/theme.ts";
 
 export {
 	getSessionRailLayout,
@@ -112,7 +112,7 @@ export function parseRailProgress(key: string, text: string): SessionRailProgres
 }
 
 function sectionTitle(label: string): string {
-	return theme.bold(theme.fg("userMessageText", label));
+	return theme.bold(theme.fg("customMessageLabel", label));
 }
 
 function formatLifecycle(lifecycle: SessionRailLifecycle): string {
@@ -153,12 +153,7 @@ function formatResourceList(resources: readonly string[]): string[] {
 	return [...visibleResources, ...(remaining > 0 ? [`+${remaining} more`] : [])];
 }
 
-function createSection(
-	label: string,
-	values: readonly string[],
-	width: number,
-	valueColor: "muted" | "dim" = "dim",
-): string[] {
+function createSection(label: string, values: readonly string[], width: number, valueColor: ThemeColor = "dim"): string[] {
 	return [sectionTitle(label), ...values.map((value) => theme.fg(valueColor, railLine(`  ${value}`, width)))];
 }
 
@@ -176,7 +171,10 @@ function createCurrentTurnSection(data: SessionRailData, width: number): string[
 	} else {
 		values.push("Waiting for input");
 	}
-	return createSection("CURRENT TURN", values, width, data.lifecycle.kind === "idle" ? "dim" : "muted");
+	let valueColor: ThemeColor = "borderAccent";
+	if (data.lifecycle.kind === "idle") valueColor = "dim";
+	if (data.lifecycle.kind === "retry" || data.lifecycle.kind === "compaction") valueColor = "warning";
+	return createSection("CURRENT TURN", values, width, valueColor);
 }
 
 function appendWholeSection(target: string[], section: readonly string[], limit: number): boolean {
