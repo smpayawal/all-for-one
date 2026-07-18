@@ -137,7 +137,7 @@ jobs:
             --upstream upstream/main \
             --json > upstream-sync-status.json
 
-          actual_action="$(node -p "require('./upstream-sync-status.json').main.action")"
+          actual_action="$(node -e "const fs=require('node:fs'); process.stdout.write(JSON.parse(fs.readFileSync('upstream-sync-status.json','utf8')).main.action)")"
           test "${actual_action}" = "${EXPECTED_ACTION}"
 
           if [[ "${actual_action}" == "current" ]]; then
@@ -206,17 +206,17 @@ jobs:
           node scripts/check-upstream-relationship.mjs --main origin/main --current HEAD --json
           git push origin "HEAD:refs/heads/${branch}"
 
-          cat > /tmp/upstream-sync-pr.md <<EOF
-          ## Upstream Pi synchronization
-
-          - Pi baseline commit: `${MAIN_SHA}`
-          - Product base: `allforone`
-          - Integration branch: `${branch}`
-
-          This pull request was prepared by the controlled upstream synchronization workflow. It must pass the normal All-For-One CI and be reviewed before merge.
-
-          No automatic merge is enabled.
-          EOF
+          {
+            echo '## Upstream Pi synchronization'
+            echo
+            printf -- '- Pi baseline commit: `%s`\n' "${MAIN_SHA}"
+            echo '- Product base: `allforone`'
+            printf -- '- Integration branch: `%s`\n' "${branch}"
+            echo
+            echo 'This pull request was prepared by the controlled upstream synchronization workflow. It must pass the normal All-For-One CI and be reviewed before merge.'
+            echo
+            echo 'No automatic merge is enabled.'
+          } > /tmp/upstream-sync-pr.md
 
           gh pr create \
             --base allforone \
