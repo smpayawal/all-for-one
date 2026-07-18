@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added `AFO_*` aliases for the public Pi runtime environment variables, with explicit All-For-One precedence and conflict diagnostics.
 - Added a controlled upstream Pi synchronization workflow with read-only drift reporting, verified `main` fast-forwards, and review-only `sync/pi-*` pull requests.
 - Added synchronization status reporting and tests for current, fast-forward, main-ahead, product-behind, and divergent histories.
 - Added a separate `afo-v*` GitHub release workflow for branded macOS, Linux, and Windows binaries without publishing the internal Pi-compatible packages to npm.

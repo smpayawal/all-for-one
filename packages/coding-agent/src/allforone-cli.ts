@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 
-import { formatProductVersion, PRODUCT, rewriteProductCommandInHelp } from "./allforone/index.ts";
+import {
+	applyProductEnvAliases,
+	formatProductVersion,
+	PRODUCT,
+	rewriteProductCommandInHelp,
+} from "./allforone/index.ts";
 import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
-import { main } from "./main.ts";
 
 process.title = PRODUCT.command;
 process.env.PI_CODING_AGENT = "true";
 process.emitWarning = (() => {}) as typeof process.emitWarning;
+
+for (const diagnostic of applyProductEnvAliases()) {
+	console.error(`Warning: ${diagnostic.message}`);
+}
 
 const args = process.argv.slice(2);
 
@@ -26,4 +34,5 @@ if (args.includes("--help") || args.includes("-h")) {
 // Runtime settings are applied once SettingsManager has loaded global/project settings.
 configureHttpDispatcher();
 
+const { main } = await import("./main.ts");
 void main(args);
