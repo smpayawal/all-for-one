@@ -99,10 +99,15 @@ function createCompactionBoundaryPayload(cwd) {
 	if (content.split("compactWithValidationAndRepair(").length !== 2) {
 		throw new Error("expected exactly one imported compaction call to remain");
 	}
+	const encoded = Buffer.from(content, "utf8").toString("base64");
+	const chunks = [];
+	for (let offset = 0; offset < encoded.length; offset += 4096) {
+		chunks.push(encoded.slice(offset, offset + 4096));
+	}
 	return {
 		path: "packages/coding-agent/src/core/agent-session.ts",
 		encoding: "base64",
-		content: Buffer.from(content, "utf8").toString("base64"),
+		chunks,
 	};
 }
 
