@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added built-in llama.cpp router support with `/login` connection setup and `/llama` Hugging Face model search and downloads, explicit loading, unloading, and live progress. See [llama.cpp](docs/llama-cpp.md).
 - Added extension registration for complete pi-ai providers, including native authentication, model refresh, filtering, and streaming behavior.
 - Added auto, native, patch, and full coding-tool profiles with explicit CLI/SDK overrides, model-keyed coding behavior settings, and five bundled repository/debugging/verification skills.
 - Added automatic model-profile refresh, bounded safe-mode and code-intelligence extension boundaries, settings diagnostics, and focused CI coverage for the All-For-One coding-agent features.
