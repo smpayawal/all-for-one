@@ -1,14 +1,19 @@
 name: Phase 4 compaction extraction
 
 on:
-  push:
-    branches: [architecture/phase-04-compaction-boundary]
+  pull_request:
+    branches: [allforone]
+    paths:
+      - '.github/workflows/phase-04-compaction-extract.yml'
+      - 'packages/coding-agent/src/core/agent-session.ts'
+      - 'packages/coding-agent/src/core/compaction/index.ts'
+      - 'packages/coding-agent/src/core/compaction/validated-compaction.ts'
 
 permissions:
   contents: write
 
 concurrency:
-  group: phase-04-compaction-extract
+  group: phase-04-compaction-extract-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -17,10 +22,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout phase branch
+      - name: Checkout exact phase head
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: architecture/phase-04-compaction-boundary
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Move policy behind compaction boundary
@@ -95,10 +100,12 @@ jobs:
 
           git diff --check
 
-      - name: Commit extraction
+      - name: Commit extraction to phase branch
+        env:
+          PHASE_BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add packages/coding-agent/src/core/agent-session.ts packages/coding-agent/src/core/compaction/index.ts
           git commit -m "refactor(compaction): isolate validation and repair policy"
-          git push origin HEAD:architecture/phase-04-compaction-boundary
+          git push origin "HEAD:${PHASE_BRANCH}"
