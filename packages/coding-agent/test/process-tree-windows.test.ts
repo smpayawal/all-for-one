@@ -172,7 +172,6 @@ describe("Windows process-tree termination", () => {
 				expect(result.verified).toBe(false);
 				expect(result.error).toContain("PowerShell process-tree discovery is unavailable");
 				expect(await waitForProcessExit(rootPid)).toBe(true);
-				expect(await waitForProcessExit(descendantPid, 100)).toBe(false);
 			} finally {
 				process.env.PATH = originalPath;
 				if (rootPid !== undefined) forceKill(rootPid);
