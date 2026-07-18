@@ -1,0 +1,66 @@
+name: Validation Platform Diagnostic
+
+on:
+  pull_request:
+    branches: [allforone]
+    paths:
+      - .github/workflows/validation-platform-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Run exact platform-focused suite
+        shell: bash
+        run: |
+          set -o pipefail
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run \
+            test/apply-patch-tool.test.ts \
+            test/file-mutation-queue.test.ts \
+            test/memory.test.ts \
+            test/scoped-context.test.ts \
+            test/path-utils.test.ts \
+            test/paths.test.ts \
+            test/resolve-config-value.test.ts \
+            test/settings-manager.test.ts \
+            test/safe-mode.test.ts \
+            test/process-tree-windows.test.ts \
+            test/process-cleanup-failure.test.ts \
+            test/bash-process-tree.test.ts \
+            test/code-intel.test.ts \
+            test/repo-map.test.ts \
+            test/validation-commands.test.ts \
+            test/validate-extension.test.ts \
+            test/exec.test.ts \
+            test/bash-close-hang-windows.test.ts \
+            test/suite/agent-session-bash-persistence.test.ts 2>&1 | tee validation-platform.log
+
+      - name: Upload output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: validation-platform-output
+          path: validation-platform.log
+          if-no-files-found: error
+          retention-days: 1
