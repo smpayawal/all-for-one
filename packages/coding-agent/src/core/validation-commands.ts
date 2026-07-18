@@ -262,7 +262,7 @@ function discoverMake(cwd: string, ecosystems: string[], commands: ValidationCom
 	}
 }
 
-export function discoverValidationCommands(cwd: string): ValidationCommandDiscovery {
+function discoverValidationCommandsNow(cwd: string): ValidationCommandDiscovery {
 	const ecosystems: string[] = [];
 	const commands: ValidationCommand[] = [];
 	const node = discoverNode(cwd, ecosystems, commands);
@@ -270,6 +270,35 @@ export function discoverValidationCommands(cwd: string): ValidationCommandDiscov
 	discoverRustAndGo(cwd, ecosystems, commands);
 	discoverMake(cwd, ecosystems, commands);
 	return { ecosystems, ...node, commands };
+}
+
+/**
+ * Create a memoized validation-discovery view that performs no repository I/O
+ * until a consumer reads one of its fields.
+ */
+export function createLazyValidationCommandDiscovery(
+	load: () => ValidationCommandDiscovery,
+): ValidationCommandDiscovery {
+	let resolved: ValidationCommandDiscovery | undefined;
+	const getResolved = (): ValidationCommandDiscovery => (resolved ??= load());
+	return {
+		get ecosystems() {
+			return getResolved().ecosystems;
+		},
+		get packageManager() {
+			return getResolved().packageManager;
+		},
+		get packageManagers() {
+			return getResolved().packageManagers;
+		},
+		get commands() {
+			return getResolved().commands;
+		},
+	};
+}
+
+export function discoverValidationCommands(cwd: string): ValidationCommandDiscovery {
+	return createLazyValidationCommandDiscovery(() => discoverValidationCommandsNow(cwd));
 }
 
 function normalizeCommandWhitespace(command: string): string {
