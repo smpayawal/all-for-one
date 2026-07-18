@@ -1,22 +1,22 @@
 name: Prepare All-For-One RC
 
 on:
-  push:
+  pull_request:
     branches:
-      - release/0.1.0-rc.1
+      - allforone
 
 permissions:
   contents: write
 
 jobs:
   prepare:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event.pull_request.head.ref == 'release/0.1.0-rc.1'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout release branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: release/0.1.0-rc.1
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Prepare release metadata
@@ -32,4 +32,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add package.json package-lock.json packages/coding-agent/src/allforone/product.ts CHANGELOG-AFO.md .github/workflows/prepare-allforone-rc.yml
           git commit -m 'chore: prepare All-For-One 0.1.0-rc.1'
-          git push origin HEAD:release/0.1.0-rc.1
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
