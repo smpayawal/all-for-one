@@ -35,10 +35,23 @@ for (const scriptName of guardedScripts) {
 	}
 }
 
+if (rootPackage.scripts?.["release:afo:prepare"] !== "node scripts/prepare-allforone-release.mjs") {
+	throw new Error("All-For-One release preparation must use scripts/prepare-allforone-release.mjs.");
+}
+
 const releaseWorkflow = readFileSync(join(root, ".github/workflows/allforone-release.yml"), "utf8");
 for (const forbidden of ["npm publish", "NPM_TOKEN", "scripts/publish.mjs", "scripts/release.mjs"]) {
 	if (releaseWorkflow.includes(forbidden)) {
 		throw new Error(`All-For-One release workflow contains forbidden npm publication path: ${forbidden}.`);
+	}
+}
+for (const required of [
+	"scripts/prepare-allforone-release.mjs",
+	"--prerelease --latest=false",
+	"needs: [validate, build, native-release-smoke]",
+]) {
+	if (!releaseWorkflow.includes(required)) {
+		throw new Error(`All-For-One release workflow is missing release lifecycle enforcement: ${required}`);
 	}
 }
 
@@ -60,7 +73,12 @@ if (!contributing.includes("Do not squash or rebase them because `main` must rem
 }
 
 const releasing = readFileSync(join(root, "RELEASING.md"), "utf8");
-for (const required of ["All-For-One releases are published through GitHub Releases", "A `sync/pi-*` pull request must be merged with a merge commit."]) {
+for (const required of [
+	"All-For-One releases are published through GitHub Releases",
+	"A `sync/pi-*` pull request must be merged with a merge commit.",
+	"npm run release:afo:prepare -- 0.1.0-rc.1",
+	"explicitly prevents them from becoming the latest stable release",
+]) {
 	if (!releasing.includes(required)) {
 		throw new Error(`RELEASING.md is missing required downstream policy: ${required}`);
 	}
@@ -81,4 +99,6 @@ for (const required of [
 	}
 }
 
-console.log("All-For-One publication policy is valid: GitHub releases only, Pi-compatible npm packages private, downstream release guidance enforced.");
+console.log(
+	"All-For-One publication policy is valid: GitHub releases only, Pi-compatible npm packages private, downstream release and prerelease guidance enforced.",
+);

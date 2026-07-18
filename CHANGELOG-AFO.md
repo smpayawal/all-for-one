@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added deterministic All-For-One release preparation with aligned product version, lockfile metadata, and dated changelog sections.
 - Added native archive smoke validation for macOS arm64, Linux x64, and Windows x64 before release publication.
 - Added fail-closed publication checks for inherited Pi package and release commands.
 - Added `AFO_*` aliases for the public Pi runtime environment variables, with explicit All-For-One precedence and conflict diagnostics.
@@ -18,6 +19,7 @@
 
 ### Changed
 
+- Publish semantic prerelease tags as GitHub prereleases without marking them as the latest stable release.
 - Clarified the downstream release process and required merge-commit handling for `sync/pi-*` pull requests.
 - Marked the Pi-compatible workspace packages private in the All-For-One branch and formalized GitHub Releases as the downstream distribution path.
 - Moved product identity and presentation helpers behind the All-For-One-owned `src/allforone` boundary.

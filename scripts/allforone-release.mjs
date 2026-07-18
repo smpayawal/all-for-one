@@ -3,6 +3,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { extractVersionChanges, isPrereleaseVersion } from "./prepare-allforone-release.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = resolve(scriptDir, "..");
@@ -41,6 +42,7 @@ export function readAllForOneReleaseMetadata(repoRoot = defaultRepoRoot) {
 	return {
 		product: "All-For-One",
 		version: rootPackage.version,
+		prerelease: isPrereleaseVersion(rootPackage.version),
 		piBaseline: codingAgentPackage.version,
 		commands: ["allforone", "afo", "pi"],
 		repository: "https://github.com/smpayawal/all-for-one",
@@ -73,13 +75,24 @@ export function extractUnreleasedChanges(changelog) {
 	return section;
 }
 
+export function extractReleaseChanges(changelog, version) {
+	try {
+		return extractVersionChanges(changelog, version);
+	} catch (error) {
+		if (!(error instanceof Error) || !error.message.includes("does not contain a section")) {
+			throw error;
+		}
+		return extractUnreleasedChanges(changelog);
+	}
+}
+
 export function createAllForOneReleaseFiles({ tag, commit, repoRoot = defaultRepoRoot }) {
 	if (!COMMIT_PATTERN.test(commit)) {
 		throw new Error(`Invalid release commit: ${commit}`);
 	}
 
 	const metadata = validateAllForOneRelease(tag, repoRoot);
-	const changes = extractUnreleasedChanges(readFileSync(join(repoRoot, "CHANGELOG-AFO.md"), "utf8"));
+	const changes = extractReleaseChanges(readFileSync(join(repoRoot, "CHANGELOG-AFO.md"), "utf8"), metadata.version);
 	const generatedAt = new Date().toISOString();
 	const notes = [
 		`# ${metadata.product} ${metadata.version}`,
@@ -91,9 +104,10 @@ export function createAllForOneReleaseFiles({ tag, commit, repoRoot = defaultRep
 		"",
 	].join("\n");
 	const manifest = {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		product: metadata.product,
 		version: metadata.version,
+		prerelease: metadata.prerelease,
 		tag,
 		piBaseline: metadata.piBaseline,
 		commit,
