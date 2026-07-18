@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { performance } from "node:perf_hooks";
 import { resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../core/extensions/types.ts";
 import {
 	discoverValidationCommands,
@@ -170,8 +170,7 @@ function createSelection(ctx: ExtensionCommandContext): ValidationSelection {
 function selectionMatches(left: ValidationSelection, right: ValidationSelection): boolean {
 	return (
 		fingerprintValidationCommandDiscovery(left.discovery) ===
-			fingerprintValidationCommandDiscovery(right.discovery) &&
-		left.sourceFingerprint === right.sourceFingerprint
+			fingerprintValidationCommandDiscovery(right.discovery) && left.sourceFingerprint === right.sourceFingerprint
 	);
 }
 
@@ -212,10 +211,7 @@ async function executeValidation(
 	}
 
 	await ctx.waitForIdle();
-	const confirmed = await ctx.ui.confirm(
-		"Run repository validation?",
-		confirmationMessage(approvalCommand, ctx.cwd),
-	);
+	const confirmed = await ctx.ui.confirm("Run repository validation?", confirmationMessage(approvalCommand, ctx.cwd));
 	if (!confirmed) {
 		ctx.ui.notify("Validation command cancelled.");
 		return undefined;
