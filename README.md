@@ -70,6 +70,21 @@ On Windows, run either built entry point directly with Node.js.
 
 Provider authentication, model configuration, settings, and customization continue to follow the standard [Pi documentation](https://pi.dev/docs/latest) where All-For-One has not documented a difference.
 
+### Environment compatibility
+
+All-For-One accepts product-prefixed aliases for the public Pi runtime variables:
+
+| All-For-One | Pi-compatible runtime variable |
+|---|---|
+| `AFO_CODING_AGENT_DIR` | `PI_CODING_AGENT_DIR` |
+| `AFO_CODING_AGENT_SESSION_DIR` | `PI_CODING_AGENT_SESSION_DIR` |
+| `AFO_PACKAGE_DIR` | `PI_PACKAGE_DIR` |
+| `AFO_OFFLINE` | `PI_OFFLINE` |
+| `AFO_TELEMETRY` | `PI_TELEMETRY` |
+| `AFO_SHARE_VIEWER_URL` | `PI_SHARE_VIEWER_URL` |
+
+Existing `PI_*` variables remain supported. When both names are set, the `AFO_*` value is used and a warning identifies the conflicting variable names. All-For-One continues to use `.pi` for configuration and session compatibility; this alias layer does not create or migrate to a `.allforone` directory.
+
 ## Releases
 
 Standalone releases use tags in the form `afo-vX.Y.Z`. Each release records both the All-For-One version and its Pi compatibility baseline.
