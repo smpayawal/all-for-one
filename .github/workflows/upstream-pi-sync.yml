@@ -53,9 +53,9 @@ jobs:
       - name: Fetch tracked refs
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main allforone
+          git fetch --no-tags origin main:refs/remotes/origin/main allforone:refs/remotes/origin/allforone
           git remote add upstream "${UPSTREAM_REPOSITORY}"
-          git fetch --no-tags upstream main
+          git fetch --no-tags upstream main:refs/remotes/upstream/main
 
       - name: Test synchronization status model
         run: |
@@ -122,9 +122,9 @@ jobs:
           EXPECTED_UPSTREAM_SHA: ${{ needs.status.outputs.upstream_sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main allforone
+          git fetch --no-tags origin main:refs/remotes/origin/main allforone:refs/remotes/origin/allforone
           git remote add upstream "${UPSTREAM_REPOSITORY}"
-          git fetch --no-tags upstream main
+          git fetch --no-tags upstream main:refs/remotes/upstream/main
 
           actual_main_sha="$(git rev-parse origin/main)"
           actual_upstream_sha="$(git rev-parse upstream/main)"
@@ -162,6 +162,7 @@ jobs:
     needs: [status, update-main]
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: write
       pull-requests: write
     env:
@@ -177,7 +178,7 @@ jobs:
       - name: Create reviewed upstream synchronization pull request
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main allforone
+          git fetch --no-tags origin main:refs/remotes/origin/main allforone:refs/remotes/origin/allforone
           test "$(git rev-parse origin/main)" = "${MAIN_SHA}"
 
           if git merge-base --is-ancestor origin/main HEAD; then
@@ -218,8 +219,12 @@ jobs:
             echo 'No automatic merge is enabled.'
           } > /tmp/upstream-sync-pr.md
 
-          gh pr create \
+          pr_url="$(gh pr create \
             --base allforone \
             --head "${branch}" \
             --title "chore: synchronize Pi ${short_sha}" \
-            --body-file /tmp/upstream-sync-pr.md
+            --body-file /tmp/upstream-sync-pr.md)"
+
+          gh workflow run allforone-ci.yml --ref "${branch}"
+          printf 'Created synchronization pull request: %s\n' "${pr_url}" >> "${GITHUB_STEP_SUMMARY}"
+          echo 'Dispatched All-For-One CI for the synchronization commit.' >> "${GITHUB_STEP_SUMMARY}"
