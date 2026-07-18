@@ -71,10 +71,6 @@ function outputText(output: CapturedOutput): string {
 	return Buffer.concat(output.chunks).toString("utf8");
 }
 
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function appendCleanupError(result: ProcessTreeCleanupResult, message: string): ProcessTreeCleanupResult {
 	return {
 		...result,
@@ -84,39 +80,56 @@ function appendCleanupError(result: ProcessTreeCleanupResult, message: string): 
 	};
 }
 
-async function awaitCleanupWithDeadline(
+function awaitCleanupWithDeadline(
 	cleanupPromise: Promise<ProcessTreeCleanupResult>,
 ): Promise<ProcessTreeCleanupResult> {
-	return Promise.race([
-		cleanupPromise.catch((error) => ({
-			gracefulAttempted: true,
-			forceAttempted: true,
-			completed: false,
-			verified: false,
-			error: error instanceof Error ? error.message : String(error),
-		})),
-		delay(PROCESS_TREE_CLEANUP_DEADLINE_MS).then(
-			(): ProcessTreeCleanupResult => ({
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = (result: ProcessTreeCleanupResult) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeoutId);
+			resolve(result);
+		};
+		const timeoutId = setTimeout(() => {
+			finish({
 				gracefulAttempted: true,
 				forceAttempted: true,
 				completed: false,
 				verified: false,
 				error: `Process-tree cleanup exceeded ${PROCESS_TREE_CLEANUP_DEADLINE_MS}ms.`,
-			}),
-		),
-	]);
+			});
+		}, PROCESS_TREE_CLEANUP_DEADLINE_MS);
+		cleanupPromise.then(finish, (error) => {
+			finish({
+				gracefulAttempted: true,
+				forceAttempted: true,
+				completed: false,
+				verified: false,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		});
+	});
 }
 
-async function awaitChildExitWithDeadline(
+function awaitChildExitWithDeadline(
 	childExitPromise: Promise<number | null>,
 	timeoutMs: number,
 ): Promise<ChildExitResult> {
-	return Promise.race([
-		childExitPromise
-			.then((code) => ({ exited: true, code: code ?? 1 }))
-			.catch(() => ({ exited: true, code: 1 })),
-		delay(timeoutMs).then(() => ({ exited: false, code: 1 })),
-	]);
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = (result: ChildExitResult) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeoutId);
+			resolve(result);
+		};
+		const timeoutId = setTimeout(() => finish({ exited: false, code: 1 }), timeoutMs);
+		childExitPromise.then(
+			(code) => finish({ exited: true, code: code ?? 1 }),
+			() => finish({ exited: true, code: 1 }),
+		);
+	});
 }
 
 function detachUnresponsiveChild(proc: ChildProcess): void {
@@ -266,7 +279,6 @@ export async function execCommand(
 		};
 		const onAbort = () => killProcess("aborted");
 
-		// Handle abort signal
 		if (options?.signal) {
 			if (options.signal.aborted) {
 				killProcess("aborted");
@@ -275,7 +287,6 @@ export async function execCommand(
 			}
 		}
 
-		// Handle timeout
 		if (options?.timeout && options.timeout > 0) {
 			timeoutId = setTimeout(() => {
 				killProcess("timeout");
