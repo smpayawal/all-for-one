@@ -40,6 +40,16 @@ export function getToolActionTarget(toolName: string, args: unknown): string | u
 	return getString(record, "url");
 }
 
+/** Return one stable target only when every targeted action refers to the same value. */
+export function getExecutionGroupTarget(actions: readonly ToolActionSummaryData[]): string | undefined {
+	const targets = actions
+		.map((action) => getToolActionTarget(action.toolName, action.args))
+		.filter((target): target is string => target !== undefined);
+	if (targets.length === 0) return undefined;
+	const first = targets[0];
+	return targets.every((target) => target === first) ? first : undefined;
+}
+
 export function formatToolActionName(toolName: string): string {
 	const normalized = toolName.replace(/[_-]+/g, " ").trim();
 	if (!normalized) return "Tool";
@@ -51,12 +61,15 @@ function getStatusColor(status: ToolActionStatus): ThemeColor {
 		case "failure":
 			return "error";
 		case "warning":
-		case "cancelled":
 			return "warning";
+		case "cancelled":
+			return "muted";
 		case "running":
-		case "success":
 			return "accent";
+		case "success":
+			return "success";
 		case "pending":
+			return "dim";
 		case "unknown":
 			return "muted";
 	}
@@ -86,7 +99,7 @@ export function formatToolActionSummary(action: ToolActionSummaryData, width: nu
 	const targetWidth = normalizedWidth - visibleWidth(plainPrefix) - visibleWidth(separator);
 	if (targetWidth <= 0) return padToWidth(styledPrefix, normalizedWidth);
 
-	const styledTarget = theme.fg("muted", target);
+	const styledTarget = theme.fg("mdLink", target);
 	return padToWidth(`${styledPrefix}${separator}${truncateToWidth(styledTarget, targetWidth, "")}`, normalizedWidth);
 }
 
