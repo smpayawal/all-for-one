@@ -1,6 +1,6 @@
 import type { InlineExtension } from "../core/extensions/types.ts";
 import llamaExtension from "./llama/index.ts";
-import repoMapExtension from "./repo-map/index.ts";
+import repoMapExtension from "./repo-map/bounded.ts";
 import validationExtension from "./validate/index.ts";
 
 export const builtInExtensions: InlineExtension[] = [
