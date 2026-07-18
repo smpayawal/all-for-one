@@ -1,10 +1,12 @@
 name: Validation red and format diagnostic
 
 on:
-  push:
-    branches: [fix/validation-release-hardening]
+  pull_request:
+    branches: [allforone]
     paths:
       - .github/workflows/validation-red-format.yml
+      - packages/coding-agent/test/validation-commands.test.ts
+      - packages/coding-agent/test/validate-freshness.test.ts
 
 permissions:
   contents: read
@@ -17,7 +19,7 @@ jobs:
       - name: Checkout exact head
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
