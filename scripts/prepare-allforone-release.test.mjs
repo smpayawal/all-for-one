@@ -5,9 +5,11 @@ import { join } from "node:path";
 import test from "node:test";
 import {
 	archiveUnreleasedChanges,
+	extractProductVersion,
 	inspectPreparedRelease,
 	isPrereleaseVersion,
 	prepareAllForOneRelease,
+	updateProductVersion,
 	validateAllForOneVersion,
 } from "./prepare-allforone-release.mjs";
 
@@ -22,7 +24,7 @@ function createFixture(t) {
 	);
 	writeFileSync(
 		join(root, "packages/coding-agent/src/allforone/product.ts"),
-		'export const PRODUCT = {\n\tname: "All-For-One",\n\tversion: "0.1.0",\n} as const;\n',
+		'export const PRODUCT = {\n\tname: "All-For-One",\n\tversion: "0.1.0",\n\tupstream: {\n\t\tname: "Pi",\n\t\tversion: "0.80.10",\n\t},\n} as const;\n',
 	);
 	writeFileSync(
 		join(root, "CHANGELOG-AFO.md"),
@@ -37,6 +39,14 @@ test("validates stable and prerelease versions", () => {
 	assert.equal(isPrereleaseVersion("0.1.0"), false);
 	assert.equal(isPrereleaseVersion("0.1.0-rc.1"), true);
 	assert.throws(() => validateAllForOneVersion("release-1"), /Expected semantic versioning/);
+});
+
+test("targets the All-For-One version without changing the nested Pi baseline", () => {
+	const source = 'export const PRODUCT = {\n\tversion: "0.1.0",\n\tupstream: {\n\t\tversion: "0.80.10",\n\t},\n} as const;\n';
+	assert.equal(extractProductVersion(source), "0.1.0");
+	const updated = updateProductVersion(source, "0.1.0-rc.1");
+	assert.match(updated, /^\tversion: "0\.1\.0-rc\.1",$/m);
+	assert.match(updated, /^\t\tversion: "0\.80\.10",$/m);
 });
 
 test("archives unreleased changes into a dated version section", () => {
@@ -58,7 +68,8 @@ test("prepares and verifies a prerelease without changing Pi package versions", 
 	assert.equal(packageJson.version, "0.1.0-rc.1");
 	assert.equal(lockfile.version, "0.1.0-rc.1");
 	assert.equal(lockfile.packages[""].version, "0.1.0-rc.1");
-	assert.match(product, /version: "0\.1\.0-rc\.1"/);
+	assert.match(product, /^\tversion: "0\.1\.0-rc\.1",$/m);
+	assert.match(product, /^\t\tversion: "0\.80\.10",$/m);
 
 	const inspected = inspectPreparedRelease(root, "0.1.0-rc.1");
 	assert.equal(inspected.prerelease, true);
