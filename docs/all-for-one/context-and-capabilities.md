@@ -31,6 +31,14 @@ Project instructions are loaded from the global file and ancestor chain at start
 
 The first mutation that discovers a new scope is retried after the scope is active. Read-only discovery can add the scope without that mutation retry. Paths outside the project root are rejected with a warning and are not loaded.
 
+## Adaptive repository orientation
+
+All-For-One includes a hidden repository-map extension in `auto` mode. It does not register a model-callable tool and performs no repository scan or prompt injection for narrow tasks. Strong deterministic signals such as whole-repository architecture analysis, cross-package tracing, broad branch review, or implementation discovery can activate one bounded, read-only orientation message for the next model request. During an initially narrow investigation, the same capability can activate after bounded cross-area exploration shows that no stable mutation target has been found.
+
+Activation uses the current prompt and existing tool activity only; it does not call another model. Generation is limited to fixed `git` argv calls, at most 2,000 tracked paths considered, 200 ranked candidates, 30 represented files, 8 locally extracted symbol names per file, and 6,000 rendered characters. Source bodies are not copied into the map. Project trust is required, filesystem reads reject symlinks and paths outside the canonical workspace, failures fall back to normal Pi behavior, and the generated message is temporary rather than session-persistent.
+
+Use `/repo-map auto`, `/repo-map once`, `/repo-map off`, `/repo-map status`, and `/repo-map show` to inspect or override the behavior. `status` explains activation, skip, error, cache, and size state. `once` forces consideration on the next model request but still respects project trust and repository availability. The default active model tools remain unchanged.
+
 ## Skills
 
 Skill bodies remain on-demand. The package now ships five dependency-free first-party skills: `repository-orientation`, `systematic-debugging`, and `verify-before-completion` are available to the model by metadata; `plan-complex-change` and `review-diff` are manual-only. Model-visible metadata keeps the existing character budget, deterministic deduplication, compact fallback, and omitted-skill diagnostics. `--no-skills` disables the bundled set along with other discovered skills.
