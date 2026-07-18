@@ -5,11 +5,15 @@ import {
 	extractReleaseChanges,
 	extractUnreleasedChanges,
 	parseAllForOneReleaseTag,
+	readAllForOneReleaseMetadata,
 	RELEASE_ASSETS,
 	validateAllForOneRelease,
 } from "./allforone-release.mjs";
 
 const commit = "a".repeat(40);
+const currentMetadata = readAllForOneReleaseMetadata();
+const currentTag = `afo-v${currentMetadata.version}`;
+const mismatchedTag = currentMetadata.version === "9.9.9" ? "afo-v9.9.8" : "afo-v9.9.9";
 
 test("parses the dedicated All-For-One tag namespace", () => {
 	assert.equal(parseAllForOneReleaseTag("afo-v0.1.0"), "0.1.0");
@@ -18,14 +22,14 @@ test("parses the dedicated All-For-One tag namespace", () => {
 	assert.throws(() => parseAllForOneReleaseTag("afo-0.1.0"), /Expected afo-v<semver>/);
 });
 
-test("requires the tag version to match the standalone product version", () => {
-	const metadata = validateAllForOneRelease("afo-v0.1.0");
+test("requires the tag version to match the current standalone product version", () => {
+	const metadata = validateAllForOneRelease(currentTag);
 	assert.equal(metadata.product, "All-For-One");
-	assert.equal(metadata.version, "0.1.0");
-	assert.equal(metadata.prerelease, false);
+	assert.equal(metadata.version, currentMetadata.version);
+	assert.equal(metadata.prerelease, currentMetadata.prerelease);
 	assert.equal(metadata.piBaseline, "0.80.10");
 	assert.deepEqual(metadata.commands, ["allforone", "afo", "pi"]);
-	assert.throws(() => validateAllForOneRelease("afo-v0.2.0"), /does not match All-For-One version/);
+	assert.throws(() => validateAllForOneRelease(mismatchedTag), /does not match All-For-One version/);
 });
 
 test("extracts only the unreleased All-For-One changes", () => {
@@ -41,23 +45,23 @@ test("prefers the matching versioned changelog section", () => {
 	assert.equal(extractReleaseChanges(changelog, "0.2.0"), "- Next.");
 });
 
-test("creates source-backed release notes and a complete manifest", () => {
-	const { manifest, notes } = createAllForOneReleaseFiles({ tag: "afo-v0.1.0", commit });
+test("creates source-backed release notes and a complete manifest for the current version", () => {
+	const { manifest, notes } = createAllForOneReleaseFiles({ tag: currentTag, commit });
 	assert.equal(manifest.schemaVersion, 2);
 	assert.equal(manifest.product, "All-For-One");
-	assert.equal(manifest.version, "0.1.0");
-	assert.equal(manifest.prerelease, false);
+	assert.equal(manifest.version, currentMetadata.version);
+	assert.equal(manifest.prerelease, currentMetadata.prerelease);
 	assert.equal(manifest.piBaseline, "0.80.10");
 	assert.equal(manifest.commit, commit);
 	assert.deepEqual(manifest.assets.slice(0, RELEASE_ASSETS.length), RELEASE_ASSETS);
-	assert.match(notes, /All-For-One 0\.1\.0/);
+	assert.ok(notes.includes(`All-For-One ${currentMetadata.version}`));
 	assert.match(notes, /Pi compatibility baseline: 0\.80\.10/);
 	assert.match(notes, new RegExp(`Source commit: ${commit}`));
 });
 
 test("rejects non-SHA release commits", () => {
 	assert.throws(
-		() => createAllForOneReleaseFiles({ tag: "afo-v0.1.0", commit: "main" }),
+		() => createAllForOneReleaseFiles({ tag: currentTag, commit: "main" }),
 		/Invalid release commit/,
 	);
 });
