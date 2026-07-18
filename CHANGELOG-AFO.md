@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Clarified the downstream release process and required merge-commit handling for `sync/pi-*` pull requests.
 - Marked the Pi-compatible workspace packages private in the All-For-One branch and formalized GitHub Releases as the downstream distribution path.
 - Moved product identity and presentation helpers behind the All-For-One-owned `src/allforone` boundary.
 - Updated repository and package metadata to identify All-For-One as the maintained downstream project.
