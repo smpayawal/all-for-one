@@ -16,7 +16,7 @@ The main coding-agent runtime keeps Pi's adaptive single-agent design. It does n
 
 The current `allforone` branch adds or records:
 
-- a canonical default active tool set: `read`, `bash`, `edit`, `write`, and `apply_patch`;
+- a canonical five-tool coding registry with a four-tool default active set: `read`, `bash`, `edit`, and `write`; `apply_patch` remains available through the patch/full profiles or explicit configuration;
 - bounded context and skill diagnostics, including path-scoped instruction handling;
 - `apply_patch` mutation safeguards with concurrent-change detection and best-effort rollback;
 - context and execution-integrity checks plus in-memory compaction telemetry;
