@@ -280,7 +280,10 @@ export function createLazyValidationCommandDiscovery(
 	load: () => ValidationCommandDiscovery,
 ): ValidationCommandDiscovery {
 	let resolved: ValidationCommandDiscovery | undefined;
-	const getResolved = (): ValidationCommandDiscovery => (resolved ??= load());
+	const getResolved = (): ValidationCommandDiscovery => {
+		if (resolved === undefined) resolved = load();
+		return resolved;
+	};
 	return {
 		get ecosystems() {
 			return getResolved().ecosystems;
