@@ -17,7 +17,12 @@ export interface ValidationExecutionProvenance {
 
 export interface ValidationCommand {
 	kind: ValidationCommandKind;
+	/** Human-readable command retained for compatibility and display. */
 	command: string;
+	/** Executable passed directly to spawn without shell parsing. */
+	program: string;
+	/** Arguments passed directly to the executable. */
+	args: string[];
 	confidence: ValidationCommandConfidence;
 	source: string;
 }
@@ -78,6 +83,23 @@ function readText(path: string): string | undefined {
 	}
 }
 
+function createValidationCommand(
+	kind: ValidationCommandKind,
+	program: string,
+	args: string[],
+	confidence: ValidationCommandConfidence,
+	source: string,
+): ValidationCommand {
+	return {
+		kind,
+		command: [program, ...args].join(" "),
+		program,
+		args,
+		confidence,
+		source,
+	};
+}
+
 function addCommand(commands: ValidationCommand[], command: ValidationCommand): void {
 	if (!commands.some((existing) => existing.command === command.command)) {
 		commands.push(command);
@@ -105,13 +127,13 @@ function detectPackageManagers(cwd: string, packageManagerField: unknown): NodeP
 	return PACKAGE_MANAGER_ORDER.filter((manager) => managers.has(manager));
 }
 
-function nodeScriptCommand(manager: NodePackageManager, script: string): string {
+function nodeScriptInvocation(manager: NodePackageManager, script: string): { program: string; args: string[] } {
 	if (script === "test") {
-		if (manager === "npm") return "npm test";
-		if (manager === "bun") return "bun run test";
-		return `${manager} test`;
+		if (manager === "npm") return { program: "npm", args: ["test"] };
+		if (manager === "bun") return { program: "bun", args: ["run", "test"] };
+		return { program: manager, args: ["test"] };
 	}
-	return `${manager} run ${script}`;
+	return { program: manager, args: ["run", script] };
 }
 
 function discoverNode(
@@ -149,12 +171,11 @@ function discoverNode(
 		if (!script) continue;
 		const body = scripts[script] as string;
 		if (script === "test" && /Error: no test specified/i.test(body)) continue;
-		addCommand(commands, {
-			kind,
-			command: nodeScriptCommand(packageManager, script),
-			confidence: "verified",
-			source: `package.json#scripts.${script}`,
-		});
+		const invocation = nodeScriptInvocation(packageManager, script);
+		addCommand(
+			commands,
+			createValidationCommand(kind, invocation.program, invocation.args, "verified", `package.json#scripts.${script}`),
+		);
 	}
 
 	return { packageManager, packageManagers };
@@ -168,36 +189,43 @@ function discoverPython(cwd: string, ecosystems: string[], commands: ValidationC
 	const pyproject = readText(join(cwd, "pyproject.toml")) ?? "";
 	const requirements = readText(join(cwd, "requirements.txt")) ?? "";
 	if (/^\[tool\.mypy(?:\.|\])/m.test(pyproject) || /^mypy(?:\W|$)/im.test(requirements)) {
-		addCommand(commands, {
-			kind: "typecheck",
-			command: "python -m mypy .",
-			confidence: "inferred",
-			source: pyproject.includes("[tool.mypy") ? "pyproject.toml" : "requirements.txt",
-		});
+		addCommand(
+			commands,
+			createValidationCommand(
+				"typecheck",
+				"python",
+				["-m", "mypy", "."],
+				"inferred",
+				pyproject.includes("[tool.mypy") ? "pyproject.toml" : "requirements.txt",
+			),
+		);
 	}
 	if (/^\[tool\.ruff(?:\.|\])/m.test(pyproject) || /^ruff(?:\W|$)/im.test(requirements)) {
-		addCommand(commands, {
-			kind: "lint",
-			command: "python -m ruff check .",
-			confidence: "inferred",
-			source: pyproject.includes("[tool.ruff") ? "pyproject.toml" : "requirements.txt",
-		});
+		addCommand(
+			commands,
+			createValidationCommand(
+				"lint",
+				"python",
+				["-m", "ruff", "check", "."],
+				"inferred",
+				pyproject.includes("[tool.ruff") ? "pyproject.toml" : "requirements.txt",
+			),
+		);
 	}
 	if (/^\[tool\.pytest(?:\.|\])/m.test(pyproject) || /^pytest(?:\W|$)/im.test(requirements)) {
-		addCommand(commands, {
-			kind: "test",
-			command: "python -m pytest",
-			confidence: "inferred",
-			source: pyproject.includes("[tool.pytest") ? "pyproject.toml" : "requirements.txt",
-		});
+		addCommand(
+			commands,
+			createValidationCommand(
+				"test",
+				"python",
+				["-m", "pytest"],
+				"inferred",
+				pyproject.includes("[tool.pytest") ? "pyproject.toml" : "requirements.txt",
+			),
+		);
 	}
 	if (existsSync(join(cwd, "tox.ini"))) {
-		addCommand(commands, {
-			kind: "test",
-			command: "python -m tox",
-			confidence: "inferred",
-			source: "tox.ini",
-		});
+		addCommand(commands, createValidationCommand("test", "python", ["-m", "tox"], "inferred", "tox.ini"));
 	}
 }
 
@@ -205,13 +233,13 @@ function discoverRustAndGo(cwd: string, ecosystems: string[], commands: Validati
 	if (existsSync(join(cwd, "Cargo.toml"))) {
 		ecosystems.push("rust");
 		commands.push(
-			{ kind: "check", command: "cargo check", confidence: "inferred", source: "Cargo.toml" },
-			{ kind: "test", command: "cargo test", confidence: "inferred", source: "Cargo.toml" },
+			createValidationCommand("check", "cargo", ["check"], "inferred", "Cargo.toml"),
+			createValidationCommand("test", "cargo", ["test"], "inferred", "Cargo.toml"),
 		);
 	}
 	if (existsSync(join(cwd, "go.mod"))) {
 		ecosystems.push("go");
-		commands.push({ kind: "test", command: "go test ./...", confidence: "inferred", source: "go.mod" });
+		commands.push(createValidationCommand("test", "go", ["test", "./..."], "inferred", "go.mod"));
 	}
 }
 
@@ -224,12 +252,7 @@ function discoverMake(cwd: string, ecosystems: string[], commands: ValidationCom
 			new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:`, "m").test(makefile),
 		);
 		if (!target) continue;
-		addCommand(commands, {
-			kind,
-			command: `make ${target}`,
-			confidence: "verified",
-			source: `Makefile#${target}`,
-		});
+		addCommand(commands, createValidationCommand(kind, "make", [target], "verified", `Makefile#${target}`));
 	}
 }
 
@@ -294,7 +317,14 @@ export function fingerprintValidationCommandDiscovery(discovery: ValidationComma
 		packageManager: discovery.packageManager,
 		packageManagers: discovery.packageManagers ? [...discovery.packageManagers].sort() : undefined,
 		commands: discovery.commands
-			.map(({ kind, command, confidence, source }) => ({ kind, command, confidence, source }))
+			.map(({ kind, command, program, args, confidence, source }) => ({
+				kind,
+				command,
+				program,
+				args,
+				confidence,
+				source,
+			}))
 			.sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
 	});
 }
