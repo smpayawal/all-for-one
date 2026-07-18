@@ -1,41 +1,57 @@
-# All-For-One
-
 <p align="center">
   <img src="packages/coding-agent/src/modes/interactive/assets/all-for-one.png" alt="All-For-One logo" width="180">
 </p>
 
-All-For-One is a lightweight coding harness based on Pi. It preserves Pi's provider, agent runtime, terminal UI, session, SDK, and extension architecture while adding focused changes for context handling, execution integrity, validation, and maintainability.
+# All-For-One
 
-## Overview
+*A personal Pi fork with focused coding-workflow changes.*
 
-All-For-One is an independent downstream project. [Pi](https://github.com/earendil-works/pi) remains the upstream project, and All-For-One is not presented as the official Pi distribution. Native Pi package boundaries, compatibility identifiers, and command behavior are intentionally retained, including the `pi` CLI, `.pi` configuration directory, `PI_*` environment variables, session formats, extension interfaces, and SDK exports.
+All-For-One is a personal fork of [Pi](https://github.com/earendil-works/pi). It keeps Pi's lightweight, terminal-first, single-agent design while adding a small set of changes for my own development workflow.
 
-The main coding-agent runtime keeps Pi's adaptive single-agent design. It does not require a general orchestration layer or workflow engine.
+The fork preserves Pi's `pi` command, `.pi` configuration directory, package names, sessions, extensions, SDK, and RPC interfaces.
 
 ## Changes from Pi
 
-The current `allforone` branch adds or records:
+All-For-One currently includes:
 
-- a canonical five-tool coding registry with a four-tool default active set: `read`, `bash`, `edit`, and `write`; `apply_patch` remains available through the patch/full profiles or explicit configuration;
-- bounded context and skill diagnostics, including path-scoped instruction handling;
-- `apply_patch` mutation safeguards with concurrent-change detection and best-effort rollback;
-- context and execution-integrity checks plus in-memory compaction telemetry;
-- offline baseline, doctor, and evaluator commands, with a read-only upstream relationship check; and
-- focused branch CI and validation documentation.
+- All-For-One branding and a responsive session rail for activity, tools, loaded context, and skills.
+- Native, patch, and full tool profiles, with `edit` as the default existing-file mutation path and `apply_patch` available when selected.
+- Path-scoped project instructions, project-specific local memory, bundled coding skills, and bounded repository orientation.
+- Optional repository-grounded validation, execution safeguards, compaction diagnostics, and offline maintenance reports.
+- Dedicated CI and upstream relationship checks for the `allforone` branch.
 
-These are repository-level capabilities and diagnostics. No measured quality, latency, token, cost, or performance improvement is claimed from them. Enforcement remains opt-in where documented. Detailed internal engineering notes and evaluation records are intentionally maintained outside this public repository.
+The project remains close to Pi and avoids introducing a separate workflow engine or permanent agent hierarchy.
 
-## Packages
+## Relationship to Pi
 
-The native Pi package names and boundaries are retained:
+[Pi](https://github.com/earendil-works/pi) is the upstream project and remains the primary reference for general usage, configuration, providers, extensions, skills, and themes.
 
-| Package | Description |
-|---------|-------------|
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding-agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
-| **[@earendil-works/pi-orchestrator](packages/orchestrator)** | Experimental orchestration package |
+This repository uses the following branch structure:
+
+- `main` tracks upstream Pi.
+- `allforone` contains the All-For-One changes.
+- Focused development branches start from `allforone`.
+
+## Run from source
+
+All-For-One requires Node.js 22.19 or later.
+
+```bash
+git clone https://github.com/smpayawal/all-for-one.git
+cd all-for-one
+
+npm install --ignore-scripts
+npm run build
+./pi-test.sh
+```
+
+On Windows, run the built CLI directly:
+
+```bash
+node packages/coding-agent/dist/cli.js
+```
+
+Provider authentication, model configuration, settings, and customization follow the standard [Pi documentation](https://pi.dev/docs/latest).
 
 ## Development
 
@@ -46,25 +62,16 @@ npm install --ignore-scripts
 npm run build
 npm run check
 ./test.sh
-./pi-test.sh
 ```
 
-`./pi-test.sh` runs the `pi` CLI from source. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and [AGENTS.md](AGENTS.md) for repository rules.
-
-## Upstream compatibility
-
-The branch relationship is:
-
-```text
-upstream Pi -> main -> allforone -> focused work branches
-```
-
-`main` remains the clean local mirror of upstream Pi. `allforone` is the official All-For-One development and integration branch. Focused branches start from `allforone` and return to it; All-For-One changes do not belong on `main`, and the published `allforone` history is not rewritten.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance and [AGENTS.md](AGENTS.md) for repository-specific development rules.
 
 ## Security
 
-All-For-One runs locally with the permissions of the current user. Approval prompts authorize actions but are not a security sandbox. Use a container, virtual machine, or other sandbox for stronger isolation. See [SECURITY.md](SECURITY.md) and the [containerization guide](packages/coding-agent/docs/containerization.md).
+All-For-One runs with the permissions of the user who starts it. Approval prompts authorize actions but do not provide security isolation.
+
+Use a container, virtual machine, or another sandbox when stronger boundaries are required. See [SECURITY.md](SECURITY.md) and Pi's [containerization guide](packages/coding-agent/docs/containerization.md).
 
 ## License
 
-All-For-One is derived from Pi and is distributed under the MIT License. See [LICENSE](LICENSE).
+All-For-One is derived from Pi and is distributed under the [MIT License](LICENSE).
