@@ -8,6 +8,7 @@ The relationship check reports `main` as an ancestor of `allforone`; use it for 
 |-------|---------------|------------------|
 | Upstream-sensitive runtime | `packages/agent/src/agent-loop.ts`, `agent.ts`, `types.ts`, `runtime-error.ts`, and their tests | Compare against `main` before upstream sync. Avoid adding coding-agent policy here unless the shared lifecycle contract cannot express it. |
 | Coding-agent hardening | `packages/coding-agent/src/core/agent-session.ts`, compaction, execution-integrity, scoped-context, memory, resource loading, mutation tools, and focused tests | Keep behavior bounded and evidence-driven. Prefer coding-agent-local seams over expanding the agent loop. |
+| Process lifecycle seam | `packages/coding-agent/src/core/exec.ts`, `packages/coding-agent/src/core/tools/bash.ts`, `packages/coding-agent/src/utils/shell.ts`, and process-focused tests | Keep cancellation, timeout, helper latency, output retention, and descendant cleanup bounded. Review these files separately during every upstream sync. |
 | Current profile seam | `packages/coding-agent/src/core/coding-model-profile.ts`, settings, CLI, SDK, prompt, tool registry, and focused tests | Keep one canonical registry; profiles select active built-ins and execution mode. No provider prompt rules or second registry. |
 | Product/UI identity | interactive components, branding assets, export templates, README, and release-facing docs | Preserve the All-For-One identity without changing Native Pi lifecycle contracts. |
 | Governance and diagnostics | `.github/workflows/allforone-ci.yml`, `scripts/allforone-*`, upstream verifier, security and validation docs | Keep checks read-only, deterministic, and distinct from production runtime behavior. |
@@ -21,6 +22,7 @@ Before an upstream update, inspect the exact changed hot files and run:
 node scripts/check-upstream-relationship.mjs --main origin/main --json
 git diff --stat main...allforone
 git diff -- packages/agent packages/coding-agent/src/core/agent-session.ts
+git diff -- packages/coding-agent/src/core/exec.ts packages/coding-agent/src/core/tools/bash.ts packages/coding-agent/src/utils/shell.ts
 ```
 
 The expected maintenance direction is `main -> allforone -> focused branch/PR`. A sync review should classify new upstream conflicts by the table above, preserve the permanent integration branch, and keep optional All-For-One behavior outside the shared agent loop wherever a coding-agent seam is sufficient.
@@ -29,7 +31,7 @@ The expected maintenance direction is `main -> allforone -> focused branch/PR`. 
 
 Normal implementation work starts from the latest `allforone` on a focused branch such as `fix/runtime-release-hardening`, then targets a pull request back to `allforone`. Direct commits to `allforone` are exceptional; `main` remains the clean upstream mirror and is never the destination for All-For-One changes. Published branch history is not rewritten, and synchronization from `main` is reviewed separately from feature work.
 
-`.github/workflows/allforone-ci.yml` checks out `github.event.pull_request.head.sha` for pull requests and `github.sha` for pushes, then verifies the checked-out `HEAD` before building or testing. A green workflow therefore applies only to that exact immutable commit. Release, compatibility, or production-readiness claims must name the same commit and its complete required gate; no claim transfers to a later moving branch head automatically.
+`.github/workflows/allforone-ci.yml` checks out `github.event.pull_request.head.sha` for pull requests and `github.sha` for pushes, then verifies the checked-out `HEAD` before building or testing. For pull requests, it also verifies that the head contains the current `allforone` base. A green workflow therefore applies only to that exact immutable commit and current base relationship. Release, compatibility, or production-readiness claims must name the same commit and its complete required gate; no claim transfers to a later moving branch head automatically.
 
 ## Upstream hot-file freeze
 
@@ -44,6 +46,9 @@ The current upstream-hot-file list is intentionally explicit:
 - `packages/coding-agent/src/core/extensions/types.ts`
 - `packages/coding-agent/src/core/compaction/`
 - `packages/coding-agent/src/core/execution-integrity.ts`
+- `packages/coding-agent/src/core/exec.ts`
+- `packages/coding-agent/src/core/tools/bash.ts`
+- `packages/coding-agent/src/utils/shell.ts`
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
 
 After every synchronization from `main`, review the net downstream diff for these paths, classify each conflict or behavior change, and record any compatibility decision in the synchronization PR. The `main`-push drift workflow at `.github/workflows/allforone-upstream-drift.yml` is a read-only early warning; it does not merge or modify either branch.
