@@ -96,8 +96,8 @@ function createCompactionBoundaryPayload(cwd) {
 	if (start < 0 || end < 0) throw new Error("validated compaction policy block markers not found");
 	content = content.slice(0, start) + content.slice(end);
 	if (content.includes("REPAIRABLE_COMPACTION_ISSUES")) throw new Error("repair policy remained in AgentSession");
-	if (content.split("compactWithValidationAndRepair(").length !== 2) {
-		throw new Error("expected exactly one imported compaction call to remain");
+	if (!content.includes("compactWithValidationAndRepair(")) {
+		throw new Error("expected imported compaction call sites to remain");
 	}
 	const encoded = Buffer.from(content, "utf8").toString("base64");
 	const chunks = [];
