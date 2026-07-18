@@ -41,11 +41,11 @@ describe("validation executable identity", () => {
 			platform,
 		});
 
+		if (result.status !== "resolved") throw new Error("Expected the executable to resolve");
 		expect(result).toMatchObject({
-			status: "resolved",
 			workspaceLocal: false,
 		});
-		expect(result?.canonicalPath).toBe(realpathSync(executable));
+		expect(result.canonicalPath).toBe(realpathSync(executable));
 	});
 
 	it.each(["linux", "win32"] as const)("detects a workspace-local shadow executable on %s", (platform) => {
