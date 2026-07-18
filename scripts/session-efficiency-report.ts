@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 interface SessionReportOptions {
@@ -16,7 +16,7 @@ interface ToolMetric {
 }
 
 export interface SessionEfficiencyReport {
-	schemaVersion: 1;
+	schemaVersion: 2;
 	session: {
 		version: number | null;
 		model: { provider: string; modelId: string } | null;
@@ -46,6 +46,10 @@ export interface SessionEfficiencyReport {
 		compactions: number;
 		cancellations: number;
 		timeouts: number;
+	};
+	heuristics: {
+		cancellationTextMentions: number;
+		timeoutTextMentions: number;
 	};
 	quality: {
 		malformedLines: number;
@@ -149,6 +153,31 @@ function getTruncation(details: JsonObject | null): { truncated: boolean; fullOu
 	};
 }
 
+function getStructuredTermination(
+	message: JsonObject,
+	details: JsonObject | null,
+): "cancellation" | "timeout" | null {
+	const execution = asObject(details?.execution);
+	const result = asObject(details?.result);
+	const candidates = [
+		message.termination,
+		message.terminationKind,
+		details?.termination,
+		details?.terminationKind,
+		execution?.termination,
+		execution?.terminationKind,
+		result?.termination,
+		result?.terminationKind,
+	];
+	for (const candidate of candidates) {
+		const normalized = asString(candidate)?.toLowerCase();
+		if (!normalized) continue;
+		if (normalized === "timeout" || normalized === "timed-out" || normalized === "timed_out") return "timeout";
+		if (["abort", "aborted", "cancel", "canceled", "cancelled"].includes(normalized)) return "cancellation";
+	}
+	return null;
+}
+
 function getToolResultName(message: JsonObject, pendingCalls: Map<string, PendingToolCall>): string | null {
 	const direct = asString(message.toolName) ?? asString(message.name);
 	if (direct) return direct;
@@ -171,7 +200,7 @@ function sortedToolMetrics(metrics: Map<string, ToolMetric>): Record<string, Too
 	return Object.fromEntries([...metrics.entries()].sort(([left], [right]) => left.localeCompare(right)));
 }
 
-export function analyzeSessionContent(content: string, options: SessionReportOptions = {}): SessionEfficiencyReport {
+function analyzeSessionLines(lines: Iterable<string>, options: SessionReportOptions = {}): SessionEfficiencyReport {
 	let sessionVersion: number | null = null;
 	let model: { provider: string; modelId: string } | null = null;
 	let thinkingLevel: string | null = null;
@@ -193,6 +222,8 @@ export function analyzeSessionContent(content: string, options: SessionReportOpt
 	let compactions = 0;
 	let cancellations = 0;
 	let timeouts = 0;
+	let cancellationTextMentions = 0;
+	let timeoutTextMentions = 0;
 	let inputTokens: number | null = null;
 	let outputTokens: number | null = null;
 	let cacheReadTokens: number | null = null;
@@ -204,7 +235,7 @@ export function analyzeSessionContent(content: string, options: SessionReportOpt
 	const fullOutputOwners = new Set<string>();
 	const toolMetrics = new Map<string, ToolMetric>();
 
-	for (const line of content.split(/\r?\n/u)) {
+	for (const line of lines) {
 		if (!line.trim()) continue;
 		let parsed: unknown;
 		try {
@@ -319,8 +350,11 @@ export function analyzeSessionContent(content: string, options: SessionReportOpt
 			const path = asString(details?.fullOutputPath)?.replaceAll("\\", "/");
 			if (path) fullOutputOwners.add(path);
 		}
-		if (/cancel(?:led|ed)/iu.test(text)) cancellations += 1;
-		if (/timed?\s*out|timeout/iu.test(text)) timeouts += 1;
+		const termination = getStructuredTermination(message, details);
+		if (termination === "cancellation") cancellations += 1;
+		if (termination === "timeout") timeouts += 1;
+		if (/cancel(?:led|ed)/iu.test(text)) cancellationTextMentions += 1;
+		if (/timed?\s*out|timeout/iu.test(text)) timeoutTextMentions += 1;
 	}
 
 	if (totalTokens === null && (inputTokens !== null || outputTokens !== null)) {
@@ -328,7 +362,7 @@ export function analyzeSessionContent(content: string, options: SessionReportOpt
 	}
 
 	const report: SessionEfficiencyReport = {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		session: {
 			version: sessionVersion,
 			model,
@@ -353,10 +387,44 @@ export function analyzeSessionContent(content: string, options: SessionReportOpt
 			cancellations,
 			timeouts,
 		},
+		heuristics: { cancellationTextMentions, timeoutTextMentions },
 		quality: { malformedLines, unmatchedToolResults },
 	};
 	if (options.includeToolBreakdown !== false) report.tools = sortedToolMetrics(toolMetrics);
 	return report;
+}
+
+function* readSessionLines(path: string): Generator<string> {
+	const descriptor = openSync(path, "r");
+	const buffer = Buffer.allocUnsafe(64 * 1_024);
+	const decoder = new TextDecoder("utf-8");
+	let carry = "";
+	try {
+		while (true) {
+			const bytesRead = readSync(descriptor, buffer, 0, buffer.length, null);
+			if (bytesRead === 0) break;
+			carry += decoder.decode(buffer.subarray(0, bytesRead), { stream: true });
+			let newline = carry.indexOf("\n");
+			while (newline >= 0) {
+				const rawLine = carry.slice(0, newline);
+				yield rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+				carry = carry.slice(newline + 1);
+				newline = carry.indexOf("\n");
+			}
+		}
+		carry += decoder.decode();
+		if (carry) yield carry.endsWith("\r") ? carry.slice(0, -1) : carry;
+	} finally {
+		closeSync(descriptor);
+	}
+}
+
+export function analyzeSessionContent(content: string, options: SessionReportOptions = {}): SessionEfficiencyReport {
+	return analyzeSessionLines(content.split(/\r?\n/u), options);
+}
+
+export function analyzeSessionFile(path: string, options: SessionReportOptions = {}): SessionEfficiencyReport {
+	return analyzeSessionLines(readSessionLines(path), options);
 }
 
 export function formatSessionEfficiencyReport(report: SessionEfficiencyReport): string {
@@ -376,9 +444,11 @@ export function formatSessionEfficiencyReport(report: SessionEfficiencyReport): 
 		`Validation calls: ${report.activity.validationCalls}`,
 		`Truncations: ${report.activity.truncations}; follow-up retrievals: ${report.activity.followUpRetrievals}`,
 		`Compactions: ${report.activity.compactions}`,
+		`Structured termination: ${report.activity.cancellations} cancellations, ${report.activity.timeouts} timeouts`,
+		`Text heuristics: ${report.heuristics.cancellationTextMentions} cancellation mentions, ${report.heuristics.timeoutTextMentions} timeout mentions`,
 		`Malformed lines skipped: ${report.quality.malformedLines}`,
 		"",
-		"This offline report uses recorded session evidence only. It does not estimate monetary cost or include prompt, response, file, or tool-output contents.",
+		"This offline report uses recorded session evidence only. Text-derived termination mentions are labeled as heuristics and are not counted as structured termination. It does not estimate monetary cost or include prompt, response, file, or tool-output contents.",
 	];
 	return lines.join("\n");
 }
@@ -400,7 +470,7 @@ export function runSessionEfficiencyCli(argv: readonly string[]): number {
 		return 2;
 	}
 	try {
-		const report = analyzeSessionContent(readFileSync(path, "utf8"));
+		const report = analyzeSessionFile(path);
 		console.log(json ? JSON.stringify(report, null, 2) : formatSessionEfficiencyReport(report));
 		return 0;
 	} catch (error) {
