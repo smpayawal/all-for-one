@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Container, Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { spawn } from "child_process";
+import { type ChildProcess, spawn } from "child_process";
 import { type Static, Type } from "typebox";
 import { keyHint } from "../../modes/interactive/components/keybinding-hints.ts";
 import { truncateToVisualLines } from "../../modes/interactive/components/visual-truncate.ts";
@@ -11,6 +11,7 @@ import { waitForChildProcess } from "../../utils/child-process.ts";
 import {
 	getShellConfig,
 	getShellEnv,
+	type ProcessTreeCleanupResult,
 	terminateProcessTreeAndWait,
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
@@ -30,6 +31,8 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult
 
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MS / 1000;
+const PROCESS_TREE_CLEANUP_DEADLINE_MS = 10_000;
+const PROCESS_EXIT_AFTER_CLEANUP_MS = 1_000;
 
 function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 	if (timeout === undefined) return undefined;
@@ -42,6 +45,88 @@ function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 		throw new Error(`Invalid timeout: maximum is ${MAX_TIMEOUT_SECONDS} seconds`);
 	}
 	return timeoutMs;
+}
+
+function appendCleanupError(result: ProcessTreeCleanupResult, message: string): ProcessTreeCleanupResult {
+	return {
+		...result,
+		completed: false,
+		verified: false,
+		error: [result.error, message].filter(Boolean).join("; "),
+	};
+}
+
+function awaitCleanupWithDeadline(
+	cleanupPromise: Promise<ProcessTreeCleanupResult>,
+): Promise<ProcessTreeCleanupResult> {
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = (result: ProcessTreeCleanupResult) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeoutId);
+			resolve(result);
+		};
+		const timeoutId = setTimeout(() => {
+			finish({
+				gracefulAttempted: true,
+				forceAttempted: true,
+				completed: false,
+				verified: false,
+				error: `Process-tree cleanup exceeded ${PROCESS_TREE_CLEANUP_DEADLINE_MS}ms.`,
+			});
+		}, PROCESS_TREE_CLEANUP_DEADLINE_MS);
+		cleanupPromise.then(finish, (error) => {
+			finish({
+				gracefulAttempted: true,
+				forceAttempted: true,
+				completed: false,
+				verified: false,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		});
+	});
+}
+
+function awaitChildExitWithDeadline(
+	childExitPromise: Promise<number | null>,
+	timeoutMs: number,
+): Promise<{ exited: boolean; exitCode: number | null }> {
+	return new Promise((resolve) => {
+		let settled = false;
+		const finish = (result: { exited: boolean; exitCode: number | null }) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timeoutId);
+			resolve(result);
+		};
+		const timeoutId = setTimeout(() => finish({ exited: false, exitCode: null }), timeoutMs);
+		childExitPromise.then(
+			(exitCode) => finish({ exited: true, exitCode }),
+			() => finish({ exited: true, exitCode: null }),
+		);
+	});
+}
+
+function detachUnresponsiveChild(child: ChildProcess): void {
+	child.stdout?.removeAllListeners();
+	child.stderr?.removeAllListeners();
+	child.removeAllListeners("error");
+	child.removeAllListeners("exit");
+	child.removeAllListeners("close");
+	child.stdout?.destroy();
+	child.stderr?.destroy();
+	child.unref();
+}
+
+function cleanupFailureSuffix(cleanup: ProcessTreeCleanupResult): string {
+	if (cleanup.completed) return "";
+	return `; process-tree cleanup incomplete${cleanup.error ? `: ${cleanup.error}` : ""}`;
+}
+
+function formatTerminationStatus(message: string, prefix: string, status: string): string {
+	const detail = message.slice(prefix.length).replace(/^;\s*/, "");
+	return detail ? `${status}\nCleanup warning: ${detail}` : status;
 }
 
 const bashSchema = Type.Object({
@@ -116,48 +201,89 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				child.stdin?.end(command);
 			}
 			if (child.pid) trackDetachedChildPid(child.pid);
+
 			let terminationKind: "aborted" | "timeout" | undefined;
-			let cleanupPromise: Promise<unknown> | undefined;
+			let cleanupPromise: Promise<ProcessTreeCleanupResult> | undefined;
+			let cleanupResult: ProcessTreeCleanupResult | undefined;
 			let timeoutHandle: NodeJS.Timeout | undefined;
+			let resolveTerminationRequested!: (kind: "aborted" | "timeout") => void;
+			const terminationRequested = new Promise<"aborted" | "timeout">((resolve) => {
+				resolveTerminationRequested = resolve;
+			});
+			const childExitPromise = waitForChildProcess(child);
+
 			const terminate = (kind: "aborted" | "timeout") => {
 				if (terminationKind) return;
 				terminationKind = kind;
-				if (child.pid) {
-					cleanupPromise = terminateProcessTreeAndWait(child.pid, { isolated: process.platform !== "win32" });
-				}
+				cleanupPromise = child.pid
+					? terminateProcessTreeAndWait(child.pid, { isolated: process.platform !== "win32" })
+					: Promise.resolve({
+							gracefulAttempted: false,
+							forceAttempted: false,
+							completed: false,
+							verified: false,
+							error: "Child process did not expose a process id.",
+						});
+				resolveTerminationRequested(kind);
 			};
 			const onAbort = () => {
 				terminate("aborted");
 			};
 
 			try {
-				// Set timeout if provided.
 				if (timeoutMs !== undefined) {
 					timeoutHandle = setTimeout(() => {
 						terminate("timeout");
 					}, timeoutMs);
 				}
-				// Stream stdout and stderr.
 				child.stdout?.on("data", onData);
 				child.stderr?.on("data", onData);
-				// Handle abort signal by killing the entire process tree.
 				if (signal) {
 					if (signal.aborted) onAbort();
 					else signal.addEventListener("abort", onAbort, { once: true });
 				}
-				// Handle shell spawn errors and wait for the process to terminate without hanging
-				// on inherited stdio handles held by detached descendants.
-				const exitCode = await waitForChildProcess(child);
-				if (cleanupPromise) await cleanupPromise;
-				if (terminationKind === "aborted" || (!terminationKind && signal?.aborted)) {
-					throw new Error("aborted");
+
+				const completion = await Promise.race([
+					childExitPromise.then((exitCode) => ({ kind: "completed" as const, exitCode })),
+					terminationRequested.then((kind) => ({ kind, exitCode: null })),
+				]);
+
+				if (completion.kind === "completed" && terminationKind === undefined) {
+					return { exitCode: completion.exitCode };
 				}
-				if (terminationKind === "timeout") {
-					throw new Error(`timeout:${timeout}`);
+
+				const effectiveKind: "aborted" | "timeout" =
+					completion.kind === "completed" ? (terminationKind as "aborted" | "timeout") : completion.kind;
+				cleanupResult = await awaitCleanupWithDeadline(
+					cleanupPromise ??
+						Promise.resolve({
+							gracefulAttempted: false,
+							forceAttempted: false,
+							completed: false,
+							verified: false,
+							error: "Process-tree cleanup did not start.",
+						}),
+				);
+				const childExit =
+					completion.kind === "completed"
+						? { exited: true, exitCode: completion.exitCode }
+						: await awaitChildExitWithDeadline(childExitPromise, PROCESS_EXIT_AFTER_CLEANUP_MS);
+				if (!childExit.exited) {
+					cleanupResult = appendCleanupError(
+						cleanupResult,
+						`Root process did not exit within ${PROCESS_EXIT_AFTER_CLEANUP_MS}ms after cleanup.`,
+					);
+					detachUnresponsiveChild(child);
 				}
-				return { exitCode };
+
+				if (effectiveKind === "aborted") {
+					throw new Error(`aborted${cleanupFailureSuffix(cleanupResult)}`);
+				}
+				throw new Error(`timeout:${timeout}${cleanupFailureSuffix(cleanupResult)}`);
 			} finally {
-				if (cleanupPromise) await cleanupPromise.catch(() => {});
+				if (cleanupPromise && cleanupResult === undefined) {
+					cleanupResult = await awaitCleanupWithDeadline(cleanupPromise).catch(() => undefined);
+				}
 				if (child.pid) untrackDetachedChildPid(child.pid);
 				if (timeoutHandle) clearTimeout(timeoutHandle);
 				if (signal) signal.removeEventListener("abort", onAbort);
@@ -372,8 +498,8 @@ export function createBashToolDefinition(
 			const scheduleOutputUpdate = () => {
 				if (!onUpdate) return;
 				updateDirty = true;
-				const delay = BASH_UPDATE_THROTTLE_MS - (Date.now() - lastUpdateAt);
-				if (delay <= 0) {
+				const delayMs = BASH_UPDATE_THROTTLE_MS - (Date.now() - lastUpdateAt);
+				if (delayMs <= 0) {
 					clearUpdateTimer();
 					emitOutputUpdate();
 					return;
@@ -381,7 +507,7 @@ export function createBashToolDefinition(
 				updateTimer ??= setTimeout(() => {
 					updateTimer = undefined;
 					emitOutputUpdate();
-				}, delay);
+				}, delayMs);
 			};
 
 			if (onUpdate) {
@@ -439,12 +565,25 @@ export function createBashToolDefinition(
 				} catch (err) {
 					const snapshot = await finishOutput();
 					const { text } = formatOutput(snapshot, "");
-					if (err instanceof Error && err.message === "aborted") {
-						throw new Error(appendStatus(text, "Command aborted"));
+					if (err instanceof Error && err.message.startsWith("aborted")) {
+						throw new Error(
+							appendStatus(text, formatTerminationStatus(err.message, "aborted", "Command aborted")),
+						);
 					}
 					if (err instanceof Error && err.message.startsWith("timeout:")) {
-						const timeoutSecs = err.message.split(":")[1];
-						throw new Error(appendStatus(text, `Command timed out after ${timeoutSecs} seconds`));
+						const remainder = err.message.slice("timeout:".length);
+						const separator = remainder.indexOf(";");
+						const timeoutSecs = separator === -1 ? remainder : remainder.slice(0, separator);
+						throw new Error(
+							appendStatus(
+								text,
+								formatTerminationStatus(
+									err.message,
+									`timeout:${timeoutSecs}`,
+									`Command timed out after ${timeoutSecs} seconds`,
+								),
+							),
+						);
 					}
 					throw err;
 				}
