@@ -59,12 +59,16 @@ describe("bounded process cleanup failure", () => {
 			onData: () => {},
 			timeout: 0.001,
 		});
+		const outcome = execution.then(
+			() => undefined,
+			(error: unknown) => error,
+		);
 		await Promise.resolve();
 		await Promise.resolve();
 
 		await vi.advanceTimersByTimeAsync(11_100);
 
-		const error = await execution.catch((value: unknown) => value);
+		const error = await outcome;
 		expect(error).toBeInstanceOf(Error);
 		expect((error as Error).message).toContain("timeout:0.001; process-tree cleanup incomplete");
 		expect((error as Error).message).toContain("cleanup exceeded 10000ms");
