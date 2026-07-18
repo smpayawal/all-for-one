@@ -22,7 +22,7 @@ describe("native coding skills", () => {
 		await loader.reload();
 		const bundled = loader
 			.getSkills()
-			.skills.filter((skill) => skill.filePath.includes("packages/coding-agent/skills/"));
+			.skills.filter((skill) => skill.filePath.replaceAll("\\", "/").includes("packages/coding-agent/skills/"));
 
 		expect(bundled.map((skill) => skill.name).sort()).toEqual([
 			"plan-complex-change",
