@@ -262,7 +262,7 @@ export async function execCommand(
 				);
 				detachUnresponsiveChild(proc);
 			}
-			settle(childExit.code, killReason, processTreeCleanup);
+			settle(childExit.code === 0 ? 1 : childExit.code, killReason, processTreeCleanup);
 		};
 
 		const killProcess = (reason: Exclude<ExecTermination, "completed" | "signal" | "error">) => {
