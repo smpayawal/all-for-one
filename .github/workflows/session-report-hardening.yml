@@ -1,4 +1,4 @@
-name: Session report evidence hardening
+name: Session report evidence hardening build
 
 on:
   pull_request:
