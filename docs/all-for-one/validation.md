@@ -79,7 +79,7 @@ npm run report:session -- <session.jsonl>
 npm run report:session -- <session.jsonl> --json
 ```
 
-The report reads the file offline and does not modify the session. It reports only recorded evidence such as model and thinking configuration, token counts when present, assistant turns, tool success and failure counts, repeated reads, mutation and validation calls, truncation, compaction, cancellation, timeout, and trustworthy timestamp duration.
+The report streams the JSONL file line by line offline and does not modify the session. It reports only recorded evidence such as model and thinking configuration, token counts when present, assistant turns, tool success and failure counts, repeated reads, mutation and validation calls, truncation, compaction, structured cancellation or timeout fields when present, and trustworthy timestamp duration. Text that merely mentions cancellation or timeout is reported separately as heuristic evidence and is not counted as structured termination.
 
 The report deliberately excludes prompt text, assistant text, file contents, tool-output contents, secrets, environment values, and monetary cost estimates. Missing evidence remains `null` or is described as not recorded; it is never inferred as a successful or zero-cost result.
 

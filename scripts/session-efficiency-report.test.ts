@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
 	analyzeSessionContent,
+	analyzeSessionFile,
 	formatSessionEfficiencyReport,
 	runSessionEfficiencyCli,
 } from "./session-efficiency-report.ts";
@@ -64,6 +65,7 @@ test("analyzes recorded session evidence without returning content", () => {
 				toolName: "bash",
 				isError: true,
 				content: [{ type: "text", text: "command timed out and was cancelled" }],
+				details: { termination: "timeout" },
 			},
 		}),
 		line({ type: "compaction", id: "compact", parentId: "result-2", timestamp: "2026-07-18T00:00:06.000Z", summary: "private summary", firstKeptEntryId: "assistant-1", tokensBefore: 1000 }),
@@ -71,6 +73,7 @@ test("analyzes recorded session evidence without returning content", () => {
 	].join("\n");
 
 	const report = analyzeSessionContent(content);
+	assert.equal(report.schemaVersion, 2);
 	assert.equal(report.session.version, 3);
 	assert.deepEqual(report.session.model, { provider: "openai", modelId: "gpt-test" });
 	assert.equal(report.session.thinkingLevel, "medium");
@@ -88,8 +91,10 @@ test("analyzes recorded session evidence without returning content", () => {
 	assert.equal(report.activity.truncations, 1);
 	assert.equal(report.activity.fullOutputAvailable, 1);
 	assert.equal(report.activity.compactions, 1);
-	assert.equal(report.activity.cancellations, 1);
+	assert.equal(report.activity.cancellations, 0);
 	assert.equal(report.activity.timeouts, 1);
+	assert.equal(report.heuristics.cancellationTextMentions, 1);
+	assert.equal(report.heuristics.timeoutTextMentions, 1);
 	assert.equal(report.quality.malformedLines, 1);
 	assert.equal(report.tools?.read.calls, 2);
 	assert.equal(report.tools?.read.successes, 1);
@@ -114,6 +119,34 @@ test("handles partial sessions and derives total tokens", () => {
 	assert.equal(report.usage.totalTokens, 20);
 	assert.equal(report.session.durationMs, null);
 	assert.equal(report.tools, undefined);
+});
+
+
+test("streams session files across chunk boundaries", () => {
+	const directory = mkdtempSync(join(tmpdir(), "afo-session-stream-"));
+	try {
+		const path = join(directory, "large-session.jsonl");
+		const content = [
+			line({
+				type: "session",
+				version: 3,
+				id: "session",
+				timestamp: "2026-07-18T00:00:00.000Z",
+				padding: "x".repeat(128 * 1_024),
+			}),
+			line({
+				type: "model_change",
+				id: "model",
+				timestamp: "2026-07-18T00:00:01.000Z",
+				provider: "openai",
+				modelId: "gpt-stream",
+			}),
+		].join("\r\n");
+		writeFileSync(path, content);
+		assert.deepEqual(analyzeSessionFile(path), analyzeSessionContent(content));
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 test("CLI returns safe status codes for help, missing paths, and valid files", () => {
