@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import {
 	analyzeSessionContent,
+	analyzeSessionFile,
 	formatSessionEfficiencyReport,
 	runSessionEfficiencyCli,
 } from "./session-efficiency-report.ts";
@@ -71,6 +72,7 @@ test("analyzes recorded session evidence without returning content", () => {
 	].join("\n");
 
 	const report = analyzeSessionContent(content);
+	assert.equal(report.schemaVersion, 2);
 	assert.equal(report.session.version, 3);
 	assert.deepEqual(report.session.model, { provider: "openai", modelId: "gpt-test" });
 	assert.equal(report.session.thinkingLevel, "medium");
@@ -90,6 +92,10 @@ test("analyzes recorded session evidence without returning content", () => {
 	assert.equal(report.activity.compactions, 1);
 	assert.equal(report.activity.cancellations, 1);
 	assert.equal(report.activity.timeouts, 1);
+	assert.deepEqual(report.terminationEvidence, {
+		structured: { cancellations: 0, timeouts: 0 },
+		textDerived: { cancellations: 1, timeouts: 1 },
+	});
 	assert.equal(report.quality.malformedLines, 1);
 	assert.equal(report.tools?.read.calls, 2);
 	assert.equal(report.tools?.read.successes, 1);
@@ -98,6 +104,43 @@ test("analyzes recorded session evidence without returning content", () => {
 	const serialized = JSON.stringify(report);
 	assert.doesNotMatch(serialized, /private source content|private summary|secret/u);
 	assert.doesNotMatch(formatSessionEfficiencyReport(report), /private source content|src\/index/u);
+});
+
+test("prefers structured termination evidence and ignores successful output heuristics", () => {
+	const report = analyzeSessionContent(
+		[
+			line({
+				type: "message",
+				id: "structured-timeout",
+				timestamp: "2026-07-18T00:00:00.000Z",
+				message: {
+					role: "toolResult",
+					toolName: "bash",
+					isError: true,
+					content: [{ type: "text", text: "cancelled after the timeout" }],
+					details: { termination: "timeout" },
+				},
+			}),
+			line({
+				type: "message",
+				id: "successful-docs",
+				timestamp: "2026-07-18T00:00:01.000Z",
+				message: {
+					role: "toolResult",
+					toolName: "read",
+					isError: false,
+					content: [{ type: "text", text: "Timeout and cancellation documentation" }],
+				},
+			}),
+		].join("\n"),
+	);
+
+	assert.equal(report.activity.cancellations, 0);
+	assert.equal(report.activity.timeouts, 1);
+	assert.deepEqual(report.terminationEvidence, {
+		structured: { cancellations: 0, timeouts: 1 },
+		textDerived: { cancellations: 0, timeouts: 0 },
+	});
 });
 
 test("handles partial sessions and derives total tokens", () => {
@@ -114,6 +157,33 @@ test("handles partial sessions and derives total tokens", () => {
 	assert.equal(report.usage.totalTokens, 20);
 	assert.equal(report.session.durationMs, null);
 	assert.equal(report.tools, undefined);
+});
+
+test("streams multi-chunk UTF-8 JSONL files with the same result as in-memory analysis", () => {
+	const directory = mkdtempSync(join(tmpdir(), "afo-session-stream-"));
+	try {
+		const content = [
+			line({
+				type: "session",
+				version: 3,
+				id: "session",
+				timestamp: "2026-07-18T00:00:00.000Z",
+				padding: `${"x".repeat(70_000)}🙂`,
+			}),
+			line({
+				type: "message",
+				id: "assistant",
+				timestamp: "2026-07-18T00:00:01.000Z",
+				message: { role: "assistant", usage: { input: 5, output: 3 }, content: [] },
+			}),
+			"malformed",
+		].join("\r\n");
+		const path = join(directory, "session.jsonl");
+		writeFileSync(path, content);
+		assert.deepEqual(analyzeSessionFile(path), analyzeSessionContent(content));
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 test("CLI returns safe status codes for help, missing paths, and valid files", () => {
