@@ -60,7 +60,14 @@ describe("validation command discovery", () => {
 			packageManager: "npm",
 			packageManagers: ["npm"],
 			commands: [
-				expectedCommand("check", "npm run check", "npm", ["run", "check"], "verified", "package.json#scripts.check"),
+				expectedCommand(
+					"check",
+					"npm run check",
+					"npm",
+					["run", "check"],
+					"verified",
+					"package.json#scripts.check",
+				),
 				expectedCommand(
 					"typecheck",
 					"npm run typecheck",
@@ -71,7 +78,14 @@ describe("validation command discovery", () => {
 				),
 				expectedCommand("lint", "npm run lint", "npm", ["run", "lint"], "verified", "package.json#scripts.lint"),
 				expectedCommand("test", "npm test", "npm", ["test"], "verified", "package.json#scripts.test"),
-				expectedCommand("build", "npm run build", "npm", ["run", "build"], "verified", "package.json#scripts.build"),
+				expectedCommand(
+					"build",
+					"npm run build",
+					"npm",
+					["run", "build"],
+					"verified",
+					"package.json#scripts.build",
+				),
 			],
 		});
 	});
@@ -116,7 +130,14 @@ describe("validation command discovery", () => {
 		expect(discoverValidationCommands(cwd)).toEqual({
 			ecosystems: ["python"],
 			commands: [
-				expectedCommand("typecheck", "python -m mypy .", "python", ["-m", "mypy", "."], "inferred", "pyproject.toml"),
+				expectedCommand(
+					"typecheck",
+					"python -m mypy .",
+					"python",
+					["-m", "mypy", "."],
+					"inferred",
+					"pyproject.toml",
+				),
 				expectedCommand(
 					"lint",
 					"python -m ruff check .",
