@@ -32,14 +32,38 @@ jobs:
       - name: Apply evidence-quality hardening
         run: python3 .github/scripts/session-report-hardening.py
 
-      - name: Format and validate focused changes
+      - name: Format focused changes
         run: |
           npx biome check --write \
             scripts/session-efficiency-report.ts \
             scripts/session-efficiency-report.test.ts \
             docs/all-for-one/validation.md
-          npm exec -- tsx --test scripts/session-efficiency-report.test.ts
-          npm run check
+
+      - name: Run focused tests
+        shell: bash
+        run: |
+          set -o pipefail
+          npm exec -- tsx --test scripts/session-efficiency-report.test.ts 2>&1 | tee session-report-test.log
+
+      - name: Run repository check
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run check 2>&1 | tee session-report-check.log
+
+      - name: Upload focused evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: session-report-hardening-evidence
+          path: |
+            scripts/session-efficiency-report.ts
+            scripts/session-efficiency-report.test.ts
+            docs/all-for-one/validation.md
+            session-report-test.log
+            session-report-check.log
+          if-no-files-found: warn
+          retention-days: 1
 
       - name: Commit validated files
         shell: bash
