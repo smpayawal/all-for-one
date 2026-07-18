@@ -17,6 +17,7 @@ import type {
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { AgentSession, type AgentSessionEvent } from "../../src/core/agent-session.ts";
 import { AuthStorage } from "../../src/core/auth-storage.ts";
+import type { CodingModelProfileOverride, ToolProfile } from "../../src/core/coding-model-profile.ts";
 import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
 import { convertToLlm } from "../../src/core/messages.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
@@ -63,6 +64,8 @@ export function getAssistantTexts(harness: Harness): string[] {
 export interface HarnessOptions {
 	models?: FauxModelDefinition[];
 	settings?: Partial<Settings>;
+	toolProfile?: ToolProfile;
+	codingModelProfile?: CodingModelProfileOverride;
 	systemPrompt?: string;
 	tools?: AgentTool[];
 	initialActiveToolNames?: string[];
@@ -182,6 +185,8 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		resourceLoader,
 		baseToolsOverride: toolMap,
 		initialActiveToolNames: options.initialActiveToolNames,
+		toolProfile: options.toolProfile,
+		codingModelProfile: options.codingModelProfile,
 		allowedToolNames: options.allowedToolNames,
 		excludedToolNames: options.excludedToolNames,
 		extensionRunnerRef,

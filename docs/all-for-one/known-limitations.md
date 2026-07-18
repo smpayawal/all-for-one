@@ -12,3 +12,4 @@ These are deliberate boundaries or unresolved risks, not claims that the reposit
 - Session-rail behavior is isolated to interactive mode. Print, RPC, and SDK modes do not receive an implicit rail.
 - No paired live model evaluation has been run. Performance, cost, latency, quality, and reliability improvements are therefore unclaimed.
 - Cross-platform CI and upstream rehearsal are verification gates; they do not replace platform-specific investigation when a gate fails.
+- `pi.exec` isolates POSIX children in a process group and uses process-tree termination; Windows uses the documented `taskkill /T` tree-termination path. Cleanup remains best-effort if the host refuses termination or the operating system removes the process before the tree command runs.

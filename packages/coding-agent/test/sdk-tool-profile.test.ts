@@ -74,4 +74,99 @@ describe("createAgentSession tool profiles", () => {
 			harness.cleanup();
 		}
 	});
+
+	it("keeps a fixed native profile while refreshing execution mode", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "Native", reasoning: true },
+				{ id: "faux-2", name: "Patch", reasoning: true },
+			],
+			settings: {
+				codingModelProfiles: {
+					"faux-2": { mutationStrategy: "apply_patch", toolExecution: "sequential" },
+				},
+			},
+			toolProfile: "native",
+		});
+		try {
+			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write"]);
+			expect(harness.session.agent.toolExecution).toBe("parallel");
+
+			await harness.session.setModel(harness.getModel("faux-2")!);
+
+			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "edit", "write"]);
+			expect(harness.session.agent.toolExecution).toBe("sequential");
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("keeps a fixed patch profile while switching to an edit-configured model", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "Native", reasoning: true },
+				{ id: "faux-2", name: "Patch", reasoning: true },
+			],
+			settings: {
+				codingModelProfiles: {
+					"faux-2": { mutationStrategy: "apply_patch", toolExecution: "sequential" },
+				},
+			},
+			toolProfile: "patch",
+		});
+		try {
+			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "apply_patch", "write"]);
+
+			await harness.session.setModel(harness.getModel("faux-2")!);
+			await harness.session.setModel(harness.getModel("faux-1")!);
+
+			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "apply_patch", "write"]);
+			expect(harness.session.agent.toolExecution).toBe("parallel");
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("preserves an explicit tools allowlist across model switching", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "Native", reasoning: true },
+				{ id: "faux-2", name: "Patch", reasoning: true },
+			],
+			settings: {
+				codingModelProfiles: {
+					"faux-2": { mutationStrategy: "apply_patch", toolExecution: "sequential" },
+				},
+			},
+			allowedToolNames: ["read", "edit"],
+		});
+		try {
+			expect(harness.session.getActiveToolNames()).toEqual(["read", "edit"]);
+			await harness.session.setModel(harness.getModel("faux-2")!);
+			expect(harness.session.getActiveToolNames()).toEqual(["read", "edit"]);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("keeps excludeTools enforced after automatic profile refresh", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "Native", reasoning: true },
+				{ id: "faux-2", name: "Patch", reasoning: true },
+			],
+			settings: {
+				codingModelProfiles: {
+					"faux-2": { mutationStrategy: "apply_patch", toolExecution: "sequential" },
+				},
+			},
+			excludedToolNames: ["apply_patch"],
+		});
+		try {
+			await harness.session.setModel(harness.getModel("faux-2")!);
+			expect(harness.session.getActiveToolNames()).toEqual(["read", "bash", "write"]);
+		} finally {
+			harness.cleanup();
+		}
+	});
 });

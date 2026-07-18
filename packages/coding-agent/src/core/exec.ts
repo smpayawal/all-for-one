@@ -4,6 +4,7 @@
 
 import { spawn } from "node:child_process";
 import { waitForChildProcess } from "../utils/child-process.ts";
+import { isProcessTreeAlive, killProcessTree } from "../utils/shell.ts";
 
 /**
  * Options for executing shell commands.
@@ -74,8 +75,12 @@ export async function execCommand(
 	return new Promise((resolve) => {
 		const proc = spawn(command, args, {
 			cwd,
+			// Isolate POSIX descendants so group termination cannot reach the
+			// agent process. Windows uses taskkill /T in killProcessTree().
+			detached: process.platform !== "win32",
 			shell: false,
 			stdio: ["ignore", "pipe", "pipe"],
+			windowsHide: true,
 		});
 
 		const maxOutputBytes =
@@ -92,16 +97,32 @@ export async function execCommand(
 		proc.once("exit", () => {
 			processExited = true;
 		});
+		const terminateProcessTree = (signal: "SIGTERM" | "SIGKILL") => {
+			if (proc.pid !== undefined) {
+				killProcessTree(proc.pid, signal);
+				return;
+			}
+			try {
+				proc.kill(signal);
+			} catch {
+				// The child failed before a PID was assigned.
+			}
+		};
 
 		const killProcess = (reason: Exclude<ExecTermination, "completed" | "signal" | "error">) => {
 			if (!killed) {
 				killed = true;
 				killReason = reason;
-				proc.kill("SIGTERM");
+				terminateProcessTree("SIGTERM");
 				// Force kill after 5 seconds if SIGTERM doesn't work
 				forceKillId = setTimeout(() => {
-					if (!processExited && proc.exitCode === null && proc.signalCode === null) {
-						proc.kill("SIGKILL");
+					forceKillId = undefined;
+					if (
+						proc.pid !== undefined &&
+						(isProcessTreeAlive(proc.pid) ||
+							(!processExited && proc.exitCode === null && proc.signalCode === null))
+					) {
+						terminateProcessTree("SIGKILL");
 					}
 				}, 5000);
 			}
@@ -137,7 +158,8 @@ export async function execCommand(
 		waitForChildProcess(proc)
 			.then((code) => {
 				if (timeoutId) clearTimeout(timeoutId);
-				if (forceKillId) clearTimeout(forceKillId);
+				const treeStillAlive = killed && proc.pid !== undefined && isProcessTreeAlive(proc.pid);
+				if (forceKillId && !treeStillAlive) clearTimeout(forceKillId);
 				if (options?.signal) {
 					options.signal.removeEventListener("abort", onAbort);
 				}
@@ -153,7 +175,8 @@ export async function execCommand(
 			})
 			.catch((_err) => {
 				if (timeoutId) clearTimeout(timeoutId);
-				if (forceKillId) clearTimeout(forceKillId);
+				const treeStillAlive = killed && proc.pid !== undefined && isProcessTreeAlive(proc.pid);
+				if (forceKillId && !treeStillAlive) clearTimeout(forceKillId);
 				if (options?.signal) {
 					options.signal.removeEventListener("abort", onAbort);
 				}

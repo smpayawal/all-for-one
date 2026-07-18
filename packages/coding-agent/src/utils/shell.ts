@@ -197,29 +197,56 @@ export function killTrackedDetachedChildren(): void {
 /**
  * Kill a process and all its children (cross-platform)
  */
-export function killProcessTree(pid: number): void {
+export function killProcessTree(pid: number, signal: "SIGTERM" | "SIGKILL" = "SIGKILL"): void {
 	if (process.platform === "win32") {
-		// Use taskkill on Windows to kill process tree
+		// Windows has no portable POSIX process-group equivalent. taskkill /T is
+		// the documented tree-kill mechanism; /F is reserved for the force phase.
+		const args = signal === "SIGKILL" ? ["/F", "/T", "/PID", String(pid)] : ["/T", "/PID", String(pid)];
 		try {
-			spawn("taskkill", ["/F", "/T", "/PID", String(pid)], {
+			const taskkill = spawn("taskkill", args, {
 				stdio: "ignore",
 				detached: true,
 				windowsHide: true,
 			});
+			taskkill.on("error", () => {
+				try {
+					process.kill(pid, signal);
+				} catch {
+					// Process already dead or taskkill unavailable.
+				}
+			});
 		} catch {
-			// Ignore errors if taskkill fails
+			try {
+				process.kill(pid, signal);
+			} catch {
+				// Process already dead or taskkill unavailable.
+			}
 		}
 	} else {
-		// Use SIGKILL on Unix/Linux/Mac
+		// A detached POSIX child is the leader of its own process group.
 		try {
-			process.kill(-pid, "SIGKILL");
+			process.kill(-pid, signal);
 		} catch {
 			// Fallback to killing just the child if process group kill fails
 			try {
-				process.kill(pid, "SIGKILL");
+				process.kill(pid, signal);
 			} catch {
 				// Process already dead
 			}
 		}
+	}
+}
+
+/**
+ * Check whether a process group or direct child is still alive.
+ * POSIX group liveness lets callers force-kill descendants even after the
+ * process-group leader has exited.
+ */
+export function isProcessTreeAlive(pid: number): boolean {
+	try {
+		process.kill(process.platform === "win32" ? pid : -pid, 0);
+		return true;
+	} catch {
+		return false;
 	}
 }

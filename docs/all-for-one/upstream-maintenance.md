@@ -24,3 +24,28 @@ git diff -- packages/agent packages/coding-agent/src/core/agent-session.ts
 ```
 
 The expected maintenance direction is `main -> allforone -> focused branch/PR`. A sync review should classify new upstream conflicts by the table above, preserve the permanent integration branch, and keep optional All-For-One behavior outside the shared agent loop wherever a coding-agent seam is sufficient.
+
+## Upstream hot-file freeze
+
+The current upstream-hot-file list is intentionally explicit:
+
+- `packages/agent/src/agent-loop.ts`
+- `packages/agent/src/agent.ts`
+- `packages/agent/src/types.ts`
+- `packages/coding-agent/src/main.ts`
+- `packages/coding-agent/src/core/agent-session.ts`
+- `packages/coding-agent/src/core/resource-loader.ts`
+- `packages/coding-agent/src/core/extensions/types.ts`
+- `packages/coding-agent/src/core/compaction/`
+- `packages/coding-agent/src/core/execution-integrity.ts`
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+
+After every synchronization from `main`, review the net downstream diff for these paths, classify each conflict or behavior change, and record any compatibility decision in the synchronization PR. The `main`-push drift workflow at `.github/workflows/allforone-upstream-drift.yml` is a read-only early warning; it does not merge or modify either branch.
+
+Further expansion of the shared core is frozen unless the feature author documents one of these justifications:
+
+1. An existing Pi public boundary cannot support the requirement.
+2. A measured production problem requires a core change.
+3. Keeping the behavior outside the core would create greater complexity or correctness risk.
+
+New work should prefer coding-agent-local seams, extensions, or existing public APIs, and should not add another policy registry or runtime subsystem to the shared agent package without that justification.

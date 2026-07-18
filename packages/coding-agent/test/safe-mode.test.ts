@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -14,8 +14,20 @@ import safeModeExtension, {
 	getMutationPaths,
 	validateMutationPaths,
 } from "../examples/extensions/safe-mode.ts";
-import type { ToolCallEvent } from "../src/core/extensions/types.ts";
+import type { ExtensionUIContext, ToolCallEvent } from "../src/core/extensions/types.ts";
 import { createHarness } from "./suite/harness.ts";
+
+function createApprovalUI(
+	approved: boolean,
+	confirmations: Array<{ title: string; message: string }>,
+): ExtensionUIContext {
+	return {
+		confirm: async (title, message) => {
+			confirmations.push({ title, message });
+			return approved;
+		},
+	} as ExtensionUIContext;
+}
 
 function writeEvent(path: unknown): ToolCallEvent {
 	return {
@@ -105,6 +117,26 @@ describe("safe-mode policy", () => {
 		},
 	);
 
+	it("automatically authorizes the genuine built-in read tool", async () => {
+		const harness = await createHarness({
+			extensionFactories: [safeModeExtension],
+		});
+		try {
+			await writeFile(join(harness.tempDir, "note.txt"), "built-in read content");
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("read", { path: "note.txt" })], { stopReason: "toolUse" }),
+				fauxAssistantMessage("read complete"),
+			]);
+			await harness.session.prompt("read the note");
+
+			const toolResult = harness.session.messages.find((message) => message.role === "toolResult");
+			expect(toolResult?.isError).toBe(false);
+			expect(JSON.stringify(toolResult)).toContain("built-in read content");
+		} finally {
+			harness.cleanup();
+		}
+	});
+
 	it("blocks an unknown custom tool when safe mode has no interactive approval", async () => {
 		let executed = false;
 		const customTool: AgentTool = {
@@ -136,6 +168,77 @@ describe("safe-mode policy", () => {
 			expect(
 				harness.session.messages.find((message) => message.role === "toolResult" && message.isError),
 			).toBeDefined();
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it.each([true, false] as const)("interactive approval %s permits or blocks an unknown tool", async (approved) => {
+		let executed = false;
+		const confirmations: Array<{ title: string; message: string }> = [];
+		const customTool: AgentTool = {
+			name: "deploy",
+			label: "Deploy",
+			description: "Deploy the current application.",
+			parameters: Type.Object({}),
+			execute: async () => {
+				executed = true;
+				return { content: [{ type: "text", text: "deployed" }], details: {} };
+			},
+		};
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.registerTool(customTool);
+					safeModeExtension(pi);
+				},
+			],
+		});
+		try {
+			await harness.session.bindExtensions({
+				uiContext: createApprovalUI(approved, confirmations),
+				mode: "tui",
+			});
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("deploy", {})], { stopReason: "toolUse" }),
+				fauxAssistantMessage(approved ? "deployed" : "blocked"),
+			]);
+			await harness.session.prompt("deploy");
+
+			expect(confirmations[0]?.title).toBe('Allow tool "deploy"?');
+			expect(executed).toBe(approved);
+			expect(harness.session.messages.some((message) => message.role === "toolResult" && message.isError)).toBe(
+				!approved,
+			);
+		} finally {
+			harness.cleanup();
+		}
+	});
+
+	it("shows a clear target when requesting mutation approval", async () => {
+		const confirmations: Array<{ title: string; message: string }> = [];
+		const harness = await createHarness({
+			extensionFactories: [safeModeExtension],
+		});
+		try {
+			await mkdir(join(harness.tempDir, "nested"));
+			await harness.session.bindExtensions({
+				uiContext: createApprovalUI(false, confirmations),
+				mode: "tui",
+			});
+			harness.setResponses([
+				fauxAssistantMessage([fauxToolCall("write", { path: "nested/output.txt", content: "blocked content" })], {
+					stopReason: "toolUse",
+				}),
+				fauxAssistantMessage("blocked"),
+			]);
+			await harness.session.prompt("write the file");
+
+			expect(confirmations[0]?.title).toBe("Allow workspace mutation?");
+			expect(confirmations[0]?.message).toContain("nested/output.txt");
+			expect(harness.session.messages.some((message) => message.role === "toolResult" && message.isError)).toBe(
+				true,
+			);
 		} finally {
 			harness.cleanup();
 		}

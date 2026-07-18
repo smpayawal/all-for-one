@@ -157,6 +157,10 @@ Attribution:
 
 5. **If CI publish fails**: inspect the failed `publish-npm` job. The publish helper is idempotent and skips package versions already present on npm, so rerun the tag workflow after fixing CI or transient npm issues. Do not rerun `npm run release:patch` or `npm run release:minor` for the same version.
 
+## All-For-One downstream compatibility
+
+On `allforone` and branches derived from it, Pi compatibility is a product requirement. Preserve Pi commands, identifiers, APIs, data formats, extension behavior, SDK behavior, sessions, and RPC contracts unless a migration is explicitly designed, documented, and tested. This downstream rule overrides the generic guidance above that says not to preserve backward compatibility unless the user asks for it; it does not authorize changing upstream `main` or silently changing a public contract.
+
 ## User Override
 
 If the user's instructions conflict with any rule in this document, ask for explicit confirmation before overriding. Only then execute their instructions.

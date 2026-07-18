@@ -1,0 +1,43 @@
+name: All-For-One upstream drift
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: allforone-upstream-drift
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout allforone
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: allforone
+          fetch-depth: 0
+
+      - name: Verify main is an ancestor of allforone
+        env:
+          PUSHED_MAIN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          allforone_sha="$(git rev-parse HEAD)"
+          if git merge-base --is-ancestor "$PUSHED_MAIN_SHA" HEAD; then
+            echo "main ${PUSHED_MAIN_SHA} is an ancestor of allforone ${allforone_sha}."
+            counts="$(git rev-list --left-right --count "${PUSHED_MAIN_SHA}...HEAD")"
+            read -r main_only allforone_only <<< "$counts"
+            echo "main-only commits: ${main_only}"
+            echo "allforone-only commits: ${allforone_only}"
+          else
+            echo "::error::allforone is behind or diverged from the pushed main commit."
+            echo "pushed main: ${PUSHED_MAIN_SHA}"
+            echo "allforone: ${allforone_sha}"
+            git rev-list --left-right --count "${PUSHED_MAIN_SHA}...HEAD"
+            exit 1
+          fi
