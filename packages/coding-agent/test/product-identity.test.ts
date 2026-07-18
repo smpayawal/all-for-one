@@ -16,12 +16,14 @@ describe("All-For-One product identity", () => {
 			version: string;
 		};
 		const codingAgentPackage = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf8")) as {
+			version: string;
 			bin: Record<string, string>;
 			piConfig: { configDir: string };
 		};
 
 		expect(rootPackage.name).toBe("all-for-one-monorepo");
 		expect(rootPackage.version).toBe(PRODUCT.version);
+		expect(codingAgentPackage.version).toBe(PRODUCT.upstream.version);
 		expect(codingAgentPackage.bin).toEqual({
 			allforone: "dist/allforone-cli.js",
 			afo: "dist/allforone-cli.js",

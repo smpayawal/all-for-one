@@ -1,0 +1,272 @@
+name: All-For-One Release
+
+on:
+  pull_request:
+    branches: [allforone]
+    paths:
+      - '.github/workflows/allforone-release.yml'
+      - 'CHANGELOG-AFO.md'
+      - 'package.json'
+      - 'packages/coding-agent/package.json'
+      - 'packages/coding-agent/src/allforone-cli.ts'
+      - 'packages/coding-agent/src/bun/allforone-cli.ts'
+      - 'packages/coding-agent/src/product.ts'
+      - 'scripts/allforone-release.mjs'
+      - 'scripts/allforone-release.test.mjs'
+      - 'scripts/build-allforone-binaries.sh'
+      - 'scripts/local-release.mjs'
+  push:
+    tags:
+      - 'afo-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing All-For-One tag to publish (afo-vX.Y.Z)'
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: allforone-release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || (github.event_name == 'workflow_dispatch' && inputs.tag || github.ref) }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve and verify release source
+        id: release
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            version="$(node -p "require('./package.json').version")"
+            release_tag="afo-v${version}"
+            source_sha="$(git rev-parse HEAD)"
+          else
+            release_tag="${INPUT_TAG:-${REF_NAME}}"
+          fi
+
+          node scripts/allforone-release.mjs validate --tag "${release_tag}" --json
+
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            git fetch --no-tags origin allforone
+            git fetch --tags origin
+            source_sha="$(git rev-list -n 1 "${release_tag}" --)"
+            test "$(git rev-parse HEAD)" = "${source_sha}"
+            git merge-base --is-ancestor "${source_sha}" origin/allforone
+          fi
+
+          echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Validate release utilities
+        run: |
+          node --test scripts/allforone-release.test.mjs
+          bash -n scripts/build-allforone-binaries.sh
+          npm run build
+          node packages/coding-agent/dist/allforone-cli.js --version
+
+      - name: Setup Bun for binary smoke test
+        if: github.event_name == 'pull_request'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+
+      - name: Build and execute release smoke artifacts
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          bash scripts/build-allforone-binaries.sh \
+            --skip-install \
+            --skip-build \
+            --out .artifacts/allforone-release-smoke
+
+          expected_archives=(
+            all-for-one-darwin-arm64.tar.gz
+            all-for-one-darwin-x64.tar.gz
+            all-for-one-linux-arm64.tar.gz
+            all-for-one-linux-x64.tar.gz
+            all-for-one-windows-arm64.zip
+            all-for-one-windows-x64.zip
+          )
+          for archive in "${expected_archives[@]}"; do
+            test -f ".artifacts/allforone-release-smoke/${archive}"
+          done
+
+          test -x .artifacts/allforone-release-smoke/linux-x64/allforone
+          .artifacts/allforone-release-smoke/linux-x64/allforone --version
+          .artifacts/allforone-release-smoke/linux-x64/afo --version
+          .artifacts/allforone-release-smoke/linux-x64/pi --version
+
+  build:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+      SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+    steps:
+      - name: Checkout verified release source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+
+      - name: Build All-For-One binaries
+        run: bash scripts/build-allforone-binaries.sh --out packages/coding-agent/allforone-binaries
+
+      - name: Prepare release payload
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cp packages/coding-agent/allforone-binaries/all-for-one-*.tar.gz release-assets/
+          cp packages/coding-agent/allforone-binaries/all-for-one-*.zip release-assets/
+          node scripts/allforone-release.mjs prepare \
+            --tag "${RELEASE_TAG}" \
+            --commit "${SOURCE_SHA}" \
+            --out release-assets
+
+          cd release-assets
+          expected_binaries=(
+            all-for-one-darwin-arm64.tar.gz
+            all-for-one-darwin-x64.tar.gz
+            all-for-one-linux-arm64.tar.gz
+            all-for-one-linux-x64.tar.gz
+            all-for-one-windows-arm64.zip
+            all-for-one-windows-x64.zip
+          )
+          for asset in "${expected_binaries[@]}"; do
+            test -f "${asset}"
+          done
+          sha256sum "${expected_binaries[@]}" release-manifest.json RELEASE_NOTES.md > SHA256SUMS
+
+      - name: Upload release payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: allforone-release-${{ env.RELEASE_TAG }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: [validate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+      SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+    steps:
+      - name: Checkout verified release tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release tag remains pinned
+        run: test "$(git rev-list -n 1 "${RELEASE_TAG}" --)" = "${SOURCE_SHA}"
+
+      - name: Download release payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: allforone-release-${{ env.RELEASE_TAG }}
+          path: release-assets
+
+      - name: Validate and publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd release-assets
+
+          expected_assets=(
+            all-for-one-darwin-arm64.tar.gz
+            all-for-one-darwin-x64.tar.gz
+            all-for-one-linux-arm64.tar.gz
+            all-for-one-linux-x64.tar.gz
+            all-for-one-windows-arm64.zip
+            all-for-one-windows-x64.zip
+            release-manifest.json
+            RELEASE_NOTES.md
+            SHA256SUMS
+          )
+          for asset in "${expected_assets[@]}"; do
+            test -f "${asset}"
+          done
+          sha256sum -c SHA256SUMS
+
+          existing_release="$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [[ "${existing_release}" == "false" ]]; then
+            echo "::error::Release ${RELEASE_TAG} is already public. Refusing to mutate it."
+            exit 1
+          fi
+          if [[ "${existing_release}" == "true" ]]; then
+            gh release delete "${RELEASE_TAG}" --yes
+          fi
+
+          cleanup_draft() {
+            draft="$(gh release view "${RELEASE_TAG}" --json isDraft --jq .isDraft 2>/dev/null || true)"
+            if [[ "${draft}" == "true" ]]; then
+              gh release delete "${RELEASE_TAG}" --yes
+            fi
+          }
+          trap cleanup_draft ERR
+
+          version="${RELEASE_TAG#afo-v}"
+          gh release create "${RELEASE_TAG}" \
+            --verify-tag \
+            --draft \
+            --title "All-For-One ${version}" \
+            --notes-file RELEASE_NOTES.md \
+            "${expected_assets[@]}"
+
+          expected_names="$(printf '%s\n' "${expected_assets[@]}" | sort)"
+          actual_names="$(gh release view "${RELEASE_TAG}" --json assets --jq '.assets[].name' | sort)"
+          test "${actual_names}" = "${expected_names}"
+
+          gh release edit "${RELEASE_TAG}" --draft=false
+          trap - ERR

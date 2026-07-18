@@ -57,6 +57,14 @@ On Windows, run either built entry point directly with Node.js.
 
 Provider authentication, model configuration, settings, and customization continue to follow the standard [Pi documentation](https://pi.dev/docs/latest) where All-For-One has not documented a difference.
 
+## Releases
+
+Standalone releases use tags in the form `afo-vX.Y.Z`. Each release records both the All-For-One version and its Pi compatibility baseline.
+
+Release assets include archives for supported macOS, Linux, and Windows targets, a release manifest, and SHA-256 checksums. The archives provide `allforone` as the primary executable and retain `afo` and `pi` compatibility launchers.
+
+The internal `@earendil-works/pi-*` packages are not published as part of the All-For-One release workflow. They remain Pi-compatible implementation identifiers.
+
 ## Development
 
 From the repository root:
