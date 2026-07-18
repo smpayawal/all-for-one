@@ -211,9 +211,7 @@ export function resolveValidationExecutable(
 					workspaceLocal:
 						isWithinWorkspace(workspaceRoot, resolvedPath) || isWithinWorkspace(workspaceRoot, canonicalPath),
 				};
-			} catch {
-				continue;
-			}
+			} catch {}
 		}
 	}
 	return { status: "not-found", requestedProgram: program };
