@@ -606,6 +606,14 @@ export class TUI extends Container {
 		return this.overlayStack.some((o) => this.isOverlayVisible(o));
 	}
 
+	/** Check if a visible overlay currently has keyboard input ownership. */
+	hasOverlayInput(): boolean {
+		return this.overlayStack.some(
+			(entry) =>
+				this.isOverlayVisible(entry) && (!entry.options?.nonCapturing || entry.component === this.focusedComponent),
+		);
+	}
+
 	/** Check if an overlay entry is currently visible */
 	private isOverlayVisible(entry: OverlayStackEntry): boolean {
 		if (entry.hidden) return false;

@@ -2,9 +2,12 @@ import * as path from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { theme } from "../theme/theme.ts";
 
-export const SESSION_RAIL_MIN_TERMINAL_WIDTH = 128;
-export const SESSION_RAIL_MIN_WIDTH = 36;
-export const SESSION_RAIL_MAX_WIDTH = 44;
+export {
+	getSessionRailLayout,
+	SESSION_RAIL_MAX_WIDTH,
+	SESSION_RAIL_MIN_TERMINAL_WIDTH,
+	SESSION_RAIL_MIN_WIDTH,
+} from "../responsive-layout.ts";
 
 export type SessionRailLifecycle =
 	| { kind: "idle" }
@@ -37,27 +40,6 @@ export interface SessionRailData {
 	completedTools: number;
 	failedTools: number;
 	getAvailableHeight: () => number;
-}
-
-function getRailWidth(width: number): number {
-	return Math.max(SESSION_RAIL_MIN_WIDTH, Math.min(SESSION_RAIL_MAX_WIDTH, Math.floor(width / 5)));
-}
-
-export function getSessionRailLayout(width: number): {
-	railVisible: boolean;
-	railWidth: number;
-	mainWidth: number;
-} {
-	if (width < SESSION_RAIL_MIN_TERMINAL_WIDTH) {
-		return { railVisible: false, railWidth: 0, mainWidth: width };
-	}
-
-	const railWidth = getRailWidth(width);
-	return {
-		railVisible: true,
-		railWidth,
-		mainWidth: width - railWidth - 1,
-	};
 }
 
 function stripAnsi(value: string): string {
@@ -167,78 +149,6 @@ function formatResourceList(resources: readonly string[]): string[] {
 	const visibleResources = resources.slice(0, 3).map(formatResourceName);
 	const remaining = resources.length - visibleResources.length;
 	return [...visibleResources, ...(remaining > 0 ? [`+${remaining} more`] : [])];
-}
-
-export class ResponsiveMainColumn implements Component {
-	private readonly content: Component;
-
-	constructor(content: Component) {
-		this.content = content;
-	}
-
-	private getDividerLine(width: number): string {
-		const layout = getSessionRailLayout(width);
-		if (!layout.railVisible) return "";
-		return " ".repeat(layout.mainWidth) + theme.fg("border", "│");
-	}
-
-	render(width: number): string[] {
-		const layout = getSessionRailLayout(width);
-		const lines = this.content.render(layout.mainWidth);
-		if (!layout.railVisible) {
-			return lines;
-		}
-
-		return lines.map((line) => {
-			const truncated = truncateToWidth(line, layout.mainWidth, "");
-			return (
-				truncated + " ".repeat(Math.max(0, layout.mainWidth - visibleWidth(truncated))) + theme.fg("border", "│")
-			);
-		});
-	}
-
-	renderEmptyLine(width: number): string {
-		return this.getDividerLine(width);
-	}
-
-	invalidate(): void {
-		this.content.invalidate?.();
-	}
-}
-
-/** Composite the transcript and bottom controls so short sessions keep the editor at the viewport bottom. */
-export class ResponsiveViewport implements Component {
-	private readonly mainColumn: ResponsiveMainColumn;
-	private readonly bottom: Component;
-	private readonly getTerminalHeight: () => number;
-
-	constructor(content: Component, bottom: Component, getTerminalHeight: () => number) {
-		this.mainColumn = new ResponsiveMainColumn(content);
-		this.bottom = bottom;
-		this.getTerminalHeight = getTerminalHeight;
-	}
-
-	getAvailableMainHeight(width: number): number {
-		return Math.max(0, this.getTerminalHeight() - this.bottom.render(width).length);
-	}
-
-	render(width: number): string[] {
-		const mainLines = this.mainColumn.render(width);
-		const bottomLines = this.bottom.render(width);
-		const availableMainHeight = Math.max(0, this.getTerminalHeight() - bottomLines.length);
-		const targetHeight = Math.max(mainLines.length, availableMainHeight);
-
-		while (mainLines.length < targetHeight) {
-			mainLines.push(this.mainColumn.renderEmptyLine(width));
-		}
-
-		return [...mainLines, ...bottomLines];
-	}
-
-	invalidate(): void {
-		this.mainColumn.invalidate();
-		this.bottom.invalidate?.();
-	}
 }
 
 export class SessionRailComponent implements Component {

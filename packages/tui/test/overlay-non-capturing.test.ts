@@ -52,6 +52,30 @@ async function renderAndFlush(tui: TUI, terminal: VirtualTerminal): Promise<void
 }
 
 describe("TUI overlay non-capturing", () => {
+	it("reports only overlays that own keyboard input", () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const tui = new TUI(terminal);
+		const editor = new FocusableOverlay(["EDITOR"]);
+		const passive = new FocusableOverlay(["PASSIVE"]);
+		const capturing = new FocusableOverlay(["CAPTURING"]);
+		tui.setFocus(editor);
+
+		assert.strictEqual(tui.hasOverlayInput(), false);
+		const passiveHandle = tui.showOverlay(passive, { nonCapturing: true });
+		assert.strictEqual(tui.hasOverlayInput(), false);
+
+		const capturingHandle = tui.showOverlay(capturing);
+		assert.strictEqual(tui.hasOverlayInput(), true);
+		capturingHandle.hide();
+		assert.strictEqual(tui.hasOverlayInput(), false);
+
+		passiveHandle.focus();
+		assert.strictEqual(tui.hasOverlayInput(), true);
+		passiveHandle.unfocus();
+		assert.strictEqual(tui.hasOverlayInput(), false);
+		passiveHandle.hide();
+	});
+
 	describe("focus management", () => {
 		it("non-capturing overlay preserves focus on creation", async () => {
 			const terminal = new VirtualTerminal(80, 24);

@@ -1,11 +1,10 @@
 import { Container, Text, TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
+import { InteractiveApplicationShell } from "../src/modes/interactive/components/app-shell.ts";
 import {
 	getSessionRailLayout,
 	parseRailProgress,
-	ResponsiveMainColumn,
-	ResponsiveViewport,
 	SESSION_RAIL_MAX_WIDTH,
 	SESSION_RAIL_MIN_WIDTH,
 	SessionRailComponent,
@@ -34,17 +33,27 @@ describe("session rail layout", () => {
 	});
 
 	test("renders the main column at the reserved width and restores full width when narrow", () => {
+		const terminal = new VirtualTerminal(128, 24);
+		const tui = new TUI(terminal);
 		const content = new Container();
 		content.addChild(new Text("vanilla Pi transcript", 0, 0));
-		const mainColumn = new ResponsiveMainColumn(content);
+		const shell = new InteractiveApplicationShell({
+			tui,
+			transcript: content,
+			rail: new Text("TEST RAIL", 0, 0),
+			editor: new Text("EDITOR", 0, 0),
+			footer: new Text("FOOTER", 0, 0),
+			getTerminalHeight: () => terminal.rows,
+		});
 
-		const wideLine = mainColumn.render(128)[0] ?? "";
+		const wideLine = shell.render(128)[0] ?? "";
 		expect(visibleWidth(wideLine)).toBe(128 - SESSION_RAIL_MIN_WIDTH);
 		expect(stripAnsi(wideLine)).toContain("│");
 
-		const narrowLine = mainColumn.render(127)[0] ?? "";
+		const narrowLine = shell.render(127)[0] ?? "";
 		expect(visibleWidth(narrowLine)).toBe(127);
 		expect(stripAnsi(narrowLine)).not.toContain("│");
+		shell.dispose();
 	});
 });
 
@@ -174,31 +183,45 @@ describe("viewport composition", () => {
 	});
 
 	test("anchors a short transcript above a full-width bottom group", () => {
+		const terminal = new VirtualTerminal(128, 12);
+		const tui = new TUI(terminal);
 		const content = new Container();
 		content.addChild(new Text("short transcript", 0, 0));
-		const bottom = new Container();
-		bottom.addChild(new Text("EDITOR", 0, 0));
-		bottom.addChild(new Text("FOOTER", 0, 0));
-		const viewport = new ResponsiveViewport(content, bottom, () => 12);
+		const shell = new InteractiveApplicationShell({
+			tui,
+			transcript: content,
+			rail: new Text("TEST RAIL", 0, 0),
+			editor: new Text("EDITOR", 0, 0),
+			footer: new Text("FOOTER", 0, 0),
+			getTerminalHeight: () => terminal.rows,
+		});
 
-		const lines = viewport.render(128);
+		const lines = shell.render(128);
 		expect(lines).toHaveLength(12);
 		expect(stripAnsi(lines[10] ?? "").trimEnd()).toBe("EDITOR");
 		expect(stripAnsi(lines[11] ?? "").trimEnd()).toBe("FOOTER");
 		expect(visibleWidth(lines[9] ?? "")).toBe(128 - SESSION_RAIL_MIN_WIDTH);
+		shell.dispose();
 	});
 
 	test("keeps long transcript content intact and places the bottom group last", () => {
+		const terminal = new VirtualTerminal(127, 12);
+		const tui = new TUI(terminal);
 		const content = new Container();
 		content.addChild(new Text(Array.from({ length: 20 }, (_, index) => `message ${index + 1}`).join("\n"), 0, 0));
-		const bottom = new Container();
-		bottom.addChild(new Text("EDITOR", 0, 0));
-		bottom.addChild(new Text("FOOTER", 0, 0));
-		const viewport = new ResponsiveViewport(content, bottom, () => 12);
+		const shell = new InteractiveApplicationShell({
+			tui,
+			transcript: content,
+			rail: new Text("TEST RAIL", 0, 0),
+			editor: new Text("EDITOR", 0, 0),
+			footer: new Text("FOOTER", 0, 0),
+			getTerminalHeight: () => terminal.rows,
+		});
 
-		const lines = viewport.render(127);
+		const lines = shell.render(127);
 		expect(lines.slice(-2).map((line) => stripAnsi(line).trimEnd())).toEqual(["EDITOR", "FOOTER"]);
 		expect(lines.length).toBeGreaterThan(12);
+		shell.dispose();
 	});
 
 	test("keeps the passive rail out of the editor and footer rows through resize", async () => {
@@ -206,10 +229,7 @@ describe("viewport composition", () => {
 		const tui = new TUI(terminal);
 		const content = new Container();
 		content.addChild(new Text("short transcript", 0, 0));
-		const bottom = new Container();
-		bottom.addChild(new Text("EDITOR", 0, 0));
-		bottom.addChild(new Text("FOOTER", 0, 0));
-		const viewport = new ResponsiveViewport(content, bottom, () => terminal.rows);
+		let shell: InteractiveApplicationShell;
 		const rail = new SessionRailComponent({
 			title: "TEST PRODUCT",
 			agents: ["AGENTS.md"],
@@ -219,18 +239,17 @@ describe("viewport composition", () => {
 			recentTools: [],
 			completedTools: 0,
 			failedTools: 0,
-			getAvailableHeight: () => viewport.getAvailableMainHeight(terminal.columns),
+			getAvailableHeight: () => shell.getAvailableMainHeight(terminal.columns),
 		});
-
-		tui.addChild(viewport);
-		for (let railWidth = SESSION_RAIL_MIN_WIDTH; railWidth <= SESSION_RAIL_MAX_WIDTH; railWidth += 1) {
-			tui.showOverlay(rail, {
-				anchor: "top-right",
-				nonCapturing: true,
-				visible: (width) => getSessionRailLayout(width).railWidth === railWidth,
-				width: railWidth,
-			});
-		}
+		shell = new InteractiveApplicationShell({
+			tui,
+			transcript: content,
+			rail,
+			editor: new Text("EDITOR", 0, 0),
+			footer: new Text("FOOTER", 0, 0),
+			getTerminalHeight: () => terminal.rows,
+		});
+		tui.addChild(shell);
 		tui.start();
 		await terminal.waitForRender();
 
@@ -245,6 +264,7 @@ describe("viewport composition", () => {
 		expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(false);
 		expect(screen[10]?.trimEnd()).toBe("EDITOR");
 		expect(screen[11]?.trimEnd()).toBe("FOOTER");
+		shell.dispose();
 		tui.stop();
 	});
 });

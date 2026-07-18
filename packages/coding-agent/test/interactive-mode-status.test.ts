@@ -165,7 +165,7 @@ describe("InteractiveMode.updateSessionRail", () => {
 					railData = data;
 				},
 			},
-			viewport: { getAvailableMainHeight: () => 20 },
+			applicationShell: { getAvailableMainHeight: () => 20 },
 			ui: { terminal: { columns: 128 } },
 		};
 		const updateSessionRail = (

@@ -95,6 +95,7 @@ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
 import { killTrackedDetachedChildren } from "../../utils/shell.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import { checkForNewPiVersion, type LatestPiRelease } from "../../utils/version-check.ts";
+import { InteractiveApplicationShell } from "./components/app-shell.ts";
 import { ArminComponent } from "./components/armin.ts";
 import { AssistantMessageComponent } from "./components/assistant-message.ts";
 import { BashExecutionComponent } from "./components/bash-execution.ts";
@@ -122,11 +123,7 @@ import {
 } from "./components/oauth-selector.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import {
-	getSessionRailLayout,
 	parseRailProgress,
-	ResponsiveViewport,
-	SESSION_RAIL_MAX_WIDTH,
-	SESSION_RAIL_MIN_WIDTH,
 	SessionRailComponent,
 	type SessionRailLifecycle,
 	type SessionRailProgress,
@@ -149,6 +146,7 @@ import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
 import { getModelSearchText } from "./model-search.ts";
+import { getSessionRailLayout } from "./responsive-layout.ts";
 import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
@@ -163,6 +161,8 @@ import {
 	theme,
 } from "./theme/theme.ts";
 import { InteractiveThemeController } from "./theme/theme-controller.ts";
+import { canHandleTranscriptNavigation, getTranscriptNavigationAction } from "./transcript-navigation.ts";
+import { TranscriptViewport } from "./transcript-viewport.ts";
 
 /** Interface for components that can be expanded/collapsed */
 interface Expandable {
@@ -329,8 +329,8 @@ export class InteractiveMode {
 	private runtimeHost: AgentSessionRuntime;
 	private ui: TUI;
 	private mainContentContainer: Container;
-	private viewport: ResponsiveViewport;
-	private bottomContainer: Container;
+	private transcriptViewport?: TranscriptViewport;
+	private applicationShell: InteractiveApplicationShell;
 	private footerContainer: Container;
 	private sessionRail: SessionRailComponent;
 	private sessionRailLifecycle: SessionRailLifecycle = { kind: "idle" };
@@ -357,6 +357,8 @@ export class InteractiveMode {
 	private version: string;
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
+	private unsubscribeTranscriptInput?: () => void;
+	private transcriptMouseReportingEnabled = false;
 	private pendingUserInputs: string[] = [];
 	private activeStatusIndicator: StatusIndicator | undefined = undefined;
 	private readonly idleStatus = new IdleStatus();
@@ -478,12 +480,10 @@ export class InteractiveMode {
 		this.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
 		this.mainContentContainer = new Container();
-		this.bottomContainer = new Container();
-		this.viewport = new ResponsiveViewport(
-			this.mainContentContainer,
-			this.bottomContainer,
-			() => this.ui.terminal.rows,
-		);
+		this.transcriptViewport = new TranscriptViewport({
+			content: this.mainContentContainer,
+			getViewportHeight: () => this.applicationShell.getAvailableMainHeight(),
+		});
 		this.headerContainer = new Container();
 		this.loadedResourcesContainer = new Container();
 		this.chatContainer = new Container();
@@ -517,18 +517,17 @@ export class InteractiveMode {
 			recentTools: [],
 			completedTools: 0,
 			failedTools: 0,
-			getAvailableHeight: () => this.viewport.getAvailableMainHeight(this.ui.terminal.columns),
+			getAvailableHeight: () => this.applicationShell.getAvailableMainHeight(this.ui.terminal.columns),
 		});
-		// TUI overlays use fixed widths. Keep one passive entry per supported rail width so
-		// resizing remains responsive without changing the public overlay API.
-		for (let railWidth = SESSION_RAIL_MIN_WIDTH; railWidth <= SESSION_RAIL_MAX_WIDTH; railWidth += 1) {
-			this.ui.showOverlay(this.sessionRail, {
-				anchor: "top-right",
-				nonCapturing: true,
-				visible: (width) => getSessionRailLayout(width).railWidth === railWidth,
-				width: railWidth,
-			});
-		}
+		this.applicationShell = new InteractiveApplicationShell({
+			tui: this.ui,
+			transcript: this.transcriptViewport,
+			rail: this.sessionRail,
+			editor: this.editorContainer,
+			bottomAccessory: this.widgetContainerBelow,
+			footer: this.footerContainer,
+			getTerminalHeight: () => this.ui.terminal.rows,
+		});
 
 		// Load hide thinking block setting
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
@@ -754,7 +753,7 @@ export class InteractiveMode {
 			console.log(theme.fg("dim", `Model scope: ${modelList}${cycleHint}`));
 		}
 
-		// Keep the conversation stack in the responsive main column and preserve the bottom controls at full width.
+		// Keep the conversation stack in the transcript region and preserve the bottom controls at full width.
 		// Loaded resources remain before chat so restored session messages never precede their diagnostics.
 		this.mainContentContainer.addChild(this.headerContainer);
 		this.mainContentContainer.addChild(this.loadedResourcesContainer);
@@ -763,10 +762,7 @@ export class InteractiveMode {
 		this.mainContentContainer.addChild(this.statusContainer);
 		this.renderWidgets(); // Initialize with default spacer
 		this.mainContentContainer.addChild(this.widgetContainerAbove);
-		this.bottomContainer.addChild(this.editorContainer);
-		this.bottomContainer.addChild(this.widgetContainerBelow);
-		this.bottomContainer.addChild(this.footerContainer);
-		this.ui.addChild(this.viewport);
+		this.ui.addChild(this.applicationShell);
 		this.ui.setFocus(this.editor);
 
 		this.setupKeyHandlers();
@@ -826,6 +822,8 @@ export class InteractiveMode {
 
 		// Initialize extensions first so resources are shown before messages
 		await this.rebindCurrentSession();
+		this.setupTranscriptInput();
+		this.enableTranscriptMouseReporting();
 
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
@@ -1457,7 +1455,7 @@ export class InteractiveMode {
 			recentTools: this.sessionRailRecentTools,
 			completedTools: this.sessionRailCompletedTools,
 			failedTools: this.sessionRailFailedTools,
-			getAvailableHeight: () => this.viewport.getAvailableMainHeight(this.ui.terminal.columns),
+			getAvailableHeight: () => this.applicationShell.getAvailableMainHeight(this.ui.terminal.columns),
 		});
 	}
 
@@ -1756,6 +1754,7 @@ export class InteractiveMode {
 						return { cancelled: true };
 					}
 
+					this.transcriptViewport?.reset();
 					this.chatContainer.clear();
 					this.renderInitialMessages();
 					if (result.editorText && !this.editor.getText().trim()) {
@@ -1841,6 +1840,7 @@ export class InteractiveMode {
 	}
 
 	private renderCurrentSessionState(): void {
+		this.transcriptViewport?.reset();
 		this.loadedResourcesContainer.clear();
 		this.chatContainer.clear();
 		this.pendingMessagesContainer.clear();
@@ -2078,7 +2078,7 @@ export class InteractiveMode {
 		this.setHiddenThinkingLabel();
 	}
 
-	// Maximum total widget lines to prevent viewport overflow
+	// Maximum total widget lines to prevent layout overflow
 	private static readonly MAX_WIDGET_LINES = 10;
 
 	/**
@@ -2127,7 +2127,7 @@ export class InteractiveMode {
 			this.customFooter.dispose();
 		}
 
-		// Swap the footer inside its full-width slot. It is nested below the viewport, not mounted at the TUI root.
+		// Swap the footer inside its full-width shell slot, not mounted at the TUI root.
 		this.footerContainer.clear();
 
 		if (factory) {
@@ -3191,6 +3191,7 @@ export class InteractiveMode {
 						this.showStatus("Auto-compaction cancelled");
 					}
 				} else if (event.result) {
+					this.transcriptViewport?.reset();
 					this.chatContainer.clear();
 					this.rebuildChatFromMessages();
 					this.addMessageToChat(
@@ -3588,6 +3589,7 @@ export class InteractiveMode {
 	}
 
 	private rebuildChatFromMessages(): void {
+		this.transcriptViewport?.markContentReplaced();
 		this.chatContainer.clear();
 		this.renderSessionEntries(this.sessionManager.buildContextEntries());
 	}
@@ -3595,6 +3597,64 @@ export class InteractiveMode {
 	// =========================================================================
 	// Key handlers
 	// =========================================================================
+
+	private setupTranscriptInput(): void {
+		this.unsubscribeTranscriptInput?.();
+		this.unsubscribeTranscriptInput = this.ui.addInputListener((data) => {
+			if (!this.canHandleTranscriptNavigation()) return undefined;
+
+			const layout = this.applicationShell.getLayout();
+			if (this.transcriptViewport?.handleMouseWheel(data, layout.transcript)) {
+				this.ui.requestRender();
+				return { consume: true };
+			}
+
+			const action = getTranscriptNavigationAction(data, (input, keybinding) =>
+				this.keybindings.matches(input, keybinding),
+			);
+			if (!action) return undefined;
+
+			switch (action) {
+				case "pageUp":
+					this.transcriptViewport?.pageUp();
+					break;
+				case "pageDown":
+					this.transcriptViewport?.pageDown();
+					break;
+				case "end":
+					this.transcriptViewport?.end();
+					break;
+			}
+
+			this.ui.requestRender();
+			return { consume: true };
+		});
+	}
+
+	private canHandleTranscriptNavigation(): boolean {
+		return canHandleTranscriptNavigation({
+			overlayHasInput: this.ui.hasOverlayInput(),
+			defaultEditorFocused: this.editor === this.defaultEditor,
+			editorContainerHasFocus:
+				this.editorContainer.children.length === 1 && this.editorContainer.children[0] === this.editor,
+			autocompleteVisible: this.defaultEditor.isShowingAutocomplete(),
+			editorHasText: this.editor.getText().length > 0,
+			bashMode: this.isBashMode,
+			bashRunning: this.session.isBashRunning,
+		});
+	}
+
+	private enableTranscriptMouseReporting(): void {
+		if (this.transcriptMouseReportingEnabled) return;
+		this.ui.terminal.write("\x1b[?1000h\x1b[?1006h");
+		this.transcriptMouseReportingEnabled = true;
+	}
+
+	private disableTranscriptMouseReporting(): void {
+		if (!this.transcriptMouseReportingEnabled) return;
+		this.ui.terminal.write("\x1b[?1006l\x1b[?1000l");
+		this.transcriptMouseReportingEnabled = false;
+	}
 
 	private handleCtrlC(): void {
 		const now = Date.now();
@@ -3924,6 +3984,7 @@ export class InteractiveMode {
 			fs.writeFileSync(tmpFile, currentText, "utf-8");
 
 			// Stop TUI to release terminal
+			this.disableTranscriptMouseReporting();
 			this.ui.stop();
 
 			// Split by space to support editor arguments (e.g., "code --wait")
@@ -3959,6 +4020,7 @@ export class InteractiveMode {
 
 			// Restart TUI
 			this.ui.start();
+			this.enableTranscriptMouseReporting();
 			// Force full re-render since external editor uses alternate screen
 			this.ui.requestRender(true);
 		}
@@ -4807,6 +4869,7 @@ export class InteractiveMode {
 						}
 
 						// Update UI
+						this.transcriptViewport?.reset();
 						this.chatContainer.clear();
 						this.renderInitialMessages();
 						if (result.editorText && !this.editor.getText().trim()) {
@@ -6340,8 +6403,12 @@ export class InteractiveMode {
 		this.clearStatusIndicator();
 		this.themeController.disableAutoSync();
 		this.clearExtensionTerminalInputListeners();
+		this.unsubscribeTranscriptInput?.();
+		this.unsubscribeTranscriptInput = undefined;
+		this.disableTranscriptMouseReporting();
 		this.footer.dispose();
 		this.footerDataProvider.dispose();
+		this.applicationShell.dispose();
 		if (this.unsubscribe) {
 			this.unsubscribe();
 		}
