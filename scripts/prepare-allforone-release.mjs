@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const defaultRepoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -35,10 +34,13 @@ export function updateProductVersion(source, version) {
 	return source.replace(/\bversion:\s*"[^"]+"/, `version: "${version}"`);
 }
 
+function escapeRegExp(value) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function extractVersionChanges(changelog, version) {
 	validateAllForOneVersion(version);
-	const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-	const heading = new RegExp(`^## \\[${escapedVersion}\\](?: - \\d{4}-\\d{2}-\\d{2})?\\s*$`, "m");
+	const heading = new RegExp(`^## \\[${escapeRegExp(version)}\\](?: - \\d{4}-\\d{2}-\\d{2})?\\s*$`, "m");
 	const match = heading.exec(changelog);
 	if (!match) {
 		throw new Error(`CHANGELOG-AFO.md does not contain a section for ${version}.`);
@@ -59,7 +61,7 @@ export function archiveUnreleasedChanges(changelog, version, date) {
 	if (!DATE_PATTERN.test(date)) {
 		throw new Error(`Invalid release date: ${date}. Expected YYYY-MM-DD.`);
 	}
-	if (new RegExp(`^## \\[${version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`, "m").test(changelog)) {
+	if (new RegExp(`^## \\[${escapeRegExp(version)}\\]`, "m").test(changelog)) {
 		throw new Error(`CHANGELOG-AFO.md already contains a section for ${version}.`);
 	}
 
