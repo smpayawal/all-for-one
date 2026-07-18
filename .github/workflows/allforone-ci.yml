@@ -60,6 +60,9 @@ jobs:
       - name: Clean-worktree helper tests
         run: node --test scripts/check-clean-worktree.test.mjs
 
+      - name: Session-efficiency report tests
+        run: npm exec -- tsx --test scripts/session-efficiency-report.test.ts
+
       - name: Verify generated build output
         run: node scripts/check-clean-worktree.mjs --allow-build-generated
 

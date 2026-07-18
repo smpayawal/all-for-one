@@ -25,6 +25,7 @@
 		"evaluate:context": "tsx --tsconfig tsconfig.json scripts/context-evaluation.ts",
 		"evaluate:execution": "tsx --tsconfig tsconfig.json scripts/execution-evaluation.ts",
 		"doctor:allforone": "tsx --tsconfig tsconfig.json scripts/allforone-doctor.ts",
+		"report:session": "tsx --tsconfig tsconfig.json scripts/session-efficiency-report.ts",
 		"generate:models": "npm --prefix packages/ai run generate-models && npm --prefix packages/ai run generate-image-models",
 		"generate:model-catalog": "npm --prefix packages/ai run generate-model-catalog",
 		"diff:model-catalog": "node scripts/diff-model-catalog.mjs",
