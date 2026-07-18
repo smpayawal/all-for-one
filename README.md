@@ -30,9 +30,22 @@ This repository uses the following branch structure:
 
 - `main` tracks upstream Pi.
 - `allforone` is the official All-For-One development and integration branch.
+- `sync/pi-*` branches integrate an updated Pi baseline into `allforone` through review.
 - Focused development branches start from `allforone`.
 
 All-For-One releases use an independent product version and record the Pi version used as their compatibility baseline. Internal Pi package versions remain unchanged unless a deliberate package migration is designed and tested.
+
+### Upstream synchronization
+
+The `Upstream Pi Sync` workflow checks the relationship between native Pi, `main`, and `allforone` every week and on demand.
+
+Its manual actions are intentionally separate:
+
+- `check` reports drift without changing the repository.
+- `update-main` fast-forwards `main` only when its history is a clean ancestor of upstream Pi.
+- `prepare-sync` performs the same verified fast-forward, then creates a `sync/pi-*` branch and pull request into `allforone` when the merge is conflict-free.
+
+The workflow never force-pushes, never writes All-For-One changes to `main`, and never automatically merges a synchronization pull request. A conflict stops the workflow and must be resolved on a focused `sync/pi-*` branch.
 
 ## Run from source
 
