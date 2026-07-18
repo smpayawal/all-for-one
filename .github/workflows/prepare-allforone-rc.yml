@@ -22,7 +22,14 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
+          fetch-depth: 1
+          show-progress: false
+
+      - name: Inspect release metadata
+        run: |
+          node -e "const p=require('./package.json'); const l=require('./package-lock.json'); console.log(JSON.stringify({package:p.version,lock:l.version,lockRoot:l.packages?.['']?.version},null,2))"
+          grep -n 'version:' packages/coding-agent/src/allforone/product.ts
+          sed -n '1,40p' CHANGELOG-AFO.md
 
       - name: Prepare release metadata
         run: node scripts/prepare-allforone-release.mjs 0.1.0-rc.1 --date 2026-07-19 --json
