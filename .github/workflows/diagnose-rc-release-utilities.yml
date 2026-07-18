@@ -1,0 +1,27 @@
+name: Diagnose RC Release Utilities
+
+on:
+  pull_request:
+    branches:
+      - release/0.1.0-rc.1-publish
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone diagnostic branch
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: git clone --quiet --depth 1 --branch "${HEAD_REF}" "https://github.com/${GITHUB_REPOSITORY}.git" .
+
+      - name: Test release metadata utilities
+        run: node --test scripts/allforone-release.test.mjs
+
+      - name: Test release preparation utilities
+        run: node --test scripts/prepare-allforone-release.test.mjs
+
+      - name: Test archive smoke utilities
+        run: node --test scripts/smoke-allforone-archive.test.mjs
