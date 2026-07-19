@@ -1,0 +1,47 @@
+name: Run TUI roadmap implementation
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'perf/tui-responsiveness-roadmap' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout implementation branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: perf/tui-responsiveness-roadmap
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
+
+      - name: Extract implementation script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          source = Path('.github/workflows/apply-tui-roadmap.yml').read_text()
+          marker = "cat <<'PAYLOAD' | base64 --decode | gzip --decompress > /tmp/apply-tui-roadmap.py\n"
+          payload = source.split(marker, 1)[1].split('\n          PAYLOAD', 1)[0]
+          Path('/tmp/apply-tui-roadmap.py.gz.b64').write_text(payload.strip() + '\n')
+          PY
+          base64 --decode /tmp/apply-tui-roadmap.py.gz.b64 | gzip --decompress > /tmp/apply-tui-roadmap.py
+          python -m py_compile /tmp/apply-tui-roadmap.py
+
+      - name: Apply and validate roadmap phases
+        run: python /tmp/apply-tui-roadmap.py
