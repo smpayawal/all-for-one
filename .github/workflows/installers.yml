@@ -71,6 +71,25 @@ jobs:
           "$AFO_BIN_DIR/afo" --help >/dev/null
           "$AFO_BIN_DIR/pi" --version
 
+  homebrew:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install from local tap
+        env:
+          AFO_OFFLINE: '1'
+          PI_OFFLINE: '1'
+        run: |
+          set -euo pipefail
+          brew tap smpayawal/all-for-one "$GITHUB_WORKSPACE"
+          brew install --formula smpayawal/all-for-one/all-for-one
+          allforone --version
+          afo --help >/dev/null
+          brew test smpayawal/all-for-one/all-for-one
+
   windows:
     runs-on: windows-latest
     timeout-minutes: 10
