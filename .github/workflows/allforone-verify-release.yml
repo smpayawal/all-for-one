@@ -86,10 +86,6 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          node --input-type=module <<'NODE'
-          import { parseAllForOneReleaseTag } from './scripts/allforone-release.mjs';
-          process.stdout.write(`${parseAllForOneReleaseTag(process.env.RELEASE_TAG)}\n`);
-          NODE
           tooling_sha="$(git rev-parse HEAD)"
           git fetch --tags origin
           release_commit="$(git rev-list -n 1 "${RELEASE_TAG}" --)"
@@ -97,9 +93,15 @@ jobs:
           gh release view "${RELEASE_TAG}" --json tagName,isDraft,isPrerelease > release.json
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
+          import { parseAllForOneReleaseTag } from './scripts/allforone-release.mjs';
+          import { isPrereleaseVersion } from './scripts/allforone-version.mjs';
+          const version = parseAllForOneReleaseTag(process.env.RELEASE_TAG);
           const release = JSON.parse(readFileSync('release.json', 'utf8'));
           if (release.tagName !== process.env.RELEASE_TAG) throw new Error(`Unexpected release tag: ${release.tagName}`);
           if (release.isDraft) throw new Error(`Release ${release.tagName} is still a draft.`);
+          if (release.isPrerelease !== isPrereleaseVersion(version)) {
+            throw new Error(`Release ${release.tagName} has an incorrect prerelease flag.`);
+          }
           NODE
           echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
           echo "release_commit=${release_commit}" >> "${GITHUB_OUTPUT}"
