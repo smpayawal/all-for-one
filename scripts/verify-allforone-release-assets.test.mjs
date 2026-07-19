@@ -9,6 +9,7 @@ import { verifyReleaseDirectory } from "./verify-allforone-release-assets.mjs";
 
 const tag = "afo-v0.1.0-rc.1";
 const version = "0.1.0-rc.1";
+const commit = "a".repeat(40);
 
 function sha256(content) {
 	return createHash("sha256").update(content).digest("hex");
@@ -32,7 +33,7 @@ function createReleaseFixture(t) {
 				prerelease: true,
 				tag,
 				piBaseline: "0.80.10",
-				commit: "a".repeat(40),
+				commit,
 				generatedAt: "2026-07-19T00:00:00.000Z",
 				commands: ["allforone", "afo", "pi"],
 				repository: "https://github.com/smpayawal/all-for-one",
@@ -51,19 +52,28 @@ function createReleaseFixture(t) {
 
 test("verifies the complete published release payload", (t) => {
 	const directory = createReleaseFixture(t);
-	const result = verifyReleaseDirectory({ directory, tag });
+	const result = verifyReleaseDirectory({ directory, tag, commit });
 	assert.equal(result.tag, tag);
 	assert.equal(result.version, version);
+	assert.equal(result.commit, commit);
 	assert.equal(result.verifiedFiles, RELEASE_ASSETS.length + 2);
 });
 
 test("rejects a tampered published asset", (t) => {
 	const directory = createReleaseFixture(t);
 	writeFileSync(join(directory, RELEASE_ASSETS[0]), "tampered\n");
-	assert.throws(() => verifyReleaseDirectory({ directory, tag }), /Checksum mismatch/);
+	assert.throws(() => verifyReleaseDirectory({ directory, tag, commit }), /Checksum mismatch/);
 });
 
 test("rejects release metadata for a different tag", (t) => {
 	const directory = createReleaseFixture(t);
-	assert.throws(() => verifyReleaseDirectory({ directory, tag: "afo-v0.1.0-rc.2" }), /manifest tag/);
+	assert.throws(
+		() => verifyReleaseDirectory({ directory, tag: "afo-v0.1.0-rc.2", commit }),
+		/manifest tag/,
+	);
+});
+
+test("rejects a manifest from a different release commit", (t) => {
+	const directory = createReleaseFixture(t);
+	assert.throws(() => verifyReleaseDirectory({ directory, tag, commit: "b".repeat(40) }), /manifest commit/);
 });
