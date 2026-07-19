@@ -17,7 +17,38 @@ It keeps Pi's adaptive single-agent foundation and compatibility while adding a 
 - Project instructions, local project memory, and built-in coding skills.
 - Optional validation and execution checks.
 
-## Run from source
+## Install
+
+Homebrew on macOS or Linux:
+
+```bash
+brew tap smpayawal/all-for-one https://github.com/smpayawal/all-for-one.git
+brew install smpayawal/all-for-one/all-for-one
+```
+
+Direct installer on macOS or Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/smpayawal/all-for-one/main/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/smpayawal/all-for-one/main/install.ps1 | iex
+```
+
+These methods install the matching binary from GitHub Releases. Node.js and a local clone are not required.
+
+Run:
+
+```bash
+allforone
+```
+
+Use `afo` as the shorter command. Use `brew upgrade all-for-one` or rerun the installer to update.
+
+## Build from source
 
 Requires Node.js 22.19 or later.
 
