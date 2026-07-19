@@ -47,7 +47,7 @@ describe("session rail layout", () => {
 		});
 
 		const wideLine = shell.render(128)[0] ?? "";
-		expect(visibleWidth(wideLine)).toBe(128 - SESSION_RAIL_MIN_WIDTH);
+		expect(visibleWidth(wideLine)).toBe(128);
 		expect(stripAnsi(wideLine)).toContain("│");
 
 		const narrowLine = shell.render(127)[0] ?? "";
@@ -196,7 +196,7 @@ describe("viewport composition", () => {
 		expect(lines).toHaveLength(12);
 		expect(stripAnsi(lines[10] ?? "").trimEnd()).toBe("EDITOR");
 		expect(stripAnsi(lines[11] ?? "").trimEnd()).toBe("FOOTER");
-		expect(visibleWidth(lines[9] ?? "")).toBe(128 - SESSION_RAIL_MIN_WIDTH);
+		expect(visibleWidth(lines[9] ?? "")).toBe(128);
 		shell.dispose();
 	});
 
@@ -250,14 +250,14 @@ describe("viewport composition", () => {
 		await terminal.waitForRender();
 
 		let screen = terminal.getViewport();
-		expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(false);
+		expect(screen.some((line) => line.includes("NOW"))).toBe(true);
 		expect(screen[10]?.trimEnd()).toBe("EDITOR");
 		expect(screen[11]?.trimEnd()).toBe("FOOTER");
 
 		terminal.resize(127, 12);
 		await terminal.waitForRender();
 		screen = terminal.getViewport();
-		expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(false);
+		expect(screen.some((line) => line.includes("NOW"))).toBe(false);
 		expect(screen[10]?.trimEnd()).toBe("EDITOR");
 		expect(screen[11]?.trimEnd()).toBe("FOOTER");
 		shell.dispose();

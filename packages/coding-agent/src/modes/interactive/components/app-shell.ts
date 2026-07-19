@@ -1,12 +1,7 @@
-import { type Component, type OverlayHandle, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import {
-	calculateResponsiveLayout,
-	getSessionRailLayout,
-	type ResponsiveLayout,
-	SESSION_RAIL_MAX_WIDTH,
-	SESSION_RAIL_MIN_WIDTH,
-} from "../responsive-layout.ts";
+import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { calculateResponsiveLayout, type ResponsiveLayout } from "../responsive-layout.ts";
 import { theme } from "../theme/theme.ts";
+import { measureTuiRender } from "../tui-render-profiler.ts";
 import { fillBackgroundLine, fillBackgroundLines } from "./background-fill.ts";
 
 export interface InteractiveApplicationShellOptions {
@@ -33,7 +28,6 @@ export class InteractiveApplicationShell implements Component {
 	private readonly bottomAccessory: Component | undefined;
 	private readonly footer: Component;
 	private readonly getTerminalHeight: () => number;
-	private readonly railOverlayHandles: OverlayHandle[] = [];
 	private layout: ResponsiveLayout | undefined;
 	private disposed = false;
 
@@ -45,17 +39,6 @@ export class InteractiveApplicationShell implements Component {
 		this.bottomAccessory = options.bottomAccessory;
 		this.footer = options.footer;
 		this.getTerminalHeight = options.getTerminalHeight;
-
-		for (let railWidth = SESSION_RAIL_MIN_WIDTH; railWidth <= SESSION_RAIL_MAX_WIDTH; railWidth += 1) {
-			this.railOverlayHandles.push(
-				this.tui.showOverlay(this.rail, {
-					anchor: "top-right",
-					nonCapturing: true,
-					visible: (width: number) => getSessionRailLayout(width).railWidth === railWidth,
-					width: railWidth,
-				}),
-			);
-		}
 	}
 
 	getLayout(width = this.tui.terminal.columns, height = this.getTerminalHeight()): ResponsiveLayout {
@@ -83,6 +66,28 @@ export class InteractiveApplicationShell implements Component {
 	}
 
 	render(width: number): string[] {
+		return measureTuiRender(
+			"app-shell",
+			() => this.renderFrame(width),
+			(lines) => ({ width, lines: lines.length, railVisible: this.layout?.rail.visible ?? false }),
+		);
+	}
+
+	invalidate(): void {
+		this.layout = undefined;
+		this.transcript.invalidate?.();
+		this.rail.invalidate?.();
+		this.editor.invalidate?.();
+		this.bottomAccessory?.invalidate?.();
+		this.footer.invalidate?.();
+	}
+
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+	}
+
+	private renderFrame(width: number): string[] {
 		const height = this.getTerminalHeight();
 		const editorLines = this.editor.render(width);
 		const accessoryLines = this.bottomAccessory?.render(width) ?? [];
@@ -97,7 +102,7 @@ export class InteractiveApplicationShell implements Component {
 
 		const transcriptLines = this.transcript.render(this.layout.transcript.width);
 		const targetTranscriptHeight = Math.max(transcriptLines.length, this.layout.transcript.height);
-		const mainLines = this.renderTranscriptLines(transcriptLines, targetTranscriptHeight, this.layout);
+		const mainLines = this.renderMainRegion(transcriptLines, targetTranscriptHeight, this.layout);
 		return [
 			...mainLines,
 			...fillBackgroundLines(editorLines, width, "customMessageBg"),
@@ -106,35 +111,25 @@ export class InteractiveApplicationShell implements Component {
 		];
 	}
 
-	invalidate(): void {
-		this.transcript.invalidate?.();
-		this.rail.invalidate?.();
-		this.editor.invalidate?.();
-		this.bottomAccessory?.invalidate?.();
-		this.footer.invalidate?.();
-	}
-
-	dispose(): void {
-		if (this.disposed) return;
-		this.disposed = true;
-		for (const handle of this.railOverlayHandles) handle.hide();
-		this.railOverlayHandles.length = 0;
-	}
-
-	private renderTranscriptLines(lines: string[], targetHeight: number, layout: ResponsiveLayout): string[] {
+	private renderMainRegion(lines: string[], targetHeight: number, layout: ResponsiveLayout): string[] {
 		if (!layout.rail.visible) {
 			const padded = [...lines, ...Array.from({ length: Math.max(0, targetHeight - lines.length) }, () => "")];
 			return fillBackgroundLines(padded, layout.transcript.width, "customMessageBg");
 		}
 
-		const decoratedLines = lines.map((line) => this.addRailDivider(line, layout.transcript.width));
-		while (decoratedLines.length < targetHeight) decoratedLines.push(this.addRailDivider("", layout.transcript.width));
-		return decoratedLines;
+		const railLines = this.rail.render(layout.rail.width);
+		const result: string[] = [];
+		for (let index = 0; index < targetHeight; index += 1) {
+			const transcriptLine = this.padRegion(lines[index] ?? "", layout.transcript.width);
+			const railLine = this.padRegion(railLines[index] ?? "", layout.rail.width);
+			result.push(`${transcriptLine}${theme.fg("border", "│")}${railLine}`);
+		}
+		return result;
 	}
 
-	private addRailDivider(line: string, transcriptWidth: number): string {
-		const truncated = truncateToWidth(line, transcriptWidth, "");
-		const padding = " ".repeat(Math.max(0, transcriptWidth - visibleWidth(truncated)));
-		return fillBackgroundLine(`${truncated}${padding}${theme.fg("border", "│")}`, transcriptWidth + 1, "customMessageBg");
+	private padRegion(line: string, width: number): string {
+		const truncated = truncateToWidth(line, width, "");
+		const padding = " ".repeat(Math.max(0, width - visibleWidth(truncated)));
+		return fillBackgroundLine(`${truncated}${padding}`, width, "customMessageBg");
 	}
 }
