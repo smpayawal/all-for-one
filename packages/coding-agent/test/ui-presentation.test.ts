@@ -5,7 +5,7 @@ import { ExecutionGroupComponent } from "../src/modes/interactive/components/exe
 import type { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { TranscriptTurnHeaderComponent } from "../src/modes/interactive/components/transcript-turn-header.ts";
 import { UserMessageComponent } from "../src/modes/interactive/components/user-message.ts";
-import { initTheme, loadThemeFromPath, setThemeInstance } from "../src/modes/interactive/theme/theme.ts";
+import { initTheme, loadThemeFromPath, setThemeInstance, theme } from "../src/modes/interactive/theme/theme.ts";
 import { getExecutionGroupTarget } from "../src/modes/interactive/tool-action-summary.ts";
 
 const THEME_PATH = fileURLToPath(new URL("../theme/afo-midnight.json", import.meta.url));
@@ -18,7 +18,7 @@ class FakeToolComponent implements Component {
 	expanded = false;
 
 	render(width: number): string[] {
-		return ["native tool renderer".slice(0, width)];
+		return ["native tool renderer".slice(0, width), "native output detail".slice(0, width)];
 	}
 
 	setExpanded(expanded: boolean): void {
@@ -87,22 +87,41 @@ describe("All-For-One transcript presentation", () => {
 		for (const line of lines) expect(visibleWidth(line)).toBe(72);
 	});
 
-	test("keeps expanded native tool output inside the inset execution surface", () => {
-		const component = new FakeToolComponent() as unknown as ToolExecutionComponent;
+	test("layers expanded action headers above darker native output cards", () => {
+		const first = new FakeToolComponent() as unknown as ToolExecutionComponent;
+		const second = new FakeToolComponent() as unknown as ToolExecutionComponent;
 		const group = new ExecutionGroupComponent("turn-2", true);
 		group.addAction({
 			id: "read-1",
 			toolName: "read",
 			args: { path: "README.md" },
+			status: "success",
+			component: first,
+		});
+		group.addAction({
+			id: "read-2",
+			toolName: "read",
+			args: { path: "package.json" },
 			status: "running",
-			component,
+			component: second,
 		});
 
-		const lines = group.render(48);
+		const lines = group.render(64);
+		const plain = lines.map(stripAnsi);
 		expect(lines[0]?.trim()).toBe("");
-		expect(stripAnsi(lines[1] ?? "")).toContain(" │▾ Repository inspection");
-		expect(stripAnsi(lines[2] ?? "")).toContain(" │ native tool renderer");
-		for (const line of lines) expect(visibleWidth(line)).toBe(48);
+		expect(plain[1]).toContain("│▾ Repository inspection");
+		expect(plain.some((line) => line.includes("✓ Read  README.md"))).toBe(true);
+		expect(plain.some((line) => line.includes("● Read  package.json"))).toBe(true);
+		expect(plain.filter((line) => line.includes("native tool renderer"))).toHaveLength(2);
+		expect(lines.some((line) => line.includes(theme.getBgAnsi("selectedBg")) && stripAnsi(line).includes("Read"))).toBe(
+			true,
+		);
+		expect(
+			lines.some(
+				(line) => line.includes(theme.getBgAnsi("customMessageBg")) && stripAnsi(line).includes("native output detail"),
+			),
+		).toBe(true);
+		for (const line of lines) expect(visibleWidth(line)).toBe(64);
 	});
 
 	test("only promotes a target to the group header when every targeted action agrees", () => {
