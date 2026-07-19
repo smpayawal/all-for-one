@@ -64,6 +64,8 @@ jobs:
       contents: read
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
+      release_commit: ${{ steps.release.outputs.release_commit }}
+      tooling_sha: ${{ steps.release.outputs.tooling_sha }}
     steps:
       - name: Checkout trusted verification tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -88,8 +90,10 @@ jobs:
           import { parseAllForOneReleaseTag } from './scripts/allforone-release.mjs';
           process.stdout.write(`${parseAllForOneReleaseTag(process.env.RELEASE_TAG)}\n`);
           NODE
+          tooling_sha="$(git rev-parse HEAD)"
           git fetch --tags origin
-          test -n "$(git rev-list -n 1 "${RELEASE_TAG}" --)"
+          release_commit="$(git rev-list -n 1 "${RELEASE_TAG}" --)"
+          test -n "${release_commit}"
           gh release view "${RELEASE_TAG}" --json tagName,isDraft,isPrerelease > release.json
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
@@ -98,6 +102,8 @@ jobs:
           if (release.isDraft) throw new Error(`Release ${release.tagName} is still a draft.`);
           NODE
           echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "release_commit=${release_commit}" >> "${GITHUB_OUTPUT}"
+          echo "tooling_sha=${tooling_sha}" >> "${GITHUB_OUTPUT}"
 
   native-public-smoke:
     if: github.event_name != 'pull_request'
@@ -121,13 +127,15 @@ jobs:
       contents: read
     env:
       RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.release_commit }}
+      TOOLING_SHA: ${{ needs.validate.outputs.tooling_sha }}
       ARCHIVE: ${{ matrix.archive }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout trusted verification tooling
+      - name: Checkout pinned verification tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: allforone
+          ref: ${{ env.TOOLING_SHA }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -143,7 +151,12 @@ jobs:
           gh release download "${RELEASE_TAG}" --dir release-assets --clobber
 
       - name: Verify public release checksums and manifest
-        run: node scripts/verify-allforone-release-assets.mjs --dir release-assets --tag "${{ env.RELEASE_TAG }}" --json
+        run: >-
+          node scripts/verify-allforone-release-assets.mjs
+          --dir release-assets
+          --tag "${{ env.RELEASE_TAG }}"
+          --commit "${{ env.RELEASE_COMMIT }}"
+          --json
 
       - name: Extract and smoke Unix archive
         if: runner.os != 'Windows'
