@@ -14,6 +14,7 @@ describe("TUI scroll regression", () => {
 		initTheme("dark");
 	});
 
+	// The root shell must remain bounded even when a child returns more lines than allocated.
 	test("clamps an oversized transcript so the editor and footer remain visible", () => {
 		const terminal = new VirtualTerminal(128, 12);
 		const tui = new TUI(terminal);
