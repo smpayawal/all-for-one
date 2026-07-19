@@ -144,22 +144,26 @@ export class AssistantMessageComponent extends Container {
 		for (let i = 0; i < message.content.length; i++) {
 			const content = message.content[i];
 			if (content.type === "text" && content.text.trim()) {
-				if (!hasToolCalls && !resultLabelRendered) {
-					this.contentContainer.addChild(
-						new Text(theme.bold(theme.fg("customMessageLabel", RESULT_LABEL)), this.outputPad, 0),
-					);
-					resultLabelRendered = true;
-				}
 				const markdown = new Markdown(content.text.trim(), 0, 0, this.markdownTheme);
-				this.contentContainer.addChild(
-					new InsetPanelComponent({
-						child: markdown,
-						borderColor: "accent",
-						background: "customMessageBg",
-						outerInset: this.outputPad,
-						paddingX: 1,
-					}),
-				);
+				if (this.outputPad === 0) {
+					this.contentContainer.addChild(markdown);
+				} else {
+					if (!hasToolCalls && !resultLabelRendered) {
+						this.contentContainer.addChild(
+							new Text(theme.bold(theme.fg("customMessageLabel", RESULT_LABEL)), this.outputPad, 0),
+						);
+						resultLabelRendered = true;
+					}
+					this.contentContainer.addChild(
+						new InsetPanelComponent({
+							child: markdown,
+							borderColor: "accent",
+							background: "customMessageBg",
+							outerInset: this.outputPad,
+							paddingX: 1,
+						}),
+					);
+				}
 			} else if (content.type === "thinking") {
 				const thinkingBlocks: string[] = [];
 				for (; i < message.content.length; i++) {
@@ -197,7 +201,11 @@ export class AssistantMessageComponent extends Container {
 							italic: true,
 						},
 					);
-					this.contentContainer.addChild(new PlanningBlockComponent(planningMarkdown, this.outputPad));
+					this.contentContainer.addChild(
+						this.outputPad === 0
+							? planningMarkdown
+							: new PlanningBlockComponent(planningMarkdown, this.outputPad),
+					);
 				}
 				if (hasVisibleContentAfter) {
 					this.contentContainer.addChild(new Spacer(1));
