@@ -13,12 +13,15 @@ on:
       - 'packages/coding-agent/src/allforone/**'
       - 'scripts/allforone-release.mjs'
       - 'scripts/allforone-release.test.mjs'
+      - 'scripts/allforone-version.mjs'
       - 'scripts/build-allforone-binaries.sh'
       - 'scripts/local-release.mjs'
       - 'scripts/prepare-allforone-release.mjs'
       - 'scripts/prepare-allforone-release.test.mjs'
       - 'scripts/smoke-allforone-archive.mjs'
       - 'scripts/smoke-allforone-archive.test.mjs'
+      - 'scripts/verify-allforone-release-assets.mjs'
+      - 'scripts/verify-allforone-release-assets.test.mjs'
   push:
     tags:
       - 'afo-v*'
@@ -32,8 +35,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: allforone-release-${{ inputs.tag || github.ref }}
-  cancel-in-progress: false
+  group: allforone-release-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
@@ -106,7 +109,8 @@ jobs:
           node --test \
             scripts/allforone-release.test.mjs \
             scripts/prepare-allforone-release.test.mjs \
-            scripts/smoke-allforone-archive.test.mjs
+            scripts/smoke-allforone-archive.test.mjs \
+            scripts/verify-allforone-release-assets.test.mjs
           bash -n scripts/build-allforone-binaries.sh
           npm run build
           node packages/coding-agent/dist/allforone-cli.js --version
