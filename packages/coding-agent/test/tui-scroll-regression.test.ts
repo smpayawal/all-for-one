@@ -38,7 +38,7 @@ describe("TUI scroll regression", () => {
 
 	test("renders one product title and one current-status heading in the rail", () => {
 		const rail = new SessionRailComponent({
-			title: "ALL-FOR-ONE",
+			title: "All-For-One",
 			agents: ["AGENTS.md"],
 			skills: [],
 			lifecycle: { kind: "idle" },
@@ -50,7 +50,7 @@ describe("TUI scroll regression", () => {
 		});
 
 		const output = stripAnsi(rail.render(36).join("\n"));
-		expect(output.match(/ALL-FOR-ONE/g)).toHaveLength(1);
+		expect(output.match(/All-For-One/g)).toHaveLength(1);
 		expect(output.match(/NOW/g)).toHaveLength(1);
 	});
 });
