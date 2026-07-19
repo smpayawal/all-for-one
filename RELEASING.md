@@ -1,0 +1,128 @@
+# Releasing All-For-One
+
+All-For-One releases are published through GitHub Releases from the `main` branch. Internal Pi-compatible workspace packages remain private and are not published to npm.
+
+## Prepare release metadata
+
+Use the downstream preparation command so the product version, root lockfile metadata, and changelog remain aligned:
+
+```bash
+npm run release:afo:prepare -- 0.1.0-rc.1 --date YYYY-MM-DD
+```
+
+The command updates:
+
+- the All-For-One version in `package.json`;
+- the matching root version fields in `package-lock.json`;
+- `packages/coding-agent/src/allforone/product.ts`;
+- `CHANGELOG-AFO.md`, moving the current `Unreleased` notes into a dated version section.
+
+It does not change the versions of the private Pi-compatible workspace packages, create a commit, create a tag, push a branch, or publish a release.
+
+Review the generated diff before committing. To inspect a prepared release state without modifying files, use:
+
+```bash
+npm run release:afo:prepare -- 0.1.0-rc.1 --check --json
+```
+
+## Release requirements
+
+Before creating a release tag:
+
+1. Confirm the prepared release commit is on `main`.
+2. Confirm the All-For-One version in `package.json` matches `packages/coding-agent/src/allforone/product.ts`.
+3. Confirm `CHANGELOG-AFO.md` contains the matching dated version section.
+4. Verify the prepared release state:
+
+   ```bash
+   npm run release:afo:prepare -- X.Y.Z --check --json
+   ```
+
+5. Run the complete validation set:
+
+   ```bash
+   npm ci --ignore-scripts
+   npm run build
+   npm run check
+   ./test.sh
+   ```
+
+6. Build the standalone archives and run the available local smoke tests from outside the repository.
+7. Review the final diff and confirm no Pi package version, package name, configuration path, session format, SDK surface, or RPC contract changed unintentionally.
+8. Record any native Pi commits adopted since the previous release. The latest `pi` branch is not required to be an ancestor of `main`; upstream changes are adopted selectively.
+
+All product versions and `afo-v*` tags must use strict semantic versioning. Numeric major, minor, patch, and prerelease identifiers must not contain leading zeroes.
+
+## Native archive validation
+
+The release workflow downloads and executes the same archives that it is preparing to publish. Publication is blocked unless the following native smoke jobs pass:
+
+- Linux x64 on `ubuntu-latest`;
+- macOS arm64 on `macos-latest`;
+- Windows x64 on `windows-latest`.
+
+Each job verifies `--version` and `--help` for `allforone`, `afo`, and the compatible `pi` launcher in offline mode.
+
+The Linux arm64, macOS x64, and Windows arm64 archives are produced for compatibility testing but are best-effort until they are executed on corresponding native runners or verified hardware.
+
+## Create a release candidate
+
+Release candidates use semantic prerelease versions and tags such as:
+
+```text
+afo-v0.1.0-rc.1
+```
+
+Prepare and validate the matching version before creating the tag. The release workflow publishes prerelease tags as GitHub prereleases and explicitly prevents them from becoming the latest stable release.
+
+Create an annotated tag only after the prepared release commit has passed validation:
+
+```bash
+git tag -a afo-v0.1.0-rc.1 -m "All-For-One 0.1.0-rc.1"
+git push origin afo-v0.1.0-rc.1
+```
+
+## Create a stable release
+
+Stable tags use the form `afo-vX.Y.Z` and must match the prepared product version exactly.
+
+```bash
+git tag -a afo-vX.Y.Z -m "All-For-One X.Y.Z"
+git push origin afo-vX.Y.Z
+```
+
+Pushing an All-For-One tag starts `.github/workflows/allforone-release.yml`. The workflow validates the tag and prepared changelog state, rebuilds the standalone archives, generates release notes and a manifest, produces SHA-256 checksums, runs native archive smoke tests, publishes a GitHub Release, and then verifies the public release payload through the reusable verification workflow.
+
+Temporary pull-request workflows must not create tags or publish releases. Release preparation may happen on a focused branch, but tag creation and publication must use a reviewed commit contained in `main`.
+
+Do not move, replace, or reuse a published tag. Public releases are immutable. When a release needs correction, prepare a new version.
+
+## Failed release handling
+
+- Validation or native smoke failures prevent publication.
+- A draft created during a failed publish attempt is removed by the workflow.
+- A transient failure may be retried only while the tag still points to the same verified source commit.
+- When source changes are required, do not move the existing tag. Prepare and publish the next version, such as `rc.2`.
+- Never edit a published release to replace its source artifacts.
+
+## Verify the published release
+
+The release workflow automatically invokes **Verify Published All-For-One Release** after publication. The reusable workflow downloads the public GitHub Release payload on Linux x64, macOS arm64, and Windows x64, verifies the manifest and every SHA-256 checksum, confirms the manifest source commit matches the annotated tag, extracts the native archive, and executes `allforone`, `afo`, and `pi` smoke checks.
+
+The same workflow can be dispatched manually with an existing `afo-v*` tag, including an older release. Manual local verification is also available:
+
+```bash
+node scripts/verify-allforone-release-assets.mjs --dir release-assets --tag afo-vX.Y.Z --commit <tag-commit-sha> --json
+```
+
+A release is not considered verified until the public assets, rather than workspace build output, have been downloaded and executed. Record any architecture that remains best-effort.
+
+## Native Pi review before a release
+
+`pi` tracks the native Pi reference. Use the upstream-reference workflow to compare it with upstream Pi and update it only by fast-forward.
+
+Do not merge the complete `pi` branch into `main` as a routine release step. Review upstream changes by category, create a focused `adopt/pi-<short-sha>-<topic>` branch from `main`, and port only the selected changes. Record the source Pi commit in the pull request.
+
+## Prohibited downstream release paths
+
+Do not use the inherited Pi package publication or release commands on `main` or product branches. All-For-One distribution is GitHub Releases only, and the `@earendil-works/pi-*` workspace packages must remain private.

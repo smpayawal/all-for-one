@@ -2,9 +2,10 @@ name: All-For-One CI
 
 on:
   pull_request:
-    branches: [allforone]
+    branches: [main]
   push:
-    branches: [allforone]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,12 +31,12 @@ jobs:
         run: |
           node -e "const { execFileSync } = require('node:child_process'); const expected = process.env.EXPECTED_HEAD; const actual = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); if (actual !== expected) { console.error('Expected ' + expected + ' but checked out ' + actual); process.exit(1); }"
 
-      - name: Verify current allforone base
+      - name: Verify current main base
         if: github.event_name == 'pull_request'
         run: |
-          git fetch --no-tags origin allforone
-          if ! git merge-base --is-ancestor origin/allforone HEAD; then
-            echo "Pull request head does not contain the current allforone base." >&2
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor origin/main HEAD; then
+            echo "Pull request head does not contain the current main base." >&2
             exit 1
           fi
 
@@ -57,8 +58,11 @@ jobs:
       - name: Build packages
         run: npm run build
 
-      - name: Clean-worktree helper tests
-        run: node --test scripts/check-clean-worktree.test.mjs
+      - name: Repository helper tests
+        run: >-
+          node --test
+          scripts/check-clean-worktree.test.mjs
+          scripts/profile-startup-baseline.test.mjs
 
       - name: Session-efficiency report tests
         run: npm exec -- tsx --test scripts/session-efficiency-report.test.ts
@@ -89,6 +93,7 @@ jobs:
           test/validate-executable-identity.test.ts
           test/exec.test.ts
           test/allforone-baseline.test.ts
+          test/product-identity.test.ts
           test/args.test.ts
           test/settings-manager.test.ts
           test/system-prompt.test.ts
@@ -128,9 +133,6 @@ jobs:
           npm run baseline:execution -- --json
           npm run evaluate:context -- --help
           npm run evaluate:execution -- --help
-
-      - name: Upstream relationship
-        run: node scripts/check-upstream-relationship.mjs --main origin/main --json
 
       - name: Restore generated catalogs after validation
         run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'

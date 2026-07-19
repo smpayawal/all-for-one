@@ -19,7 +19,7 @@ Include, when available:
 - the affected package, version, commit, or configuration; and
 - known mitigations.
 
-For downstream issues, reproduce against the latest `allforone` branch when possible and include the exact commit SHA. Vulnerabilities in unchanged upstream Pi code may also need to be reported privately to the upstream Pi maintainers through the channel documented by that project.
+For downstream issues, reproduce against the latest `main` branch when possible and include the exact commit SHA. Vulnerabilities in unchanged upstream Pi code may also need to be reported privately to the upstream Pi maintainers through the channel documented by that project.
 
 ## Scope
 
