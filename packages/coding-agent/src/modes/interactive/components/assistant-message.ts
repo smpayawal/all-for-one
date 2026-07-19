@@ -1,15 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import {
-	type Component,
-	Container,
-	Markdown,
-	type MarkdownTheme,
-	Spacer,
-	Text,
-	truncateToWidth,
-	visibleWidth,
-} from "@earendil-works/pi-tui";
-import { getMarkdownTheme, theme } from "../theme/theme.ts";
+import { type Component, Container, Markdown, type MarkdownTheme, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { getMarkdownTheme, type ThemeBg, type ThemeColor, theme } from "../theme/theme.ts";
 import { InsetPanelComponent } from "./inset-panel.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
@@ -18,38 +9,56 @@ const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 const PLAN_LABEL = "PLAN";
 const RESULT_LABEL = "RESULT";
 
-class PlanningBlockComponent implements Component {
-	private readonly content: Component;
-	private readonly inset: number;
+interface LabeledAssistantPanelOptions {
+	label?: string;
+	labelColor: ThemeColor;
+	child: Component;
+	borderColor: ThemeColor;
+	background: ThemeBg;
+	inset: number;
+}
 
-	constructor(content: Component, inset = 0) {
-		this.content = content;
-		this.inset = Math.max(0, Math.floor(inset));
+/**
+ * Presentation-only wrapper for visible assistant output. Labels remain
+ * secondary metadata while the bounded panel owns the readable content.
+ */
+class LabeledAssistantPanelComponent implements Component {
+	private readonly label: string | undefined;
+	private readonly labelColor: ThemeColor;
+	private readonly inset: number;
+	private readonly panel: InsetPanelComponent;
+
+	constructor(options: LabeledAssistantPanelOptions) {
+		this.label = options.label;
+		this.labelColor = options.labelColor;
+		this.inset = Math.max(0, Math.floor(options.inset));
+		this.panel = new InsetPanelComponent({
+			child: options.child,
+			borderColor: options.borderColor,
+			background: options.background,
+			outerInset: this.inset,
+			paddingX: 1,
+		});
 	}
 
 	render(width: number): string[] {
 		const normalizedWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
 		if (normalizedWidth === 0) return [];
 
-		const inset = Math.min(this.inset, Math.max(0, normalizedWidth - 1));
-		const innerWidth = normalizedWidth - inset;
-		const styledPrefix = `${theme.bold(theme.fg("customMessageLabel", PLAN_LABEL))} `;
-		const prefixWidth = visibleWidth(styledPrefix);
-		if (prefixWidth >= innerWidth) {
-			return [`${" ".repeat(inset)}${truncateToWidth(styledPrefix, innerWidth, "")}`];
+		const lines: string[] = [];
+		if (this.label) {
+			const inset = Math.min(this.inset, Math.max(0, normalizedWidth - 1));
+			const labelWidth = Math.max(1, normalizedWidth - inset);
+			lines.push(
+				`${" ".repeat(inset)}${truncateToWidth(theme.fg(this.labelColor, this.label), labelWidth, "")}`,
+			);
 		}
-
-		const contentWidth = innerWidth - prefixWidth;
-		const lines = this.content.render(contentWidth);
-		if (lines.length === 0) return [`${" ".repeat(inset)}${styledPrefix}`];
-		return lines.map((line, index) => {
-			const prefix = index === 0 ? styledPrefix : " ".repeat(prefixWidth);
-			return `${" ".repeat(inset)}${truncateToWidth(`${prefix}${line}`, innerWidth, "")}`;
-		});
+		lines.push(...this.panel.render(normalizedWidth));
+		return lines;
 	}
 
 	invalidate(): void {
-		this.content.invalidate?.();
+		this.panel.invalidate();
 	}
 }
 
@@ -153,17 +162,16 @@ export class AssistantMessageComponent extends Container {
 				if (this.outputPad === 0) {
 					this.contentContainer.addChild(markdown);
 				} else {
-					if (!hasToolCalls && !resultLabelRendered) {
-						this.contentContainer.addChild(new Text(theme.fg("muted", RESULT_LABEL), this.outputPad, 0));
-						resultLabelRendered = true;
-					}
+					const label = !hasToolCalls && !resultLabelRendered ? RESULT_LABEL : undefined;
+					if (label) resultLabelRendered = true;
 					this.contentContainer.addChild(
-						new InsetPanelComponent({
+						new LabeledAssistantPanelComponent({
+							label,
+							labelColor: "muted",
 							child: markdown,
 							borderColor: "accent",
 							background: "selectedBg",
-							outerInset: this.outputPad,
-							paddingX: 1,
+							inset: this.outputPad,
 						}),
 					);
 				}
@@ -207,7 +215,14 @@ export class AssistantMessageComponent extends Container {
 					this.contentContainer.addChild(
 						this.outputPad === 0
 							? planningMarkdown
-							: new PlanningBlockComponent(planningMarkdown, this.outputPad),
+							: new LabeledAssistantPanelComponent({
+								label: PLAN_LABEL,
+								labelColor: "muted",
+								child: planningMarkdown,
+								borderColor: "borderAccent",
+								background: "toolPendingBg",
+								inset: this.outputPad,
+							}),
 					);
 				}
 				if (hasVisibleContentAfter) {
