@@ -101,8 +101,7 @@ export class InteractiveApplicationShell implements Component {
 		});
 
 		const transcriptLines = this.transcript.render(this.layout.transcript.width);
-		const targetTranscriptHeight = Math.max(transcriptLines.length, this.layout.transcript.height);
-		const mainLines = this.renderMainRegion(transcriptLines, targetTranscriptHeight, this.layout);
+		const mainLines = this.renderMainRegion(transcriptLines, this.layout.transcript.height, this.layout);
 		return [
 			...mainLines,
 			...fillBackgroundLines(editorLines, width, "customMessageBg"),
@@ -113,7 +112,11 @@ export class InteractiveApplicationShell implements Component {
 
 	private renderMainRegion(lines: string[], targetHeight: number, layout: ResponsiveLayout): string[] {
 		if (!layout.rail.visible) {
-			const padded = [...lines, ...Array.from({ length: Math.max(0, targetHeight - lines.length) }, () => "")];
+			const visibleLines = lines.slice(0, targetHeight);
+			const padded = [
+				...visibleLines,
+				...Array.from({ length: Math.max(0, targetHeight - visibleLines.length) }, () => ""),
+			];
 			return fillBackgroundLines(padded, layout.transcript.width, "customMessageBg");
 		}
 
