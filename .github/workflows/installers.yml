@@ -1,0 +1,67 @@
+name: Installer Smoke
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'README.md'
+      - '.github/workflows/installers.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'README.md'
+      - '.github/workflows/installers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install from GitHub Releases
+        shell: bash
+        env:
+          AFO_INSTALL_DIR: ${{ runner.temp }}/all-for-one
+          AFO_BIN_DIR: ${{ runner.temp }}/bin
+          AFO_INSTALL_PI_ALIAS: '1'
+          AFO_OFFLINE: '1'
+          PI_OFFLINE: '1'
+        run: |
+          bash ./install.sh
+          "$AFO_BIN_DIR/allforone" --version
+          "$AFO_BIN_DIR/afo" --help >/dev/null
+          "$AFO_BIN_DIR/pi" --version
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Install from GitHub Releases
+        shell: pwsh
+        env:
+          AFO_INSTALL_DIR: ${{ runner.temp }}\all-for-one
+          AFO_SKIP_PATH: '1'
+          AFO_OFFLINE: '1'
+          PI_OFFLINE: '1'
+        run: |
+          .\install.ps1
+          & "$env:AFO_INSTALL_DIR\allforone.exe" --version
+          & "$env:AFO_INSTALL_DIR\afo.cmd" --help | Out-Null
+          & "$env:AFO_INSTALL_DIR\pi.cmd" --version
