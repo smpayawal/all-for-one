@@ -210,10 +210,10 @@ Every theme must define all 51 required color tokens. `thinkingMax` is optional 
 | `syntaxComment` | Comments |
 | `syntaxKeyword` | Keywords |
 | `syntaxFunction` | Function names |
-| `syntaxVariable` | Variables |
+| `syntaxVariable` | Variable names |
 | `syntaxString` | Strings |
 | `syntaxNumber` | Numbers |
-| `syntaxType` | Types |
+| `syntaxType` | Type names |
 | `syntaxOperator` | Operators |
 | `syntaxPunctuation` | Punctuation |
 
@@ -284,7 +284,7 @@ echo $COLORTERM  # Should output "truecolor" or "24bit"
 
 **Light terminals:** Use darker, muted colors with lower contrast.
 
-**Color harmony:** Start with a base palette (Nord, Gruvbox, Tokyo Night), define it in `vars`, and reference consistently.
+**Color harmony:** Start with a base palette (Nord, Gruvbox, Solarized), define it in `vars`, and reference consistently.
 
 **Testing:** Check your theme with different message types, tool states, markdown content, and long wrapped text.
 
