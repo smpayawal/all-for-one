@@ -18,6 +18,7 @@ import { fillBackgroundLine } from "./background-fill.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 
 const OUTER_INSET = 1;
+const LEADING_ANSI_SEQUENCE = /^(?:(?:\u001b\[[0-?]*[ -/]*[@-~])|(?:\u001b\][^\u0007]*(?:\u0007|\u001b\\)))+/;
 
 export interface ExecutionGroupAction extends ToolActionSummaryData {
 	id: string;
@@ -54,6 +55,20 @@ function insetLine(line: string, width: number, inset: number): string {
 
 function hasVisibleContent(line: string): boolean {
 	return line.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").trim().length > 0;
+}
+
+/** Prefix a rendered line after its leading control sequences so the prefix
+ * inherits the native renderer's foreground-independent background surface. */
+function prefixWithinLeadingAnsi(line: string, prefix: string, width: number): string {
+	const normalizedWidth = Math.max(0, Math.floor(width));
+	if (normalizedWidth === 0) return "";
+
+	const prefixWidth = visibleWidth(prefix);
+	if (prefixWidth >= normalizedWidth) return truncateToWidth(prefix, normalizedWidth, "");
+
+	const truncatedLine = truncateToWidth(line, normalizedWidth - prefixWidth, "");
+	const leadingAnsi = truncatedLine.match(LEADING_ANSI_SEQUENCE)?.[0] ?? "";
+	return `${leadingAnsi}${prefix}${truncatedLine.slice(leadingAnsi.length)}`;
 }
 
 export class ExecutionGroupComponent implements Component {
@@ -198,13 +213,11 @@ export class ExecutionGroupComponent implements Component {
 
 		const symbol = getExecutionGroupStatusSymbol(action.status);
 		const marker = `${theme.fg(getStatusColor(action.status), symbol)} `;
-		const markerWidth = visibleWidth(marker);
 		let markerApplied = false;
 		return rendered.map((line) => {
 			let content: string;
 			if (!markerApplied && hasVisibleContent(line)) {
-				const remainingWidth = Math.max(0, contentWidth - markerWidth);
-				content = `${marker}${truncateToWidth(line, remainingWidth, "")}`;
+				content = prefixWithinLeadingAnsi(line, marker, contentWidth);
 				markerApplied = true;
 			} else {
 				content = truncateToWidth(line, contentWidth, "");
