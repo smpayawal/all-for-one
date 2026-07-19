@@ -662,6 +662,14 @@ export function parseAutoThemeSetting(
 	return { lightTheme, darkTheme };
 }
 
+/**
+ * Compatibility hook retained for downstream callers that previously
+ * migrated removed theme names. Native Pi themes now pass through unchanged.
+ */
+export function normalizeThemeSetting(themeSetting: string | undefined): string | undefined {
+	return themeSetting;
+}
+
 export function resolveThemeSetting(
 	themeSetting: string | undefined,
 	terminalTheme: TerminalTheme,

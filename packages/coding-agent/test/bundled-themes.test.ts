@@ -6,6 +6,7 @@ import {
 	getResolvedThemeColors,
 	getThemeByName,
 	initTheme,
+	normalizeThemeSetting,
 	resolveThemeSetting,
 	setTheme,
 } from "../src/modes/interactive/theme/theme.ts";
@@ -67,6 +68,8 @@ describe("native Pi themes", () => {
 	});
 
 	test("uses native automatic light and dark selection", () => {
+		expect(normalizeThemeSetting("light")).toBe("light");
+		expect(normalizeThemeSetting("light/dark")).toBe("light/dark");
 		expect(resolveThemeSetting("light/dark", "light")).toBe("light");
 		expect(resolveThemeSetting("light/dark", "dark")).toBe("dark");
 	});
