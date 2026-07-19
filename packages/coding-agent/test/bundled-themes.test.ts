@@ -13,7 +13,25 @@ import {
 const AFO_MIDNIGHT_PATH = fileURLToPath(new URL("../theme/afo-midnight.json", import.meta.url));
 const CATPPUCCIN_MOCHA_PATH = fileURLToPath(new URL("../theme/catppuccin-mocha.json", import.meta.url));
 const TOKYO_NIGHT_PATH = fileURLToPath(new URL("../theme/tokyonight.json", import.meta.url));
+const GITHUB_DARK_PATH = fileURLToPath(new URL("../theme/github-dark.json", import.meta.url));
+const EVERFOREST_PATH = fileURLToPath(new URL("../theme/everforest.json", import.meta.url));
 const PACKAGE_JSON_PATH = fileURLToPath(new URL("../package.json", import.meta.url));
+
+const PACKAGED_THEME_PATHS = [
+	AFO_MIDNIGHT_PATH,
+	CATPPUCCIN_MOCHA_PATH,
+	TOKYO_NIGHT_PATH,
+	GITHUB_DARK_PATH,
+	EVERFOREST_PATH,
+];
+
+const EXPECTED_PACKAGED_THEME_NAMES = [
+	"AFO Midnight",
+	"Catppuccin Mocha",
+	"tokyonight",
+	"GitHub Dark",
+	"Everforest",
+];
 
 function channelToLinear(channel: number): number {
 	const value = channel / 255;
@@ -35,11 +53,7 @@ function contrast(foreground: string, background: string): number {
 }
 
 function registerPackagedThemes(): void {
-	setRegisteredThemes([
-		loadThemeFromPath(AFO_MIDNIGHT_PATH),
-		loadThemeFromPath(CATPPUCCIN_MOCHA_PATH),
-		loadThemeFromPath(TOKYO_NIGHT_PATH),
-	]);
+	setRegisteredThemes(PACKAGED_THEME_PATHS.map((themePath) => loadThemeFromPath(themePath)));
 }
 
 afterAll(() => {
@@ -49,16 +63,12 @@ afterAll(() => {
 
 describe("bundled All-For-One themes", () => {
 	test("loads and registers every packaged theme resource", () => {
-		const themes = [
-			loadThemeFromPath(AFO_MIDNIGHT_PATH),
-			loadThemeFromPath(CATPPUCCIN_MOCHA_PATH),
-			loadThemeFromPath(TOKYO_NIGHT_PATH),
-		];
+		const themes = PACKAGED_THEME_PATHS.map((themePath) => loadThemeFromPath(themePath));
 		setRegisteredThemes(themes);
 
-		expect(themes.map((theme) => theme.name)).toEqual(["AFO Midnight", "Catppuccin Mocha", "tokyonight"]);
+		expect(themes.map((theme) => theme.name)).toEqual(EXPECTED_PACKAGED_THEME_NAMES);
 		expect(getAvailableThemes()).toEqual(
-			expect.arrayContaining(["dark", "light", "AFO Midnight", "Catppuccin Mocha", "tokyonight"]),
+			expect.arrayContaining(["dark", "light", ...EXPECTED_PACKAGED_THEME_NAMES]),
 		);
 	});
 
@@ -72,31 +82,40 @@ describe("bundled All-For-One themes", () => {
 		expect(packageJson.files).toContain("theme");
 	});
 
-	test("resolves Automatic to the corrected light or dark palette", () => {
+	test("retains Light and resolves Automatic to its configured light or dark palette", () => {
+		registerPackagedThemes();
+		expect(getAvailableThemes()).toContain("light");
 		expect(resolveThemeSetting("light/dark", "light")).toBe("light");
 		expect(resolveThemeSetting("light/dark", "dark")).toBe("dark");
+		expect(resolveThemeSetting("light/GitHub Dark", "light")).toBe("light");
+		expect(resolveThemeSetting("light/GitHub Dark", "dark")).toBe("GitHub Dark");
 	});
 
-	test.each(["dark", "light", "AFO Midnight", "Catppuccin Mocha", "tokyonight"])(
-		"keeps %s workspace, result, and tool surfaces readable and distinct",
-		(themeName) => {
-			registerPackagedThemes();
-			const colors = getResolvedThemeColors(themeName);
-			const workspace = colors.customMessageBg;
-			const result = colors.selectedBg;
-			const semanticSurfaces = [
-				colors.userMessageBg,
-				result,
-				colors.toolPendingBg,
-				colors.toolSuccessBg,
-				colors.toolErrorBg,
-			];
+	test.each([
+		"dark",
+		"light",
+		"AFO Midnight",
+		"Catppuccin Mocha",
+		"tokyonight",
+		"GitHub Dark",
+		"Everforest",
+	])("keeps %s workspace, result, and tool surfaces readable and distinct", (themeName) => {
+		registerPackagedThemes();
+		const colors = getResolvedThemeColors(themeName);
+		const workspace = colors.customMessageBg;
+		const result = colors.selectedBg;
+		const semanticSurfaces = [
+			colors.userMessageBg,
+			result,
+			colors.toolPendingBg,
+			colors.toolSuccessBg,
+			colors.toolErrorBg,
+		];
 
-			expect(contrast(colors.text, workspace)).toBeGreaterThanOrEqual(4.5);
-			expect(contrast(colors.text, result)).toBeGreaterThanOrEqual(4.5);
-			expect(contrast(colors.muted, workspace)).toBeGreaterThanOrEqual(3);
-			expect(result).not.toBe(workspace);
-			expect(new Set(semanticSurfaces).size).toBeGreaterThanOrEqual(4);
-		},
-	);
+		expect(contrast(colors.text, workspace)).toBeGreaterThanOrEqual(4.5);
+		expect(contrast(colors.text, result)).toBeGreaterThanOrEqual(4.5);
+		expect(contrast(colors.muted, workspace)).toBeGreaterThanOrEqual(3);
+		expect(result).not.toBe(workspace);
+		expect(new Set(semanticSurfaces).size).toBeGreaterThanOrEqual(4);
+	});
 });
