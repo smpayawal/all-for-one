@@ -71,9 +71,32 @@ jobs:
         run: cd packages/ai && node scripts/ensure-kimi-coding-compat.ts
 
       - name: Compile AI package
+        id: compile_ai
+        continue-on-error: true
+        run: |
+          set +e
+          cd packages/ai
+          npm exec -- tsgo -p tsconfig.build.json > ../../ai-compile.log 2>&1
+          status=$?
+          cat ../../ai-compile.log
+          exit ${status}
+
+      - name: Upload AI compile diagnostics
+        if: steps.compile_ai.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ai-compile-diagnostics-${{ github.run_attempt }}
+          path: ai-compile.log
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Require successful AI compilation
+        if: steps.compile_ai.outcome == 'failure'
+        run: exit 1
+
+      - name: Copy AI package data
         run: |
           cd packages/ai
-          npm exec -- tsgo -p tsconfig.build.json
           npm exec -- shx rm -rf dist/providers/data
           npm exec -- shx cp -r src/providers/data dist/providers/data
 
