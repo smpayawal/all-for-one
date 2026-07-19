@@ -36,9 +36,17 @@ function createFixture(t) {
 test("validates stable and prerelease versions", () => {
 	assert.equal(validateAllForOneVersion("0.1.0"), "0.1.0");
 	assert.equal(validateAllForOneVersion("0.1.0-rc.1"), "0.1.0-rc.1");
+	assert.equal(validateAllForOneVersion("0.1.0+build.7"), "0.1.0+build.7");
 	assert.equal(isPrereleaseVersion("0.1.0"), false);
 	assert.equal(isPrereleaseVersion("0.1.0-rc.1"), true);
+	assert.equal(isPrereleaseVersion("0.1.0+build-7"), false);
 	assert.throws(() => validateAllForOneVersion("release-1"), /Expected semantic versioning/);
+});
+
+test("rejects malformed semantic versions", () => {
+	for (const version of ["01.0.0", "1.01.0", "1.0.01", "1.0.0-01", "1.0.0-rc..1", "1.0.0+"]) {
+		assert.throws(() => validateAllForOneVersion(version), /Expected semantic versioning/, version);
+	}
 });
 
 test("targets the All-For-One version without changing the nested Pi baseline", () => {
