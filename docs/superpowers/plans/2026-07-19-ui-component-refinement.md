@@ -29,12 +29,12 @@
 - Consumes: `formatToolActionSummary(action, width): string`, `ToolExecutionComponent.render(width): string[]`.
 - Produces: unchanged `ExecutionGroupComponent.render(width): string[]`.
 
-- [ ] Add a focused rendering test requiring a distinct compact action header, a darker native-output body, separation between expanded actions, and exact width bounds.
+- [x] Add a focused rendering test requiring a distinct compact action header, a darker native-output body, separation between expanded actions, and exact width bounds.
 - [ ] Run the focused test and confirm it fails because expanded actions are still rendered as one uniform tool-body surface.
-- [ ] Update `renderExpandedAction` to render a compact metadata header from existing structured tool arguments, followed by the unchanged native renderer inside a darker body panel.
-- [ ] Add a one-row separator between expanded actions without changing the number or ordering of actions.
+- [x] Update `renderExpandedAction` to render a compact metadata header from existing structured tool arguments, followed by the unchanged native renderer inside a darker body panel.
+- [x] Add a one-row separator between expanded actions without changing the number or ordering of actions.
 - [ ] Run execution-group and UI-presentation tests.
-- [ ] Commit as `refactor(ui): refine execution action cards`.
+- [x] Commit as `refactor(ui): refine execution action cards`.
 
 ### Task 2: Add assistant plan and result panels
 
@@ -47,13 +47,13 @@
 - Produces: `InsetPanelComponent` accepting a child `Component`, a left-border theme color, background theme token, horizontal inset, and internal padding.
 - Preserves: `AssistantMessageComponent` constructor and public setters.
 
-- [ ] Add tests requiring visible thinking to begin with a `PLAN` label and final assistant text to render inside a blue-bordered, width-bounded result panel.
+- [x] Add tests requiring visible thinking to begin with a `PLAN` label and final assistant text to render inside a blue-bordered, width-bounded result panel.
 - [ ] Run the focused test and confirm it fails because thinking is unlabeled and assistant text is currently unframed Markdown.
-- [ ] Implement the reusable width-bounded inset panel.
-- [ ] Render thinking through a prefixed planning presentation while preserving Markdown wrapping and hidden-thinking behavior.
-- [ ] Render assistant text through the result panel while preserving OSC 133 zones, stop-reason messages, and tool-call ordering.
+- [x] Implement the reusable width-bounded inset panel.
+- [x] Render thinking through a prefixed planning presentation while preserving Markdown wrapping and hidden-thinking behavior.
+- [x] Render assistant text through the result panel while preserving OSC 133 zones, stop-reason messages, tool-call ordering, and explicit zero-padding behavior.
 - [ ] Run assistant-message and transcript rendering tests.
-- [ ] Commit as `refactor(ui): add assistant plan and result panels`.
+- [x] Commit as `refactor(ui): add assistant plan and result panels`.
 
 ### Task 3: Refine session-rail typographic hierarchy
 
@@ -65,12 +65,12 @@
 **Interfaces:**
 - Preserves: `SessionRailComponent` data shape and responsive height rules.
 
-- [ ] Add tests requiring section values to be indented beneath uppercase headings, lifecycle status to retain semantic color, and resource lists to remain whole when height permits.
+- [x] Add tests requiring section values to be indented beneath uppercase headings, lifecycle status to retain semantic color, and resource lists to remain whole when height permits.
 - [ ] Run the focused tests and confirm they fail because body values currently align too closely with headings.
-- [ ] Add consistent body indentation and compact secondary metadata styling.
-- [ ] Preserve section priority, shortcut placement, width bounds, and short-terminal omission behavior.
+- [x] Add consistent body indentation and compact secondary metadata styling.
+- [x] Preserve section priority, shortcut placement, width bounds, and short-terminal omission behavior.
 - [ ] Run all rail, app-shell, and responsive-layout tests.
-- [ ] Commit as `refactor(ui): strengthen session rail hierarchy`.
+- [x] Commit as `refactor(ui): strengthen session rail hierarchy`.
 
 ### Task 4: Final validation
 
@@ -80,6 +80,10 @@
 - [ ] Run focused coding-agent UI tests.
 - [ ] Run `npm run check`.
 - [ ] Run `npm run build`.
-- [ ] Compare `ui/enhancement` against the pre-refinement head and confirm there are no runtime or provider changes.
-- [ ] Inspect renders at 80, 128, 160, and 239 columns with AFO Midnight and Catppuccin Mocha.
-- [ ] Report tests that ran, tests that could not run, and the exact commit range.
+- [x] Compare `ui/enhancement` against the pre-refinement head and confirm the refinement range contains only the plan, interactive presentation components, and focused UI tests.
+- [ ] Inspect live renders at 80, 128, 160, and 239 columns with AFO Midnight and Catppuccin Mocha.
+- [x] Report tests that ran, tests that could not run, and the exact commit range.
+
+## Validation limitation
+
+The connected environment can read and update GitHub but cannot resolve `github.com` from the execution container, so the repository could not be cloned and Vitest, type checking, build, and live terminal screenshot commands could not be run. The branch also has no CI status checks on the current head. These checks remain required after pulling the branch.
