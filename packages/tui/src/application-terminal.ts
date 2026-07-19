@@ -1,7 +1,7 @@
 import { ProcessTerminal as InlineProcessTerminal } from "./terminal.ts";
 
-const ALTERNATE_SCREEN_ENTER_SEQUENCE = "\x1b[?1049h";
-const ALTERNATE_SCREEN_EXIT_SEQUENCE = "\x1b[?1049l";
+const APPLICATION_SCREEN_ENTER_SEQUENCE = "\x1b[?1049h\x1b[?1000h\x1b[?1006h";
+const APPLICATION_SCREEN_EXIT_SEQUENCE = "\x1b[?1006l\x1b[?1000l\x1b[?1049l";
 
 function isApplicationScreenEnabled(): boolean {
 	return process.env.PI_TUI_ALTERNATE_SCREEN === "1";
@@ -12,9 +12,12 @@ function isApplicationScreenEnabled(): boolean {
  *
  * The standard `ProcessTerminal` remains inline. All-For-One enables this
  * wrapper through its CLI so native Pi-compatible consumers keep their
- * existing scrollback behavior. Entering the application screen reports a
- * one-shot reset signal so the TUI can rebuild its physical frame; stopping
- * restores the shell's original screen buffer.
+ * existing scrollback behavior. The application screen owns mouse reporting
+ * for its complete lifetime so terminal or tmux scrollback cannot compete with
+ * the transcript viewport during startup, suspend/resume, or editor handoff.
+ * Entering the application screen reports a one-shot reset signal so the TUI
+ * can rebuild its physical frame; stopping restores the shell's original
+ * screen buffer and mouse behavior.
  */
 export class ProcessTerminal extends InlineProcessTerminal {
 	private alternateScreenActive = false;
@@ -22,7 +25,7 @@ export class ProcessTerminal extends InlineProcessTerminal {
 
 	enterAlternateScreen(): void {
 		if (!isApplicationScreenEnabled() || this.alternateScreenActive) return;
-		this.write(ALTERNATE_SCREEN_ENTER_SEQUENCE);
+		this.write(APPLICATION_SCREEN_ENTER_SEQUENCE);
 		this.alternateScreenActive = true;
 		this.screenResetPending = true;
 	}
@@ -35,7 +38,7 @@ export class ProcessTerminal extends InlineProcessTerminal {
 
 	exitAlternateScreen(): void {
 		if (!this.alternateScreenActive) return;
-		this.write(ALTERNATE_SCREEN_EXIT_SEQUENCE);
+		this.write(APPLICATION_SCREEN_EXIT_SEQUENCE);
 		this.alternateScreenActive = false;
 	}
 
