@@ -96,7 +96,7 @@ git tag -a afo-vX.Y.Z -m "All-For-One X.Y.Z"
 git push origin afo-vX.Y.Z
 ```
 
-Pushing an All-For-One tag starts `.github/workflows/allforone-release.yml`. The workflow validates the tag and prepared changelog state, rebuilds the standalone archives, generates release notes and a manifest, produces SHA-256 checksums, runs native archive smoke tests, and publishes a GitHub Release only after those tests pass.
+Pushing an All-For-One tag starts `.github/workflows/allforone-release.yml`. The workflow validates the tag and prepared changelog state, rebuilds the standalone archives, generates release notes and a manifest, produces SHA-256 checksums, runs native archive smoke tests, publishes a GitHub Release, and then verifies the public release payload through the reusable verification workflow.
 
 Temporary pull-request workflows must not create tags or publish releases. Release preparation may happen on a focused branch, but tag creation and publication must use the reviewed permanent release path.
 
@@ -112,12 +112,12 @@ Do not move, replace, or reuse a published tag. Public releases are immutable. W
 
 ## Verify the published release
 
-After publication, run the **Verify Published All-For-One Release** workflow with the exact `afo-v*` tag. The workflow downloads the public GitHub Release payload on Linux x64, macOS arm64, and Windows x64, verifies the manifest and every SHA-256 checksum, extracts the native archive, and executes `allforone`, `afo`, and `pi` smoke checks.
+The release workflow automatically invokes **Verify Published All-For-One Release** after publication. The reusable workflow downloads the public GitHub Release payload on Linux x64, macOS arm64, and Windows x64, verifies the manifest and every SHA-256 checksum, confirms the manifest source commit matches the annotated tag, extracts the native archive, and executes `allforone`, `afo`, and `pi` smoke checks.
 
-Manual verification is also available:
+The same workflow can be dispatched manually with an existing `afo-v*` tag, including an older release. Manual local verification is also available:
 
 ```bash
-node scripts/verify-allforone-release-assets.mjs --dir release-assets --tag afo-vX.Y.Z --json
+node scripts/verify-allforone-release-assets.mjs --dir release-assets --tag afo-vX.Y.Z --commit <tag-commit-sha> --json
 ```
 
 A release is not considered verified until the public assets, rather than workspace build output, have been downloaded and executed. Record any architecture that remains best-effort.
