@@ -22,6 +22,11 @@ on:
           - check
           - update-main
           - prepare-sync
+          - merge-sync
+      pull_request:
+        description: 'sync/pi-* pull request number for merge-sync'
+        required: false
+        type: string
 
 permissions: {}
 
@@ -99,7 +104,7 @@ jobs:
           retention-days: 14
 
   update-main:
-    if: github.event_name == 'workflow_dispatch' && inputs.action != 'check'
+    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'update-main' || inputs.action == 'prepare-sync')
     needs: status
     runs-on: ubuntu-latest
     permissions:
@@ -219,6 +224,8 @@ jobs:
             echo
             echo '**Do not squash or rebase this pull request.** The Pi baseline must remain an ancestor of `allforone`.'
             echo
+            echo 'After review, run the Upstream Pi Sync workflow with `merge-sync` and this pull request number.'
+            echo
             echo 'No automatic merge is enabled.'
           } > /tmp/upstream-sync-pr.md
 
@@ -230,5 +237,67 @@ jobs:
 
           gh workflow run allforone-ci.yml --ref "${branch}"
           printf 'Created synchronization pull request: %s\n' "${pr_url}" >> "${GITHUB_STEP_SUMMARY}"
-          echo 'Merge this synchronization pull request with a merge commit. Do not squash or rebase it.' >> "${GITHUB_STEP_SUMMARY}"
+          echo 'Merge this synchronization pull request through the merge-sync action.' >> "${GITHUB_STEP_SUMMARY}"
           echo 'Dispatched All-For-One CI for the synchronization commit.' >> "${GITHUB_STEP_SUMMARY}"
+
+  merge-sync:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'merge-sync'
+    needs: status
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ inputs.pull_request }}
+    steps:
+      - name: Checkout All-For-One product branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: allforone
+          fetch-depth: 0
+
+      - name: Validate synchronization pull request
+        run: |
+          set -euo pipefail
+          if [[ ! "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
+            echo '::error::merge-sync requires a numeric sync pull request number.'
+            exit 1
+          fi
+
+          gh pr view "${PR_NUMBER}" \
+            --json state,isDraft,baseRefName,headRefName,headRefOid \
+            > sync-pr.json
+
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const pull = JSON.parse(readFileSync('sync-pr.json', 'utf8'));
+          if (pull.state !== 'OPEN') throw new Error(`Pull request is not open: ${pull.state}`);
+          if (pull.isDraft) throw new Error('Synchronization pull request is still a draft.');
+          if (pull.baseRefName !== 'allforone') throw new Error(`Unexpected base branch: ${pull.baseRefName}`);
+          if (!pull.headRefName.startsWith('sync/pi-')) throw new Error(`Unexpected synchronization branch: ${pull.headRefName}`);
+          appendFileSync(process.env.GITHUB_ENV, `SYNC_HEAD=${pull.headRefName}\nSYNC_SHA=${pull.headRefOid}\n`);
+          NODE
+
+      - name: Verify exact synchronization head and checks
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin \
+            main:refs/remotes/origin/main \
+            allforone:refs/remotes/origin/allforone \
+            "${SYNC_HEAD}:refs/remotes/origin/${SYNC_HEAD}"
+          test "$(git rev-parse "origin/${SYNC_HEAD}")" = "${SYNC_SHA}"
+          git merge-base --is-ancestor origin/main "origin/${SYNC_HEAD}"
+          gh pr checks "${PR_NUMBER}" --watch --fail-fast
+
+      - name: Merge with an exact merge commit and revalidate ancestry
+        run: |
+          set -euo pipefail
+          gh pr merge "${PR_NUMBER}" --merge --match-head-commit "${SYNC_SHA}" --delete-branch
+          git fetch --no-tags origin main:refs/remotes/origin/main allforone:refs/remotes/origin/allforone
+          node scripts/check-upstream-relationship.mjs \
+            --main origin/main \
+            --current origin/allforone \
+            --json
+          echo "Merged synchronization pull request #${PR_NUMBER} with a merge commit and verified main ancestry." >> "${GITHUB_STEP_SUMMARY}"
