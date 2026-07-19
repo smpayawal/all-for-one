@@ -31,6 +31,6 @@ class AllForOne < Formula
 
   test do
     assert_match "All-For-One #{version}", shell_output("#{bin}/allforone --version")
-    assert_match "All-For-One", shell_output("#{bin}/afo --help")
+    assert_match "Usage:", shell_output("#{bin}/afo --help")
   end
 end
