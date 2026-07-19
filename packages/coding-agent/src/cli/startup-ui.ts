@@ -22,8 +22,10 @@ import {
 import {
 	detectTerminalBackgroundFromEnv,
 	detectTerminalThemeForAuto,
+	getDefaultTheme,
 	initTheme,
 	loadThemeFromPath,
+	normalizeThemeSetting,
 	parseAutoThemeSetting,
 	resolveThemeSetting,
 	setRegisteredThemes,
@@ -93,7 +95,8 @@ async function loadStartupThemes(settingsManager: SettingsManager): Promise<Them
 export async function createStartupTui(settingsManager: SettingsManager): Promise<TUI> {
 	setRegisteredThemes(await loadStartupThemes(settingsManager));
 	const terminalTheme = detectTerminalBackgroundFromEnv().theme;
-	initTheme(resolveThemeSetting(settingsManager.getThemeSetting(), terminalTheme) ?? terminalTheme);
+	const themeSetting = normalizeThemeSetting(settingsManager.getThemeSetting());
+	initTheme(resolveThemeSetting(themeSetting, terminalTheme) ?? getDefaultTheme());
 	setKeybindings(KeybindingsManager.create());
 	const ui = new TUI(new ProcessTerminal(), settingsManager.getShowHardwareCursor());
 	ui.setClearOnShrink(settingsManager.getClearOnShrink());
@@ -106,11 +109,11 @@ export function startStartupTui(ui: TUI, settingsManager: SettingsManager): void
 }
 
 async function applyDetectedStartupTheme(ui: TUI, settingsManager: SettingsManager): Promise<void> {
-	const themeSetting = settingsManager.getThemeSetting();
+	const themeSetting = normalizeThemeSetting(settingsManager.getThemeSetting());
 	if (themeSetting && !parseAutoThemeSetting(themeSetting)) return;
 
 	const terminalTheme = await detectTerminalThemeForAuto({ ui, timeoutMs: 100 });
-	setTheme(resolveThemeSetting(themeSetting, terminalTheme) ?? terminalTheme);
+	setTheme(resolveThemeSetting(themeSetting, terminalTheme) ?? getDefaultTheme());
 	ui.invalidate();
 	ui.requestRender();
 }
@@ -202,7 +205,7 @@ export async function showFirstTimeSetup(settingsManager: SettingsManager): Prom
 		const showSetup = async () => {
 			ui.start();
 			const detectedTheme = await detectTerminalThemeForAuto({ ui, timeoutMs: 100 });
-			setTheme(detectedTheme);
+			setTheme(getDefaultTheme());
 			const component = new FirstTimeSetupComponent({
 				detectedTheme,
 				onThemePreview: (themeName) => {

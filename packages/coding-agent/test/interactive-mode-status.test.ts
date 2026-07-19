@@ -203,12 +203,12 @@ describe("InteractiveMode.createExtensionUIContext setTheme", () => {
 		};
 
 		const uiContext = (InteractiveMode as any).prototype.createExtensionUIContext.call(fakeThis);
-		const result = uiContext.setTheme("light");
+		const result = uiContext.setTheme("AFO Midnight");
 
 		expect(result.success).toBe(true);
-		expect(fakeThis.themeController.setThemeName).toHaveBeenCalledWith("light");
-		expect(settingsManager.setTheme).toHaveBeenCalledWith("light");
-		expect(currentTheme).toBe("light");
+		expect(fakeThis.themeController.setThemeName).toHaveBeenCalledWith("AFO Midnight");
+		expect(settingsManager.setTheme).toHaveBeenCalledWith("AFO Midnight");
+		expect(currentTheme).toBe("AFO Midnight");
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 	});
 

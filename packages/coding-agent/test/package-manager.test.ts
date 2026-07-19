@@ -1425,14 +1425,14 @@ Content`,
 			const themesDir = join(agentDir, "themes");
 			mkdirSync(themesDir, { recursive: true });
 			writeFileSync(join(themesDir, "dark.json"), "{}");
-			writeFileSync(join(themesDir, "light.json"), "{}");
+			writeFileSync(join(themesDir, "other.json"), "{}");
 			writeFileSync(join(themesDir, "funky.json"), "{}");
 
 			settingsManager.setThemePaths(["themes", "!funky.json"]);
 
 			const result = await packageManager.resolve();
 			expect(result.themes.some((r) => isEnabled(r, "dark.json"))).toBe(true);
-			expect(result.themes.some((r) => isEnabled(r, "light.json"))).toBe(true);
+			expect(result.themes.some((r) => isEnabled(r, "other.json"))).toBe(true);
 			expect(result.themes.some((r) => isDisabled(r, "funky.json"))).toBe(true);
 		});
 
@@ -1837,14 +1837,14 @@ Content`,
 			const themesDir = join(agentDir, "themes");
 			mkdirSync(themesDir, { recursive: true });
 			writeFileSync(join(themesDir, "dark.json"), "{}");
-			writeFileSync(join(themesDir, "light.json"), "{}");
+			writeFileSync(join(themesDir, "other.json"), "{}");
 			writeFileSync(join(themesDir, "special.json"), "{}");
 
 			settingsManager.setThemePaths(["themes", "!themes/*.json", "+themes/special.json"]);
 
 			const result = await packageManager.resolve();
 			expect(result.themes.some((r) => isDisabled(r, "dark.json"))).toBe(true);
-			expect(result.themes.some((r) => isDisabled(r, "light.json"))).toBe(true);
+			expect(result.themes.some((r) => isDisabled(r, "other.json"))).toBe(true);
 			expect(result.themes.some((r) => isEnabled(r, "special.json"))).toBe(true);
 		});
 

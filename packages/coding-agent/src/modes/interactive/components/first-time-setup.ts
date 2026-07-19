@@ -6,21 +6,18 @@ import { DynamicBorder } from "./dynamic-border.ts";
 import { keyHint, rawKeyHint } from "./keybinding-hints.ts";
 
 export interface FirstTimeSetupResult {
-	theme: TerminalTheme;
+	theme: "dark";
 	shareAnalytics: boolean;
 }
 
 export interface FirstTimeSetupOptions {
 	detectedTheme: TerminalTheme;
-	onThemePreview: (themeName: TerminalTheme) => void;
+	onThemePreview: (themeName: "dark") => void;
 	onSubmit: (result: FirstTimeSetupResult) => void;
 	onCancel: () => void;
 }
 
-const THEME_OPTIONS: Array<{ value: TerminalTheme; label: string }> = [
-	{ value: "dark", label: "Dark" },
-	{ value: "light", label: "Light" },
-];
+const THEME_OPTIONS: Array<{ value: "dark"; label: string }> = [{ value: "dark", label: "Dark" }];
 
 export const DEFAULT_SHARE_ANALYTICS = false;
 export const ANALYTICS_DESCRIPTION =

@@ -138,14 +138,14 @@ describe("SettingsManager", () => {
 			writeFileSync(settingsPath, JSON.stringify(currentSettings, null, 2));
 
 			// User changes theme
-			manager.setTheme("light");
+			manager.setTheme("AFO Midnight");
 			await manager.flush();
 
 			// Verify all settings preserved
 			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 			expect(savedSettings.shellPath).toBe("/bin/zsh");
 			expect(savedSettings.extensions).toEqual(["/path/to/extension.ts"]);
-			expect(savedSettings.theme).toBe("light");
+			expect(savedSettings.theme).toBe("AFO Midnight");
 		});
 
 		it("should let in-memory changes override file changes for same key", async () => {
@@ -235,7 +235,7 @@ describe("SettingsManager", () => {
 			writeFileSync(
 				settingsPath,
 				JSON.stringify({
-					theme: "light",
+					theme: "AFO Midnight",
 					extensions: ["/after.ts"],
 					defaultModel: "claude-sonnet",
 				}),
@@ -243,7 +243,7 @@ describe("SettingsManager", () => {
 
 			await manager.reload();
 
-			expect(manager.getTheme()).toBe("light");
+			expect(manager.getTheme()).toBe("AFO Midnight");
 			expect(manager.getExtensionPaths()).toEqual(["/after.ts"]);
 			expect(manager.getDefaultModel()).toBe("claude-sonnet");
 		});
@@ -264,18 +264,18 @@ describe("SettingsManager", () => {
 	describe("theme setting", () => {
 		it("stores slash-separated automatic theme settings separately from fixed theme names", async () => {
 			const settingsPath = join(agentDir, "settings.json");
-			writeFileSync(settingsPath, JSON.stringify({ theme: "light/dark" }));
+			writeFileSync(settingsPath, JSON.stringify({ theme: "AFO Midnight/dark" }));
 
 			const manager = SettingsManager.create(projectDir, agentDir);
 
 			expect(manager.getTheme()).toBeUndefined();
-			expect(manager.getThemeSetting()).toBe("light/dark");
+			expect(manager.getThemeSetting()).toBe("AFO Midnight/dark");
 
-			manager.setTheme("solarized-light/tokyo-night");
+			manager.setTheme("AFO Midnight/dark");
 			await manager.flush();
 
 			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
-			expect(savedSettings.theme).toBe("solarized-light/tokyo-night");
+			expect(savedSettings.theme).toBe("AFO Midnight/dark");
 		});
 	});
 
@@ -584,12 +584,12 @@ describe("SettingsManager", () => {
 			writeFileSync(settingsPath, JSON.stringify({ shellCommandPrefix: "shopt -s expand_aliases" }));
 
 			const manager = SettingsManager.create(projectDir, agentDir);
-			manager.setTheme("light");
+			manager.setTheme("AFO Midnight");
 			await manager.flush();
 
 			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
 			expect(savedSettings.shellCommandPrefix).toBe("shopt -s expand_aliases");
-			expect(savedSettings.theme).toBe("light");
+			expect(savedSettings.theme).toBe("AFO Midnight");
 		});
 	});
 

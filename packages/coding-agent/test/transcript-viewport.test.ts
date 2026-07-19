@@ -149,7 +149,7 @@ describe("transcript viewport", () => {
 		}
 	});
 
-	test("keeps rendered regions bounded at representative sizes in both built-in themes", async () => {
+	test("keeps rendered regions bounded at representative sizes in the built-in theme", async () => {
 		const terminal = new VirtualTerminal(80, 8);
 		const tui = new TUI(terminal);
 		const content = new MutableTranscript(Array.from({ length: 80 }, (_, index) => `row ${index + 1}`));
@@ -170,7 +170,7 @@ describe("transcript viewport", () => {
 		tui.start();
 
 		try {
-			for (const themeName of ["dark", "light"] as const) {
+			for (const themeName of ["dark"] as const) {
 				initTheme(themeName);
 				for (const [width, height] of [
 					[80, 8],

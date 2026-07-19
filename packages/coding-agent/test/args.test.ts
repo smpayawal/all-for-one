@@ -271,8 +271,8 @@ describe("parseArgs", () => {
 		});
 
 		test("parses multiple --theme flags", () => {
-			const result = parseArgs(["--theme", "./dark.json", "--theme", "./light.json"]);
-			expect(result.themes).toEqual(["./dark.json", "./light.json"]);
+			const result = parseArgs(["--theme", "./dark.json", "--theme", "./other.json"]);
+			expect(result.themes).toEqual(["./dark.json", "./other.json"]);
 		});
 	});
 

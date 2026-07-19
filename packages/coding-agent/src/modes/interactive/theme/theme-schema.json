@@ -12,7 +12,7 @@
 		"name": {
 			"type": "string",
 			"pattern": "^[^/]+$",
-			"description": "Theme name. Must not contain '/' because it is reserved for automatic light/dark theme settings."
+			"description": "Theme name. Must not contain '/' because it is reserved for automatic terminal appearance settings."
 		},
 		"vars": {
 			"type": "object",

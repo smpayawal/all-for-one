@@ -17,6 +17,7 @@ import type { DefaultProjectTrust, WarningSettings } from "../../../core/setting
 import {
 	getSelectListTheme,
 	getSettingsListTheme,
+	normalizeThemeSetting,
 	parseAutoThemeSetting,
 	type TerminalTheme,
 	theme,
@@ -250,7 +251,7 @@ function defaultAutomaticThemes(
 	currentThemeSetting: string,
 	availableThemes: string[],
 ): { lightTheme: string; darkTheme: string } {
-	const autoTheme = parseAutoThemeSetting(currentThemeSetting);
+	const autoTheme = parseAutoThemeSetting(normalizeThemeSetting(currentThemeSetting));
 	if (autoTheme) return autoTheme;
 
 	const currentFixedTheme = currentThemeSetting.includes("/") ? undefined : currentThemeSetting;
@@ -282,10 +283,11 @@ class ThemeSubmenu extends Container {
 		this.availableThemes = availableThemes;
 		this.terminalTheme = terminalTheme;
 		this.onDone = onDone;
-		this.originalThemeSetting = currentThemeSetting;
-		const autoTheme = parseAutoThemeSetting(currentThemeSetting);
-		const automaticThemes = defaultAutomaticThemes(currentThemeSetting, availableThemes);
-		const fixedTheme = autoTheme || currentThemeSetting.includes("/") ? undefined : currentThemeSetting;
+		const normalizedThemeSetting = normalizeThemeSetting(currentThemeSetting) ?? "dark";
+		this.originalThemeSetting = normalizedThemeSetting;
+		const autoTheme = parseAutoThemeSetting(normalizedThemeSetting);
+		const automaticThemes = defaultAutomaticThemes(normalizedThemeSetting, availableThemes);
+		const fixedTheme = autoTheme || normalizedThemeSetting.includes("/") ? undefined : normalizedThemeSetting;
 		this.mode = autoTheme ? "automatic" : "single";
 		this.lightTheme = automaticThemes.lightTheme;
 		this.darkTheme = automaticThemes.darkTheme;
@@ -343,20 +345,20 @@ class ThemeSubmenu extends Container {
 		const content = new Container();
 		content.addChild(new Text(theme.bold(theme.fg("accent", "Automatic Theme")), 0, 0));
 		content.addChild(new Spacer(1));
-		content.addChild(new Text(theme.fg("muted", "Choose themes for terminal light and dark appearance."), 0, 0));
-		content.addChild(new Text(theme.fg("muted", "Light/dark detection requires terminal support."), 0, 0));
+		content.addChild(new Text(theme.fg("muted", "Choose themes for light and dark terminal appearance."), 0, 0));
+		content.addChild(new Text(theme.fg("muted", "Terminal appearance detection requires terminal support."), 0, 0));
 		content.addChild(new Spacer(1));
 
 		const items: SettingItem[] = [
 			{
 				id: "light-theme",
-				label: "Light theme",
-				description: "Theme to use in automatic mode when the terminal is light",
+				label: "Light-terminal theme",
+				description: "Theme to use in automatic mode when the terminal has a light background",
 				currentValue: this.lightTheme,
 				submenu: (currentValue, done) =>
 					this.createThemeSelect(
-						"Light Theme",
-						"Select the theme to use for light terminal appearance",
+						"Light-terminal Theme",
+						"Select the theme to use for a light terminal background",
 						currentValue,
 						done,
 						(value) => {

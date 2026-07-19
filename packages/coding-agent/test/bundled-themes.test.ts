@@ -4,6 +4,7 @@ import { afterAll, describe, expect, test } from "vitest";
 import {
 	getAvailableThemes,
 	getResolvedThemeColors,
+	getThemeByName,
 	initTheme,
 	loadThemeFromPath,
 	resolveThemeSetting,
@@ -25,13 +26,7 @@ const PACKAGED_THEME_PATHS = [
 	EVERFOREST_PATH,
 ];
 
-const EXPECTED_PACKAGED_THEME_NAMES = [
-	"AFO Midnight",
-	"Catppuccin Mocha",
-	"tokyonight",
-	"GitHub Dark",
-	"Everforest",
-];
+const EXPECTED_PACKAGED_THEME_NAMES = ["AFO Midnight", "Catppuccin Mocha", "tokyonight", "GitHub Dark", "Everforest"];
 
 function channelToLinear(channel: number): number {
 	const value = channel / 255;
@@ -67,9 +62,8 @@ describe("bundled All-For-One themes", () => {
 		setRegisteredThemes(themes);
 
 		expect(themes.map((theme) => theme.name)).toEqual(EXPECTED_PACKAGED_THEME_NAMES);
-		expect(getAvailableThemes()).toEqual(
-			expect.arrayContaining(["dark", "light", ...EXPECTED_PACKAGED_THEME_NAMES]),
-		);
+		expect(getAvailableThemes()).toEqual(expect.arrayContaining(["dark", ...EXPECTED_PACKAGED_THEME_NAMES]));
+		expect(getAvailableThemes()).not.toContain("light");
 	});
 
 	test("declares the theme resource directory in package metadata", () => {
@@ -82,40 +76,37 @@ describe("bundled All-For-One themes", () => {
 		expect(packageJson.files).toContain("theme");
 	});
 
-	test("retains Light and resolves Automatic to its configured light or dark palette", () => {
+	test("removes the Light palette and resolves Automatic to remaining themes", () => {
 		registerPackagedThemes();
-		expect(getAvailableThemes()).toContain("light");
-		expect(resolveThemeSetting("light/dark", "light")).toBe("light");
-		expect(resolveThemeSetting("light/dark", "dark")).toBe("dark");
-		expect(resolveThemeSetting("light/GitHub Dark", "light")).toBe("light");
+		expect(getAvailableThemes()).not.toContain("light");
+		expect(getThemeByName("light")).toBeUndefined();
+		expect(resolveThemeSetting("AFO Midnight/dark", "light")).toBe("AFO Midnight");
+		expect(resolveThemeSetting("AFO Midnight/dark", "dark")).toBe("dark");
+		expect(resolveThemeSetting("light/dark", "light")).toBe("dark");
 		expect(resolveThemeSetting("light/GitHub Dark", "dark")).toBe("GitHub Dark");
+		expect(resolveThemeSetting("light/GitHub Dark", "light")).toBe("dark");
 	});
 
-	test.each([
-		"dark",
-		"light",
-		"AFO Midnight",
-		"Catppuccin Mocha",
-		"tokyonight",
-		"GitHub Dark",
-		"Everforest",
-	])("keeps %s workspace, result, and tool surfaces readable and distinct", (themeName) => {
-		registerPackagedThemes();
-		const colors = getResolvedThemeColors(themeName);
-		const workspace = colors.customMessageBg;
-		const result = colors.selectedBg;
-		const semanticSurfaces = [
-			colors.userMessageBg,
-			result,
-			colors.toolPendingBg,
-			colors.toolSuccessBg,
-			colors.toolErrorBg,
-		];
+	test.each(["dark", "AFO Midnight", "Catppuccin Mocha", "tokyonight", "GitHub Dark", "Everforest"])(
+		"keeps %s workspace, result, and tool surfaces readable and distinct",
+		(themeName) => {
+			registerPackagedThemes();
+			const colors = getResolvedThemeColors(themeName);
+			const workspace = colors.customMessageBg;
+			const result = colors.selectedBg;
+			const semanticSurfaces = [
+				colors.userMessageBg,
+				result,
+				colors.toolPendingBg,
+				colors.toolSuccessBg,
+				colors.toolErrorBg,
+			];
 
-		expect(contrast(colors.text, workspace)).toBeGreaterThanOrEqual(4.5);
-		expect(contrast(colors.text, result)).toBeGreaterThanOrEqual(4.5);
-		expect(contrast(colors.muted, workspace)).toBeGreaterThanOrEqual(3);
-		expect(result).not.toBe(workspace);
-		expect(new Set(semanticSurfaces).size).toBeGreaterThanOrEqual(4);
-	});
+			expect(contrast(colors.text, workspace)).toBeGreaterThanOrEqual(4.5);
+			expect(contrast(colors.text, result)).toBeGreaterThanOrEqual(4.5);
+			expect(contrast(colors.muted, workspace)).toBeGreaterThanOrEqual(3);
+			expect(result).not.toBe(workspace);
+			expect(new Set(semanticSurfaces).size).toBeGreaterThanOrEqual(4);
+		},
+	);
 });

@@ -441,10 +441,8 @@ function getBuiltinThemes(): Record<string, ThemeJson> {
 	if (!BUILTIN_THEMES) {
 		const themesDir = getThemesDir();
 		const darkPath = path.join(themesDir, "dark.json");
-		const lightPath = path.join(themesDir, "light.json");
 		BUILTIN_THEMES = {
 			dark: JSON.parse(fs.readFileSync(darkPath, "utf-8")) as ThemeJson,
-			light: JSON.parse(fs.readFileSync(lightPath, "utf-8")) as ThemeJson,
 		};
 	}
 	return BUILTIN_THEMES;
@@ -548,7 +546,7 @@ function parseThemeJson(label: string, json: unknown): ThemeJson {
 				.map((color) => `  - ${color}`)
 				.join("\n");
 			errorMessage += '\n\nPlease add these colors to your theme\'s "colors" object.';
-			errorMessage += "\nSee the built-in themes (dark.json, light.json) for reference values.";
+			errorMessage += "\nSee the built-in theme (dark.json) for reference values.";
 		}
 		if (otherErrors.length > 0) {
 			errorMessage += `\n\nOther errors:\n${otherErrors.join("\n")}`;
@@ -662,16 +660,31 @@ export function parseAutoThemeSetting(
 	return { lightTheme, darkTheme };
 }
 
+/** Map settings that referred to the removed built-in Light palette to Dark. */
+export function normalizeThemeSetting(themeSetting: string | undefined): string | undefined {
+	if (!themeSetting) return themeSetting;
+
+	const autoTheme = parseAutoThemeSetting(themeSetting);
+	if (autoTheme) {
+		const lightTheme = autoTheme.lightTheme === "light" ? "dark" : autoTheme.lightTheme;
+		const darkTheme = autoTheme.darkTheme === "light" ? "dark" : autoTheme.darkTheme;
+		return `${lightTheme}/${darkTheme}`;
+	}
+
+	return themeSetting === "light" ? "dark" : themeSetting;
+}
+
 export function resolveThemeSetting(
 	themeSetting: string | undefined,
 	terminalTheme: TerminalTheme,
 ): string | undefined {
-	const autoTheme = parseAutoThemeSetting(themeSetting);
+	const normalizedThemeSetting = normalizeThemeSetting(themeSetting);
+	const autoTheme = parseAutoThemeSetting(normalizedThemeSetting);
 	if (autoTheme) {
 		return terminalTheme === "light" ? autoTheme.lightTheme : autoTheme.darkTheme;
 	}
-	if (themeSetting?.includes("/")) return undefined;
-	if (typeof themeSetting === "string") return themeSetting;
+	if (normalizedThemeSetting?.includes("/")) return undefined;
+	if (typeof normalizedThemeSetting === "string") return normalizedThemeSetting;
 	return undefined;
 }
 
@@ -789,7 +802,9 @@ export async function detectTerminalThemeForAuto({
 }
 
 export function getDefaultTheme(): string {
-	return detectTerminalBackgroundFromEnv().theme;
+	// Light terminal detection remains available for Automatic custom-theme
+	// mappings, but the only built-in fallback palette is dark.
+	return "dark";
 }
 
 // ============================================================================
@@ -887,7 +902,7 @@ function startThemeWatcher(): void {
 	stopThemeWatcher();
 
 	// Only watch if it's a custom theme (not built-in)
-	if (!currentThemeName || currentThemeName === "dark" || currentThemeName === "light") {
+	if (!currentThemeName || currentThemeName === "dark") {
 		return;
 	}
 
@@ -1021,12 +1036,11 @@ function ansi256ToHex(index: number): string {
  */
 export function getResolvedThemeColors(themeName?: string): Record<string, string> {
 	const name = themeName ?? currentThemeName ?? getDefaultTheme();
-	const isLight = name === "light";
 	const themeJson = loadThemeJson(name);
 	const resolved = resolveThemeColors(withThemeColorFallbacks(themeJson.colors), themeJson.vars);
 
 	// Default text color for empty values (terminal uses default fg color)
-	const defaultText = isLight ? "#000000" : "#e5e5e7";
+	const defaultText = "#e5e5e7";
 
 	const cssColors: Record<string, string> = {};
 	for (const [key, value] of Object.entries(resolved)) {
