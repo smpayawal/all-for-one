@@ -72,8 +72,10 @@ function commandHandler(harness: Harness): CommandHandler {
 function createFakePythonExecutable(cwd: string): string {
 	const binDir = join(cwd, "test-bin");
 	mkdirSync(binDir, { recursive: true });
-	const executable = join(binDir, process.platform === "win32" ? "python.cmd" : "python");
-	writeFileSync(executable, process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n");
+	const executableName = process.platform === "win32" ? "python.cmd" : "python";
+	const executable = join(binDir, executableName);
+	const script = process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n";
+	writeFileSync(executable, script);
 	if (process.platform !== "win32") chmodSync(executable, 0o755);
 	return binDir;
 }
@@ -85,7 +87,8 @@ describe("explicit validation extension", () => {
 		cwd = join(tmpdir(), `afo-validate-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		mkdirSync(cwd, { recursive: true });
 		const binDir = createFakePythonExecutable(cwd);
-		vi.stubEnv("PATH", [binDir, process.env.PATH].filter(Boolean).join(delimiter));
+		const inheritedPath = process.env.PATH;
+		vi.stubEnv("PATH", inheritedPath ? `${binDir}${delimiter}${inheritedPath}` : binDir);
 	});
 
 	afterEach(() => {
