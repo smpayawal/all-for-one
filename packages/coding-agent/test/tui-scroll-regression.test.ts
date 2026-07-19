@@ -71,6 +71,7 @@ describe("TUI scroll regression", () => {
 		expect(output.match(/NOW/g)).toHaveLength(1);
 	});
 
+	// Re-entering an application screen discards the physical frame while the logical TUI remains mounted.
 	test("repaints the complete application after its terminal screen is reset", async () => {
 		const terminal = new ResettingVirtualTerminal(128, 12);
 		const tui = new TUI(terminal);
