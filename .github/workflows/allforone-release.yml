@@ -453,6 +453,8 @@ jobs:
   verify-published-release:
     if: github.event_name != 'pull_request'
     needs: [validate, publish]
+    permissions:
+      contents: read
     uses: ./.github/workflows/allforone-verify-release.yml
     with:
       tag: ${{ needs.validate.outputs.release_tag }}
