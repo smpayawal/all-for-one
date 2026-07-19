@@ -36,7 +36,7 @@ export interface SessionRailProgress {
 
 export interface SessionRailData {
 	title: string;
-	/** Retained for compatibility; persistent shortcut help is intentionally not rendered. */
+	/** Compact command help anchored at the bottom of the rail when space permits. */
 	shortcutSummary?: string;
 	agents: readonly string[];
 	/** Available skills remain discoverable through commands and are not shown persistently. */
@@ -102,7 +102,10 @@ function sectionTitle(label: string): string {
 }
 
 function formatProductTitle(title: string, width: number): string {
-	return theme.bold(theme.fg("accent", railLine(title, width)));
+	const label = railLine(title, width);
+	const remaining = Math.max(0, width - visibleWidth(label));
+	const divider = remaining > 1 ? ` ${"─".repeat(remaining - 1)}` : " ".repeat(remaining);
+	return theme.bold(theme.fg("accent", `${label}${divider}`));
 }
 
 function formatLifecycle(lifecycle: SessionRailLifecycle, activeTools: readonly string[], width: number): string {
@@ -159,6 +162,15 @@ function createSection(
 		sectionTitle(label),
 		...values.map((value) => indentSectionBody(theme.fg(valueColor, railLine(value, width)), width)),
 	];
+}
+
+function createShortcutSection(summary: string | undefined, width: number): string[] {
+	if (!summary) return [];
+	const shortcuts = summary
+		.split(/\s*·\s*/u)
+		.map(sanitize)
+		.filter(Boolean);
+	return shortcuts.length > 0 ? createSection("SHORTCUTS", shortcuts, width) : [];
 }
 
 function appendWholeSection(target: string[], section: readonly string[], limit: number): boolean {
@@ -247,22 +259,29 @@ export class SessionRailComponent implements Component {
 		const innerWidth = Math.max(1, normalizedWidth - HORIZONTAL_PADDING * 2);
 		const topPadding = availableHeight >= TOP_PADDING_MIN_HEIGHT ? 1 : 0;
 		const contentLimit = Math.max(0, availableHeight - topPadding);
+		const shortcutSection = createShortcutSection(this.data.shortcutSummary, innerWidth);
+		const showShortcuts = shortcutSection.length > 0 && shortcutSection.length < contentLimit;
+		const topContentLimit = showShortcuts ? contentLimit - shortcutSection.length : contentLimit;
 		const lines: string[] = [];
 		const title = sanitize(this.data.title);
 
-		if (title) lines.push(formatProductTitle(title, innerWidth));
-		appendWholeSection(lines, createNowSection(this.data, innerWidth), contentLimit);
+		if (title && topContentLimit > 0) lines.push(formatProductTitle(title, innerWidth));
+		appendWholeSection(lines, createNowSection(this.data, innerWidth), topContentLimit);
 		if (this.data.agents.length > 0) {
 			appendWholeSection(
 				lines,
 				createSection("ACTIVE INSTRUCTIONS", formatResourceList(this.data.agents), innerWidth),
-				contentLimit,
+				topContentLimit,
 			);
 		}
 
-		const visibleContent = lines.slice(0, contentLimit);
-		const padding = Array.from({ length: Math.max(0, contentLimit - visibleContent.length) }, () => "");
-		const renderedBody = [...visibleContent, ...padding]
+		const visibleTop = lines.slice(0, topContentLimit);
+		const bottom = showShortcuts ? shortcutSection : [];
+		const padding = Array.from(
+			{ length: Math.max(0, contentLimit - visibleTop.length - bottom.length) },
+			() => "",
+		);
+		const renderedBody = [...visibleTop, ...padding, ...bottom]
 			.slice(0, contentLimit)
 			.map((line) => padRailLine(line, normalizedWidth, innerWidth));
 		const rendered = [
