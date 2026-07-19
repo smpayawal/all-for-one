@@ -1,5 +1,17 @@
-import { Editor, type EditorOptions, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
+import {
+	Editor,
+	type EditorOptions,
+	type EditorTheme,
+	type TUI,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 import type { AppKeybinding, KeybindingsManager } from "../../../core/keybindings.ts";
+import { theme } from "../theme/theme.ts";
+
+const EMPTY_EDITOR_PROMPT = "›";
+const EMPTY_EDITOR_PLACEHOLDER = " Ask All-For-One to inspect, change, or verify the repository…";
+const FAKE_CURSOR = "\x1b[7m \x1b[0m";
 
 /**
  * Custom editor that handles app-level keybindings for coding-agent.
@@ -18,6 +30,22 @@ export class CustomEditor extends Editor {
 	constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager, options?: EditorOptions) {
 		super(tui, theme, options);
 		this.keybindings = keybindings;
+	}
+
+	override render(width: number): string[] {
+		const lines = super.render(width);
+		if (this.getText().length > 0 || lines.length < 3 || width <= 0) return lines;
+
+		const contentIndex = 1;
+		const content = lines[contentIndex] ?? "";
+		const placeholder = theme.fg("dim", EMPTY_EDITOR_PLACEHOLDER);
+		const decoratedContent = content.includes(FAKE_CURSOR)
+			? content.replace(FAKE_CURSOR, `${FAKE_CURSOR}${placeholder}`)
+			: `${content}${placeholder}`;
+		const decorated = `${theme.bold(theme.fg("accent", EMPTY_EDITOR_PROMPT))} ${decoratedContent}`;
+		const clipped = truncateToWidth(decorated, width, "");
+		lines[contentIndex] = clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+		return lines;
 	}
 
 	/**
