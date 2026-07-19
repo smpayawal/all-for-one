@@ -17,20 +17,22 @@ describe("transcript turn headers", () => {
 		[100, "ALL-FOR-ONE"],
 		[160, "YOU"],
 		[220, "ALL-FOR-ONE"],
-	] as const)("renders a bounded labelled divider at %i columns", (width, label) => {
+	] as const)("renders a spaced, inset labelled divider at %i columns", (width, label) => {
 		const header = new TranscriptTurnHeaderComponent(label === "YOU" ? "user" : "assistant", "turn-1");
-		const [line] = header.render(width);
+		const [gap, line] = header.render(width);
 
-		expect(stripAnsi(line)).toContain(label);
+		expect(gap.trim()).toBe("");
+		expect(stripAnsi(line)).toContain(` ${label}`);
 		expect(stripAnsi(line)).toContain("─");
+		expect(visibleWidth(gap)).toBe(width);
 		expect(visibleWidth(line)).toBe(width);
 	});
 
-	test("falls back to label-only output when a divider cannot fit", () => {
+	test("falls back to truncated label-only output when a divider cannot fit", () => {
 		const header = new TranscriptTurnHeaderComponent("assistant", "turn-1");
-		const [line] = header.render(12);
+		const [, line] = header.render(12);
 
-		expect(stripAnsi(line)).toBe("ALL-FOR-ONE ");
+		expect(stripAnsi(line)).toContain("ALL-FOR-ON");
 		expect(stripAnsi(line)).not.toContain("─");
 		expect(visibleWidth(line)).toBe(12);
 	});
@@ -40,7 +42,7 @@ describe("transcript turn headers", () => {
 
 		for (const width of [0, 1, 2, 3, 4, 5, 11, 12, 13]) {
 			const lines = header.render(width);
-			expect(lines.length).toBe(width === 0 ? 0 : 1);
+			expect(lines.length).toBe(width === 0 ? 0 : 2);
 			for (const line of lines) {
 				expect(visibleWidth(line)).toBeLessThanOrEqual(width);
 			}
@@ -50,6 +52,6 @@ describe("transcript turn headers", () => {
 	test("keeps stable presentation identity separate from its visible label", () => {
 		const header = new TranscriptTurnHeaderComponent("assistant", "session-entry-42");
 		expect(header.turnKey).toBe("session-entry-42");
-		expect(stripAnsi(header.render(40)[0])).toContain("ALL-FOR-ONE");
+		expect(stripAnsi(header.render(40)[1] ?? "")).toContain("ALL-FOR-ONE");
 	});
 });
