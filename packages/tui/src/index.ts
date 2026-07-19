@@ -1,5 +1,7 @@
 // Core TUI interfaces and classes
 
+// Terminal interface and implementations
+export { ProcessTerminal } from "./application-terminal.ts";
 // Autocomplete support
 export {
 	type AutocompleteItem,
@@ -59,8 +61,6 @@ export {
 } from "./keys.ts";
 // Input buffering for batch splitting
 export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.ts";
-// Terminal interface and implementations
-export { ProcessTerminal } from "./application-terminal.ts";
 export { ProcessTerminal as InlineProcessTerminal, type Terminal } from "./terminal.ts";
 // Terminal colors
 export {

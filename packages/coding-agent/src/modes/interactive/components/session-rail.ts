@@ -277,10 +277,7 @@ export class SessionRailComponent implements Component {
 
 		const visibleTop = lines.slice(0, topContentLimit);
 		const bottom = showShortcuts ? shortcutSection : [];
-		const padding = Array.from(
-			{ length: Math.max(0, contentLimit - visibleTop.length - bottom.length) },
-			() => "",
-		);
+		const padding = Array.from({ length: Math.max(0, contentLimit - visibleTop.length - bottom.length) }, () => "");
 		const renderedBody = [...visibleTop, ...padding, ...bottom]
 			.slice(0, contentLimit)
 			.map((line) => padRailLine(line, normalizedWidth, innerWidth));

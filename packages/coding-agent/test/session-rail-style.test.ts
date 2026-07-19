@@ -22,8 +22,7 @@ describe("session rail visual hierarchy", () => {
 	test("renders the compact operational hierarchy with consistent width and indentation", () => {
 		const rail = new SessionRailComponent({
 			title: "All-For-One",
-			shortcutSummary:
-				"esc interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
+			shortcutSummary: "esc interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
 			agents: ["project/AGENTS.md"],
 			skills: ["systematic-debugging"],
 			progress: { label: "implementation", completed: 2, total: 5 },
@@ -38,9 +37,7 @@ describe("session rail visual hierarchy", () => {
 		const lines = rail.render(40);
 		const plainLines = lines.map(stripAnsi);
 		const output = plainLines.join("\n");
-		const meaningfulLines = plainLines
-			.map((line) => line.trimEnd())
-			.filter((line) => line.trim().length > 0);
+		const meaningfulLines = plainLines.map((line) => line.trimEnd()).filter((line) => line.trim().length > 0);
 		expect(output).toContain("NOW");
 		expect(output.match(/All-For-One/g)).toHaveLength(1);
 		expect(meaningfulLines[0]).toMatch(/^ All-For-One ─+$/);
