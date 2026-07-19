@@ -1,6 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -36,8 +36,12 @@ beforeAll(() => {
 	initTheme("dark");
 });
 
+afterEach(() => {
+	initTheme("dark");
+});
+
 describe("assistant message foundation", () => {
-	test("labels visible reasoning as PLAN and frames final text as a result panel", () => {
+	test("labels visible reasoning as PLAN and frames final text as a raised result panel", () => {
 		const component = new AssistantMessageComponent(
 			createMessage([
 				{ type: "thinking", thinking: "Inspecting the render hierarchy before editing." },
@@ -57,7 +61,7 @@ describe("assistant message foundation", () => {
 		).toBe(true);
 		expect(
 			lines.some(
-				(line) => line.includes(theme.getBgAnsi("customMessageBg")) && stripAnsi(line).includes("presentation layer"),
+				(line) => line.includes(theme.getBgAnsi("selectedBg")) && stripAnsi(line).includes("presentation layer"),
 			),
 		).toBe(true);
 		expect(lines[0]).toContain(OSC133_ZONE_START);
@@ -80,6 +84,19 @@ describe("assistant message foundation", () => {
 		expect(output).toContain("Thinking...");
 		expect(output).not.toContain("PLAN Internal reasoning.");
 		expect(output).toContain("│ Visible result.");
+	});
+
+	test("refreshes captured Markdown colors after a theme change", () => {
+		initTheme("dark");
+		const component = new AssistantMessageComponent(createMessage([{ type: "text", text: "# Theme-aware result" }]));
+
+		initTheme("light");
+		component.invalidate();
+		const lines = component.render(64);
+		expect(lines.some((line) => line.includes(theme.getFgAnsi("mdHeading")) && stripAnsi(line).includes("Theme-aware"))).toBe(
+			true,
+		);
+		expect(lines.some((line) => line.includes(theme.getBgAnsi("selectedBg")))).toBe(true);
 	});
 
 	test("preserves unframed column-zero rendering when output padding is disabled", () => {
