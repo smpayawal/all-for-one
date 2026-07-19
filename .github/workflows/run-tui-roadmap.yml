@@ -50,13 +50,18 @@ jobs:
           set -o pipefail
           python /tmp/apply-tui-roadmap.py 2>&1 | tee /tmp/tui-roadmap.log
 
-      - name: Persist failure diagnostics
+      - name: Prepare failure diagnostics
         if: steps.apply.outcome == 'failure'
-        run: |
-          tail -n 500 /tmp/tui-roadmap.log > .github/tui-roadmap-failure.log
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .github/tui-roadmap-failure.log
-          git commit -m "ci: record TUI roadmap failure diagnostics"
-          git push origin HEAD:perf/tui-responsiveness-roadmap
-          exit 1
+        run: tail -n 500 /tmp/tui-roadmap.log > /tmp/tui-roadmap-failure.log
+
+      - name: Upload failure diagnostics
+        if: steps.apply.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-roadmap-failure
+          path: /tmp/tui-roadmap-failure.log
+          if-no-files-found: error
+
+      - name: Fail when implementation failed
+        if: steps.apply.outcome == 'failure'
+        run: exit 1
