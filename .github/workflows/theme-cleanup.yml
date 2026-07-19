@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  restore-and-validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout ui/enhancement
@@ -19,16 +19,211 @@ jobs:
         with:
           ref: ui/enhancement
           fetch-depth: 0
+          persist-credentials: true
 
-      - name: Inspect branch and cleanup references
+      - name: Restore native Pi theme implementation
         shell: bash
         run: |
           set -euo pipefail
-          echo "HEAD=$(git rev-parse HEAD)"
-          echo "--- matching tracked text references ---"
-          git grep -n -i -E 'tokyonight|tokyo night|microsoft[ -]?foundry|foundry' -- . || true
-          echo "--- matching tracked paths ---"
-          git ls-files | grep -i -E 'tokyo|foundry' || true
-          echo "--- theme-related changed files versus pi ---"
           git fetch --no-tags origin pi
-          git diff --name-status origin/pi...HEAD -- packages/coding-agent/src/modes/interactive/theme packages/coding-agent/theme packages/coding-agent/test packages/coding-agent/docs packages/coding-agent/package.json | grep -i -E 'theme|tokyo|foundry|skill' || true
+          git checkout origin/pi -- \
+            packages/coding-agent/src/modes/interactive/theme/dark.json \
+            packages/coding-agent/src/modes/interactive/theme/light.json \
+            packages/coding-agent/src/modes/interactive/theme/theme-controller.ts \
+            packages/coding-agent/src/modes/interactive/theme/theme-schema.json \
+            packages/coding-agent/src/modes/interactive/theme/theme.ts \
+            packages/coding-agent/test/theme-detection.test.ts \
+            packages/coding-agent/test/theme-picker.test.ts \
+            packages/coding-agent/test/test-theme-colors.ts
+
+          if git ls-files --error-unmatch packages/coding-agent/theme/tokyonight.json >/dev/null 2>&1; then
+            git rm packages/coding-agent/theme/tokyonight.json
+          fi
+
+          python <<'PY'
+          from pathlib import Path
+
+          package_path = Path('packages/coding-agent/package.json')
+          package = package_path.read_text()
+          package = package.replace('\t\t"skills": ["skills"],\n\t\t"themes": ["theme"]\n', '\t\t"skills": ["skills"]\n')
+          package = package.replace('\n\t\t"theme",', '')
+          package = package.replace(' && shx cp theme/*.json dist/theme/', '')
+          package_path.write_text(package)
+
+          themes_doc = Path('packages/coding-agent/docs/themes.md')
+          themes_doc.write_text(themes_doc.read_text().replace('Built-in: `dark`', 'Built-in: `dark`, `light`').replace('On first run, pi uses the built-in `dark` theme. Automatic settings can still select themes based on terminal appearance.', 'On first run, pi detects your terminal background and defaults to `dark` or `light`.').replace('Nord, Gruvbox, Tokyo Night', 'Nord, Gruvbox, Solarized').replace('- [dark.json](../src/modes/interactive/theme/dark.json)\n', '- [dark.json](../src/modes/interactive/theme/dark.json)\n- [light.json](../src/modes/interactive/theme/light.json)\n'))
+          PY
+
+      - name: Remove Microsoft Foundry skill paths and stale references
+        shell: bash
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import re
+          import subprocess
+
+          tracked = subprocess.check_output(['git', 'ls-files'], text=True).splitlines()
+          for path in [path for path in tracked if 'foundry' in path.lower()]:
+              subprocess.run(['git', 'rm', '--', path], check=True)
+
+          pattern = re.compile(r'tokyonight|tokyo night|microsoft[\s-]*foundry', re.IGNORECASE)
+          tracked = subprocess.check_output(['git', 'ls-files'], text=True).splitlines()
+          unsupported = []
+          for raw_path in tracked:
+              path = Path(raw_path)
+              try:
+                  text = path.read_text()
+              except (UnicodeDecodeError, OSError):
+                  continue
+              if not pattern.search(text):
+                  continue
+              if path.suffix.lower() in {'.md', '.txt'}:
+                  lines = text.splitlines(keepends=True)
+                  path.write_text(''.join(line for line in lines if not pattern.search(line)))
+              else:
+                  unsupported.append(raw_path)
+
+          if unsupported:
+              raise SystemExit('Unsupported remaining references: ' + ', '.join(unsupported))
+          PY
+
+      - name: Add focused native-theme regression coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > packages/coding-agent/test/bundled-themes.test.ts <<'EOF'
+          import { existsSync, readFileSync } from "node:fs";
+          import { fileURLToPath } from "node:url";
+          import { afterAll, describe, expect, test } from "vitest";
+          import {
+          	getAvailableThemes,
+          	getResolvedThemeColors,
+          	getThemeByName,
+          	initTheme,
+          	resolveThemeSetting,
+          	setTheme,
+          } from "../src/modes/interactive/theme/theme.ts";
+
+          const DARK_PATH = fileURLToPath(new URL("../src/modes/interactive/theme/dark.json", import.meta.url));
+          const LIGHT_PATH = fileURLToPath(new URL("../src/modes/interactive/theme/light.json", import.meta.url));
+          const PACKAGE_JSON_PATH = fileURLToPath(new URL("../package.json", import.meta.url));
+          const REMOVED_PACKAGE_THEME_DIRECTORY = fileURLToPath(new URL("../theme", import.meta.url));
+
+          afterAll(() => {
+          	initTheme("dark");
+          });
+
+          describe("native Pi themes", () => {
+          	test("ships the original dark and light palettes", () => {
+          		const dark = JSON.parse(readFileSync(DARK_PATH, "utf8")) as {
+          			name: string;
+          			vars: Record<string, string>;
+          			export: Record<string, string>;
+          		};
+          		const light = JSON.parse(readFileSync(LIGHT_PATH, "utf8")) as {
+          			name: string;
+          			vars: Record<string, string>;
+          			export: Record<string, string>;
+          		};
+
+          		expect(dark).toMatchObject({
+          			name: "dark",
+          			vars: {
+          				cyan: "#00d7ff",
+          				blue: "#5f87ff",
+          				text: "#d4d4d4",
+          				accent: "#8abeb7",
+          				userMsgBg: "#343541",
+          			},
+          			export: { pageBg: "#18181e", cardBg: "#1e1e24", infoBg: "#3c3728" },
+          		});
+          		expect(light).toMatchObject({
+          			name: "light",
+          			vars: {
+          				teal: "#5a8080",
+          				blue: "#547da7",
+          				text: "#1f2328",
+          				userMsgBg: "#e8e8e8",
+          			},
+          			export: { pageBg: "#f8f8f8", cardBg: "#ffffff", infoBg: "#fffae6" },
+          		});
+          	});
+
+          	test("lists and switches between both native themes", () => {
+          		expect(getAvailableThemes()).toEqual(expect.arrayContaining(["dark", "light"]));
+          		expect(getThemeByName("dark")).toBeDefined();
+          		expect(getThemeByName("light")).toBeDefined();
+
+          		expect(setTheme("light").success).toBe(true);
+          		expect(getResolvedThemeColors("light")).toMatchObject({ text: "#1f2328", userMessageBg: "#e8e8e8" });
+          		expect(setTheme("dark").success).toBe(true);
+          		expect(getResolvedThemeColors("dark")).toMatchObject({ text: "#d4d4d4", userMessageBg: "#343541" });
+          	});
+
+          	test("uses native automatic light and dark selection", () => {
+          		expect(resolveThemeSetting("light/dark", "light")).toBe("light");
+          		expect(resolveThemeSetting("light/dark", "dark")).toBe("dark");
+          	});
+
+          	test("does not package a separate downstream theme directory", () => {
+          		const packageJson = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as {
+          			pi?: { themes?: string[] };
+          			files?: string[];
+          		};
+
+          		expect(packageJson.pi?.themes).toBeUndefined();
+          		expect(packageJson.files).not.toContain("theme");
+          		expect(existsSync(REMOVED_PACKAGE_THEME_DIRECTORY)).toBe(false);
+          	});
+          });
+          EOF
+
+      - name: Verify exact Pi sources and cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in \
+            packages/coding-agent/src/modes/interactive/theme/dark.json \
+            packages/coding-agent/src/modes/interactive/theme/light.json \
+            packages/coding-agent/src/modes/interactive/theme/theme-controller.ts \
+            packages/coding-agent/src/modes/interactive/theme/theme-schema.json \
+            packages/coding-agent/src/modes/interactive/theme/theme.ts; do
+            git show "origin/pi:${path}" > /tmp/pi-reference
+            cmp --silent /tmp/pi-reference "${path}"
+          done
+
+          test ! -e packages/coding-agent/theme
+          ! git grep -n -i -E 'tokyonight|tokyo night|microsoft[ -]?foundry|foundry' -- .
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run focused theme tests
+        run: >-
+          npm --prefix packages/coding-agent test --
+          test/bundled-themes.test.ts
+          test/theme-picker.test.ts
+          test/theme-detection.test.ts
+
+      - name: Build workspace
+        run: npm run build
+
+      - name: Run static checks
+        run: npm run check
+
+      - name: Commit completed cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/theme-cleanup.yml
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit" >&2
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: restore native Pi themes"
+          git push origin HEAD:ui/enhancement
