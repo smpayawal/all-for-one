@@ -20,6 +20,8 @@ test("parses the dedicated All-For-One tag namespace", () => {
 	assert.equal(parseAllForOneReleaseTag("afo-v0.1.0-rc.1"), "0.1.0-rc.1");
 	assert.throws(() => parseAllForOneReleaseTag("v0.1.0"), /Expected afo-v<semver>/);
 	assert.throws(() => parseAllForOneReleaseTag("afo-0.1.0"), /Expected afo-v<semver>/);
+	assert.throws(() => parseAllForOneReleaseTag("afo-v01.0.0"), /Expected afo-v<semver>/);
+	assert.throws(() => parseAllForOneReleaseTag("afo-v1.0.0-01"), /Expected afo-v<semver>/);
 });
 
 test("requires the tag version to match the current standalone product version", () => {
