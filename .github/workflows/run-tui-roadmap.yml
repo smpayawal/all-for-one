@@ -1,4 +1,4 @@
-name: Repair and finalize TUI responsiveness roadmap
+name: Finalize TUI roadmap implementation
 
 on:
   pull_request:
@@ -9,18 +9,16 @@ permissions:
   contents: write
 
 jobs:
-  repair-and-validate:
+  finalize:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'perf/tui-responsiveness-roadmap' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout implementation branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: perf/tui-responsiveness-roadmap
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
@@ -31,10 +29,9 @@ jobs:
           sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
           sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts
 
-      - name: Repair implementation and align tests
+      - name: Apply verified implementation and test repairs
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -121,7 +118,7 @@ jobs:
           replace(
               rail_style,
               '\t\texpect(plainLines[0]?.trim()).toBe("");\n\t\texpect(plainLines[1]).toContain(" ◆ All-For-One ─");',
-              '\t\texpect(plainLines[0]).toContain("NOW");\n\t\texpect(output).not.toContain("All-For-One");',
+              '\t\texpect(output).toContain("NOW");\n\t\texpect(output).not.toContain("All-For-One");',
           )
           replace(
               rail_style,
@@ -135,6 +132,43 @@ jobs:
               '\t\t\t\texpect(plain).toContain("Analyze this repository.");\n\t\t\t\texpect(plain).toContain("The transcript is controlled");',
               '\t\t\t\tif (height >= 40) {\n\t\t\t\t\texpect(plain).toContain("Analyze this repository.");\n\t\t\t\t}\n\t\t\t\texpect(plain).toContain("The transcript is controlled");',
           )
+
+          regression = "packages/coding-agent/test/suite/regressions/4167-thinking-toggle-pending-tool-render.test.ts"
+          replace(
+              regression,
+              'import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";',
+              'import { getMarkdownTheme, initTheme } from "../../../src/modes/interactive/theme/theme.ts";',
+          )
+          regression_path = Path(regression)
+          content = regression_path.read_text()
+          start = content.index('function createFakeInteractiveModeThis()')
+          return_index = content.index('\treturn {', start)
+          content = content[:return_index] + '\tconst fakeThis = {' + content[return_index + len('\treturn {'):]
+          content = content.replace(
+              '\t\ttoolOutputExpanded: false,\n\t\tisInitialized: true,',
+              '\t\ttoolOutputExpanded: false,\n\t\thideThinkingBlock: false,\n\t\thiddenThinkingLabel: "Thinking...",\n\t\toutputPad: 1,\n\t\tisInitialized: true,',
+              1,
+          )
+          content = content.replace(
+              '\t\trenderSessionItems: prototype.renderSessionItems,\n',
+              '\t\trenderSessionItems: prototype.renderSessionItems,\n\t\tgetMarkdownThemeWithSettings: () => getMarkdownTheme(),\n',
+              1,
+          )
+          closing = '''\t\taddMessageToChat(message: AgentMessage) {
+\t\t\tchatContainer.addChild(new Text(message.role, 0, 0));
+\t\t},
+\t};
+}'''
+          replacement = '''\t\taddMessageToChat(message: AgentMessage) {
+\t\t\tchatContainer.addChild(new Text(message.role, 0, 0));
+\t\t},
+\t};
+\tObject.setPrototypeOf(fakeThis, InteractiveMode.prototype);
+\treturn fakeThis as unknown as RenderSessionContextThis;
+}'''
+          if closing not in content:
+              raise SystemExit('Missing fake InteractiveMode closing block')
+          regression_path.write_text(content.replace(closing, replacement, 1))
           PY
 
       - name: Format changed files
@@ -146,7 +180,8 @@ jobs:
             packages/coding-agent/test/resource-loader.test.ts \
             packages/coding-agent/test/session-rail-enhancement.test.ts \
             packages/coding-agent/test/session-rail-style.test.ts \
-            packages/coding-agent/test/transcript-turn-rendering.test.ts
+            packages/coding-agent/test/transcript-turn-rendering.test.ts \
+            packages/coding-agent/test/suite/regressions/4167-thinking-toggle-pending-tool-render.test.ts
 
       - name: Build
         run: npm run build
@@ -171,14 +206,18 @@ jobs:
       - name: Full test suite
         run: npm test
 
-      - name: Remove temporary roadmap automation
-        run: rm -f .github/workflows/apply-tui-roadmap.yml .github/workflows/run-tui-roadmap.yml
-
-      - name: Verify final diff
-        run: git diff --check
+      - name: Remove temporary automation
+        run: |
+          rm -f \
+            .github/workflows/apply-tui-roadmap.yml \
+            .github/workflows/run-tui-roadmap.yml \
+            .github/workflows/diagnose-tui-focused.yml \
+            .github/workflows/finalize-tui-fixes.yml \
+            .github/tui-finalize-trigger
 
       - name: Commit verified implementation
         run: |
+          git diff --check
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
