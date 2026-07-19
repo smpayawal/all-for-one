@@ -74,6 +74,7 @@ describe("TUI scroll regression", () => {
 	test("repaints the complete application after its terminal screen is reset", async () => {
 		const terminal = new ResettingVirtualTerminal(128, 12);
 		const tui = new TUI(terminal);
+		let shell!: InteractiveApplicationShell;
 		const rail = new SessionRailComponent({
 			title: "All-For-One",
 			shortcutSummary: "Esc — Interrupt · Ctrl+C / Ctrl+D — Clear / Exit · / — Command",
@@ -86,7 +87,7 @@ describe("TUI scroll regression", () => {
 			failedTools: 0,
 			getAvailableHeight: () => shell.getAvailableMainHeight(terminal.columns),
 		});
-		const shell = new InteractiveApplicationShell({
+		shell = new InteractiveApplicationShell({
 			tui,
 			transcript: new Text("TRANSCRIPT", 0, 0),
 			rail,
