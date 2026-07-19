@@ -57,12 +57,15 @@ for (const forbidden of ["npm publish", "NPM_TOKEN", "scripts/publish.mjs", "scr
 	}
 }
 for (const required of [
+	"branches: [main]",
 	"scripts/prepare-allforone-release.mjs",
 	"--prerelease --latest=false",
 	"needs: [validate, build, native-release-smoke]",
 	"group: allforone-release-${{ github.event_name }}-",
 	"cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
 	"isPrereleaseVersion } from './scripts/allforone-version.mjs'",
+	"git fetch --no-tags origin main",
+	"git merge-base --is-ancestor \"${source_sha}\" origin/main",
 	"verify-published-release:",
 	"uses: ./.github/workflows/allforone-verify-release.yml",
 ]) {
@@ -73,6 +76,7 @@ for (const required of [
 
 const verifyWorkflow = readFileSync(join(root, ".github/workflows/allforone-verify-release.yml"), "utf8");
 for (const required of [
+	"branches: [main]",
 	"workflow_call:",
 	"workflow_dispatch:",
 	"Public release smoke (${{ matrix.name }})",
@@ -80,6 +84,7 @@ for (const required of [
 	"scripts/verify-allforone-release-assets.mjs",
 	"scripts/smoke-allforone-archive.mjs",
 	"Checkout trusted verification tooling",
+	"ref: main",
 	"tooling_sha:",
 	"release_commit:",
 	"--commit \"${{ env.RELEASE_COMMIT }}\"",
@@ -91,42 +96,50 @@ for (const required of [
 
 const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
 for (const required of [
-	"## All-For-One release and synchronization",
+	"## All-For-One release and upstream reference",
+	"`main` is the official All-For-One product branch.",
+	"`pi` is the native Pi reference branch.",
 	"All-For-One releases use `afo-v*` tags and GitHub Releases only.",
-	"Pull requests from `sync/pi-*` must be merged with a merge commit.",
+	"Do not merge the complete `pi` branch into `main` by default.",
+	"adopt/pi-<short-sha>-<topic>",
 	"## Upstream Pi release reference",
 ]) {
 	if (!agents.includes(required)) {
-		throw new Error(`AGENTS.md is missing downstream release guidance: ${required}`);
+		throw new Error(`AGENTS.md is missing standalone product guidance: ${required}`);
 	}
 }
 
 const contributing = readFileSync(join(root, "CONTRIBUTING.md"), "utf8");
 for (const required of [
-	"Do not squash or rebase them because `main` must remain an ancestor of `allforone`.",
-	"merge-sync",
+	"`main` is the official All-For-One product branch.",
+	"`pi` is the read-only native Pi reference branch.",
+	"Do not merge the complete `pi` branch into `main` by default.",
+	"adopt/pi-<short-sha>-<topic>",
 	"## Downstream ownership",
 	"The All-For-One product namespace is not a general destination for downstream code.",
 	"Do not move a feature solely to make it look more All-For-One-specific.",
+	"GitHub Releases from `main`",
 ]) {
 	if (!contributing.includes(required)) {
-		throw new Error(`CONTRIBUTING.md is missing synchronization or ownership guidance: ${required}`);
+		throw new Error(`CONTRIBUTING.md is missing standalone branch or ownership guidance: ${required}`);
 	}
 }
 
 const releasing = readFileSync(join(root, "RELEASING.md"), "utf8");
 for (const required of [
-	"All-For-One releases are published through GitHub Releases",
-	"A `sync/pi-*` pull request must be merged with a merge commit.",
+	"All-For-One releases are published through GitHub Releases from the `main` branch.",
+	"Confirm the prepared release commit is on `main`.",
 	"npm run release:afo:prepare -- 0.1.0-rc.1",
 	"explicitly prevents them from becoming the latest stable release",
 	"Verify Published All-For-One Release",
 	"Temporary pull-request workflows must not create tags or publish releases.",
 	"--commit <tag-commit-sha>",
-	"merge-sync",
+	"## Native Pi review before a release",
+	"Do not merge the complete `pi` branch into `main` as a routine release step.",
+	"adopt/pi-<short-sha>-<topic>",
 ]) {
 	if (!releasing.includes(required)) {
-		throw new Error(`RELEASING.md is missing required downstream policy: ${required}`);
+		throw new Error(`RELEASING.md is missing required standalone product policy: ${required}`);
 	}
 }
 for (const forbidden of ["npm publish", "npm run publish", "npm run release:patch", "npm run release:minor", "npm run release:major"]) {
@@ -135,19 +148,40 @@ for (const forbidden of ["npm publish", "npm run publish", "npm run release:patc
 	}
 }
 
-const syncWorkflow = readFileSync(join(root, ".github/workflows/upstream-pi-sync.yml"), "utf8");
+const upstreamReferenceWorkflow = readFileSync(join(root, ".github/workflows/upstream-pi-sync.yml"), "utf8");
 for (const required of [
-	"Required merge method: create a merge commit",
-	"**Do not squash or rebase this pull request.**",
-	"- merge-sync",
-	"gh pr checks \"${PR_NUMBER}\" --watch --fail-fast",
-	"gh pr merge \"${PR_NUMBER}\" --merge --match-head-commit \"${SYNC_SHA}\"",
+	"name: Upstream Pi Reference",
+	"branches: [main]",
+	"- update-pi",
+	"--main origin/pi",
+	"--product origin/main",
+	"git push origin upstream/main:refs/heads/pi",
+	"Updating `pi` does not merge upstream Pi into `main`.",
+	"adopt/pi-<short-sha>-<topic>",
 ]) {
-	if (!syncWorkflow.includes(required)) {
-		throw new Error(`Upstream synchronization workflow is missing controlled merge enforcement: ${required}`);
+	if (!upstreamReferenceWorkflow.includes(required)) {
+		throw new Error(`Upstream Pi reference workflow is missing selective-adoption enforcement: ${required}`);
+	}
+}
+for (const forbidden of ["- prepare-sync", "- merge-sync", "gh pr create", "gh pr merge", "refs/heads/main"]) {
+	if (upstreamReferenceWorkflow.includes(forbidden)) {
+		throw new Error(`Upstream Pi reference workflow retains prohibited full-sync behavior: ${forbidden}`);
+	}
+}
+
+const referenceStatusWorkflow = readFileSync(join(root, ".github/workflows/allforone-upstream-drift.yml"), "utf8");
+for (const required of [
+	"name: All-For-One Pi reference status",
+	"branches: [pi]",
+	"ref: main",
+	"pi:refs/remotes/origin/pi main:refs/remotes/origin/main",
+	"Review selectively; this is not a failure.",
+]) {
+	if (!referenceStatusWorkflow.includes(required)) {
+		throw new Error(`Pi reference status workflow is missing informational divergence handling: ${required}`);
 	}
 }
 
 console.log(
-	"All-For-One publication policy is valid: strict release versions, tag-bound public asset verification, controlled sync merges, cancellable PR validation, GitHub releases only, and Pi-compatible npm packages private.",
+	"All-For-One publication policy is valid: main-owned product releases, a fast-forward-only Pi reference, selective upstream adoption, tag-bound public asset verification, GitHub Releases only, and Pi-compatible npm packages kept private.",
 );
