@@ -5,3 +5,4 @@ export {
 	type ProductEnvAliasDiagnostic,
 } from "./env.ts";
 export { formatProductVersion, PRODUCT, rewriteProductCommandInHelp } from "./product.ts";
+export { getProductUpdateInterception, type ProductUpdateInterception } from "./update-policy.ts";
