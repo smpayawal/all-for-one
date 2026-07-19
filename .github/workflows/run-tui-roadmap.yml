@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  apply:
+  validate:
     if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'perf/tui-responsiveness-roadmap' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install system dependencies
@@ -31,86 +31,37 @@ jobs:
           sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
           sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
 
-      - name: Extract final implementation phase
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Normalize existing formatting blockers
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          source = Path('.github/workflows/apply-tui-roadmap.yml').read_text()
-          marker = "cat <<'PAYLOAD' | base64 --decode | gzip --decompress > /tmp/apply-tui-roadmap.py\n"
-          payload = source.split(marker, 1)[1].split('\n          PAYLOAD', 1)[0]
-          Path('/tmp/apply-tui-roadmap.py.gz.b64').write_text(payload.strip() + '\n')
-          PY
-          base64 --decode /tmp/apply-tui-roadmap.py.gz.b64 | gzip --decompress > /tmp/apply-tui-roadmap.py
-          python - <<'PY'
-          from pathlib import Path
-          import re
+          npm exec -- biome check --write \
+            packages/coding-agent/src/modes/interactive/components/assistant-message.ts \
+            packages/coding-agent/src/modes/interactive/components/inset-panel.ts
 
-          script = Path('/tmp/apply-tui-roadmap.py')
-          content = script.read_text()
-          content, root_count = re.subn(
-              r'^ROOT\s*=.*$',
-              'ROOT = __import__("pathlib").Path.cwd()',
-              content,
-              count=1,
-              flags=re.MULTILINE,
-          )
-          old_test = "run('npm', 'exec', '--', 'vitest', '--run', *tests)"
-          new_test = "subprocess.run(['npm', 'run', 'test', '--', *[test.removeprefix('packages/coding-agent/') for test in tests]], cwd=ROOT / 'packages/coding-agent', check=True)"
-          test_count = content.count(old_test)
-          content = content.replace(old_test, new_test)
-          old_install = "run('npm', 'ci', '--ignore-scripts')"
-          install_count = content.count(old_install)
-          content = content.replace(old_install, old_install + "\nrun('npm', 'run', 'build')")
+      - name: Build
+        run: npm run build
 
-          phase0_start = content.index('# Phase 0:')
-          phase3_start = content.index('# Phase 3:')
-          content = content[:phase0_start] + '# Phases 0 through 2 completed and validated.\n\n' + content[phase3_start:]
+      - name: Code quality
+        run: npm run check
 
-          if root_count != 1 or test_count != 1 or install_count != 1:
-              raise SystemExit(
-                  f'Unable to patch implementation script: root={root_count}, tests={test_count}, install={install_count}'
-              )
-          script.write_text(content)
-          PY
-          python -m py_compile /tmp/apply-tui-roadmap.py
+      - name: Full test suite
+        run: npm test
 
-      - name: Restore wide-rail visibility assertion
+      - name: Verify diff integrity
+        run: git diff --check
+
+      - name: Commit validated formatting fixes
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('packages/coding-agent/test/session-rail.test.ts')
-          content = path.read_text()
-          expected = 'expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(false);'
-          replacement = 'expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(true);'
-          if expected not in content:
-              raise SystemExit('Missing wide-rail visibility assertion')
-          path.write_text(content.replace(expected, replacement, 1))
-          PY
-
-      - name: Apply and validate final phase
-        id: apply
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          python /tmp/apply-tui-roadmap.py 2>&1 | tee /tmp/tui-roadmap.log
-
-      - name: Prepare failure diagnostics
-        if: steps.apply.outcome == 'failure'
-        run: |
-          mkdir -p /tmp/tui-roadmap-failure
-          tail -n 900 /tmp/tui-roadmap.log > /tmp/tui-roadmap-failure/output.log
-          cp /tmp/apply-tui-roadmap.py /tmp/tui-roadmap-failure/apply-tui-roadmap.py
-          git diff --binary > /tmp/tui-roadmap-failure/changes.patch
-          git status --short > /tmp/tui-roadmap-failure/status.txt
-
-      - name: Upload failure diagnostics
-        if: steps.apply.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tui-roadmap-failure
-          path: /tmp/tui-roadmap-failure
-          if-no-files-found: error
-
-      - name: Fail when implementation failed
-        if: steps.apply.outcome == 'failure'
-        run: exit 1
+          if git diff --quiet; then
+            echo "No formatting fixes were needed."
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add packages/coding-agent/src/modes/interactive/components/assistant-message.ts \
+            packages/coding-agent/src/modes/interactive/components/inset-panel.ts
+          git diff --cached --check
+          git commit -m "style: satisfy repository formatting checks"
+          git push origin HEAD:perf/tui-responsiveness-roadmap
