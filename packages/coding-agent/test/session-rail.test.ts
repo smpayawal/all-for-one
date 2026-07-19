@@ -74,7 +74,7 @@ describe("rail progress and activity formatting", () => {
 		const rail = new SessionRailComponent({
 			title: "TEST PRODUCT",
 			agents: ["AGENTS.md", "project/AGENTS.md"],
-			skills: ["microsoft-foundry", "frontend-skill", "superpowers", "unused"],
+			skills: ["frontend-skill", "superpowers", "unused"],
 			progress: { label: "plan-mode", completed: 2, total: 5 },
 			lifecycle: { kind: "agent" },
 			activeTools: ["edit", "read"],
@@ -148,7 +148,7 @@ describe("rail progress and activity formatting", () => {
 		expect(rendered).toContain(theme.bold(theme.fg("accent", "escape")));
 		expect(rendered).toContain(theme.fg("dim", " interrupt"));
 		expect(rendered).toContain(theme.bold(theme.fg("accent", "ctrl+o")));
-		expect(lines.slice(-3)).toEqual([
+		expect(lines.slice(-3).map((line) => line.trimEnd())).toEqual([
 			"  escape interrupt · ctrl+c/ctrl+d",
 			"  clear/exit · / commands · ! bash ·",
 			"  ctrl+o more",

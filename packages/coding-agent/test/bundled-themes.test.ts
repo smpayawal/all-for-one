@@ -21,13 +21,8 @@ afterAll(() => {
 });
 
 describe("native Pi themes", () => {
-	test("ships the original dark and light palettes", () => {
+	test("ships the original dark palette without a light palette", () => {
 		const dark = JSON.parse(readFileSync(DARK_PATH, "utf8")) as {
-			name: string;
-			vars: Record<string, string>;
-			export: Record<string, string>;
-		};
-		const light = JSON.parse(readFileSync(LIGHT_PATH, "utf8")) as {
 			name: string;
 			vars: Record<string, string>;
 			export: Record<string, string>;
@@ -44,33 +39,22 @@ describe("native Pi themes", () => {
 			},
 			export: { pageBg: "#18181e", cardBg: "#1e1e24", infoBg: "#3c3728" },
 		});
-		expect(light).toMatchObject({
-			name: "light",
-			vars: {
-				teal: "#5a8080",
-				blue: "#547da7",
-				text: "#1f2328",
-				userMsgBg: "#e8e8e8",
-			},
-			export: { pageBg: "#f8f8f8", cardBg: "#ffffff", infoBg: "#fffae6" },
-		});
+		expect(existsSync(LIGHT_PATH)).toBe(false);
 	});
 
-	test("lists and switches between both native themes", () => {
-		expect(getAvailableThemes()).toEqual(expect.arrayContaining(["dark", "light"]));
+	test("lists and switches the native dark theme", () => {
+		expect(getAvailableThemes()).toEqual(expect.arrayContaining(["dark"]));
+		expect(getAvailableThemes()).not.toContain("light");
 		expect(getThemeByName("dark")).toBeDefined();
-		expect(getThemeByName("light")).toBeDefined();
 
-		expect(setTheme("light").success).toBe(true);
-		expect(getResolvedThemeColors("light")).toMatchObject({ text: "#1f2328", userMessageBg: "#e8e8e8" });
 		expect(setTheme("dark").success).toBe(true);
 		expect(getResolvedThemeColors("dark")).toMatchObject({ text: "#d4d4d4", userMessageBg: "#343541" });
 	});
 
-	test("uses native automatic light and dark selection", () => {
-		expect(normalizeThemeSetting("light")).toBe("light");
-		expect(normalizeThemeSetting("light/dark")).toBe("light/dark");
-		expect(resolveThemeSetting("light/dark", "light")).toBe("light");
+	test("maps legacy light settings to dark", () => {
+		expect(normalizeThemeSetting("light")).toBe("dark");
+		expect(normalizeThemeSetting("light/dark")).toBe("dark/dark");
+		expect(resolveThemeSetting("light/dark", "light")).toBe("dark");
 		expect(resolveThemeSetting("light/dark", "dark")).toBe("dark");
 	});
 

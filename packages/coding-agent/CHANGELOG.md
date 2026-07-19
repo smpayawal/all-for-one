@@ -18,6 +18,10 @@
 - Fixed extension command capture to bound retained output, preserve stdout and stderr diagnostics, and distinguish timeout, cancellation, signal, and normal exit results.
 - Fixed safe-mode authorization to reject shell composition and dangerous mutation forms, and to canonicalize workspace mutation paths through symlinks.
 
+### Removed
+
+- Removed the built-in light theme; legacy light-theme settings now fall back to dark.
+
 ## [0.80.10] - 2026-07-16
 
 ### New Features
