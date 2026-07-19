@@ -83,12 +83,26 @@ jobs:
           AFO_OFFLINE: '1'
           PI_OFFLINE: '1'
         run: |
-          set -euo pipefail
-          brew tap smpayawal/all-for-one "$GITHUB_WORKSPACE"
-          brew install --formula smpayawal/all-for-one/all-for-one
-          allforone --version
-          afo --help >/dev/null
-          brew test smpayawal/all-for-one/all-for-one
+          set +e
+          {
+            brew tap smpayawal/all-for-one "$GITHUB_WORKSPACE"
+            brew install --formula smpayawal/all-for-one/all-for-one
+            allforone --version
+            afo --help >/dev/null
+            brew test smpayawal/all-for-one/all-for-one
+          } > homebrew.log 2>&1
+          status=$?
+          cat homebrew.log
+          exit "$status"
+
+      - name: Upload Homebrew log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: homebrew-smoke-log
+          path: homebrew.log
+          if-no-files-found: error
+          retention-days: 1
 
   windows:
     runs-on: windows-latest
