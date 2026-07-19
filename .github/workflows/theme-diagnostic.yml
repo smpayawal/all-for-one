@@ -55,7 +55,8 @@ jobs:
 
           path = Path('packages/coding-agent/test/bundled-themes.test.ts')
           text = path.read_text()
-          text = text.replace('\tinitTheme,\n', '\tinitTheme,\n\tnormalizeThemeSetting,\n')
+          if '\tnormalizeThemeSetting,\n' not in text:
+              text = text.replace('\tinitTheme,\n', '\tinitTheme,\n\tnormalizeThemeSetting,\n')
           needle = '''\ttest("uses native automatic light and dark selection", () => {
           \t\texpect(resolveThemeSetting("light/dark", "light")).toBe("light");
           \t\texpect(resolveThemeSetting("light/dark", "dark")).toBe("dark");
@@ -68,9 +69,11 @@ jobs:
           \t\texpect(resolveThemeSetting("light/dark", "dark")).toBe("dark");
           \t});
           '''
-          if needle not in text:
+          if needle in text:
+              text = text.replace(needle, replacement, 1)
+          elif 'expect(normalizeThemeSetting("light"))' not in text:
               raise SystemExit('theme regression test marker not found')
-          path.write_text(text.replace(needle, replacement, 1))
+          path.write_text(text)
           PY
 
       - name: Verify cleanup scope
@@ -103,8 +106,29 @@ jobs:
           test/theme-detection.test.ts
           test/native-skills.test.ts
 
+      - name: Format touched files and regenerate package locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx biome check --write \
+            packages/coding-agent/src/modes/interactive/theme/theme.ts \
+            packages/coding-agent/test/bundled-themes.test.ts \
+            packages/coding-agent/package.json \
+            packages/coding-agent/docs/themes.md
+          npm run shrinkwrap:coding-agent
+          npm run install-lock:coding-agent
+
       - name: Run static checks
         run: npm run check
+
+      - name: Restore generated model catalogs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git restore --worktree -- \
+            packages/ai/src/models.generated.ts \
+            packages/ai/src/image-models.generated.ts \
+            ':(glob)packages/ai/src/providers/*.models.ts'
 
       - name: Commit validated compatibility fix
         shell: bash
@@ -112,6 +136,7 @@ jobs:
           set -euo pipefail
           git rm .github/workflows/theme-diagnostic.yml
           git add -A
+          git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "fix: preserve native theme compatibility"
