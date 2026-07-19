@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe("assistant message foundation", () => {
-	test("labels visible reasoning as PLAN and frames final text as a raised result panel", () => {
+	test("frames visible planning and final text while keeping labels secondary", () => {
 		const component = new AssistantMessageComponent(
 			createMessage([
 				{ type: "thinking", thinking: "Inspecting the render hierarchy before editing." },
@@ -52,10 +52,19 @@ describe("assistant message foundation", () => {
 
 		const lines = component.render(80);
 		const plain = lines.map(stripAnsi);
+		const planLabel = lines.find((line) => stripAnsi(line).trim() === "PLAN");
 		const resultLabel = lines.find((line) => stripAnsi(line).trim() === "RESULT");
-		expect(plain.some((line) => line.includes("PLAN Inspecting the render hierarchy before editing."))).toBe(true);
+
+		expect(planLabel).toContain(theme.getFgAnsi("muted"));
+		expect(planLabel).not.toContain("\x1b[1m");
 		expect(resultLabel).toContain(theme.getFgAnsi("muted"));
 		expect(resultLabel).not.toContain("\x1b[1m");
+		expect(plain.some((line) => line.includes("│ Inspecting the render hierarchy before editing."))).toBe(true);
+		expect(
+			lines.some(
+				(line) => line.includes(theme.getBgAnsi("toolPendingBg")) && stripAnsi(line).includes("render hierarchy"),
+			),
+		).toBe(true);
 		expect(
 			plain.some((line) => line.includes("│ The presentation layer can change without modifying runtime behavior.")),
 		).toBe(true);
@@ -82,7 +91,8 @@ describe("assistant message foundation", () => {
 
 		const output = stripAnsi(component.render(48).join("\n"));
 		expect(output).toContain("Thinking...");
-		expect(output).not.toContain("PLAN Internal reasoning.");
+		expect(output).not.toContain("PLAN");
+		expect(output).not.toContain("Internal reasoning.");
 		expect(output).toContain("│ Visible result.");
 	});
 
@@ -104,7 +114,10 @@ describe("assistant message foundation", () => {
 
 	test("preserves unframed column-zero rendering when output padding is disabled", () => {
 		const component = new AssistantMessageComponent(
-			createMessage([{ type: "text", text: "Raw compatible output." }]),
+			createMessage([
+				{ type: "thinking", thinking: "Raw plan." },
+				{ type: "text", text: "Raw compatible output." },
+			]),
 			false,
 			undefined,
 			"Thinking...",
@@ -112,7 +125,9 @@ describe("assistant message foundation", () => {
 		);
 
 		const output = stripAnsi(component.render(48).join("\n"));
+		expect(output).toContain("Raw plan.");
 		expect(output).toContain("Raw compatible output.");
+		expect(output).not.toContain("PLAN");
 		expect(output).not.toContain("RESULT");
 		expect(output).not.toContain("│ Raw compatible output.");
 	});
