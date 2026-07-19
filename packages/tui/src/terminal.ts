@@ -57,6 +57,12 @@ export interface Terminal {
 	stop(): void;
 
 	/**
+	 * Return true once when start() recreated or reset the visible screen buffer.
+	 * Differential renderers must discard their previous physical-frame state.
+	 */
+	consumeScreenReset?(): boolean;
+
+	/**
 	 * Drain stdin before exiting to prevent Kitty key release events from
 	 * leaking to the parent shell over slow SSH connections.
 	 * @param maxMs - Maximum time to drain (default: 1000ms)

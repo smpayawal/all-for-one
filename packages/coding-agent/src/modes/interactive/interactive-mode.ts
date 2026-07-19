@@ -1483,12 +1483,14 @@ export class InteractiveMode {
 	}
 
 	private getSessionRailShortcutSummary(): string {
+		const displayKey = (keybinding: AppKeybinding): string =>
+			keyDisplayText(keybinding).replace(/\bEscape\b/gu, "Esc");
 		return [
-			`${keyText("app.interrupt")} interrupt`,
-			`${keyText("app.clear")}/${keyText("app.exit")} clear/exit`,
-			"/ commands",
-			"! bash",
-			`${keyText("app.tools.expand")} more`,
+			`${displayKey("app.interrupt")} — Interrupt`,
+			`${displayKey("app.clear")} / ${displayKey("app.exit")} — Clear / Exit`,
+			"/ — Command",
+			"! — Bash",
+			`${displayKey("app.tools.expand")} — More`,
 		].join(" · ");
 	}
 
