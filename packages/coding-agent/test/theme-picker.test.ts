@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
+	getThemeByName,
+	loadThemeFromPath,
 	setRegisteredThemes,
 } from "../src/modes/interactive/theme/theme.ts";
 
@@ -47,5 +49,19 @@ describe("theme picker", () => {
 		expect(getAvailableThemes()).not.toContain("foo");
 		expect(getAvailableThemesWithPaths()).toContainEqual({ name: "bar", path: themePath });
 		expect(getAvailableThemesWithPaths().some((theme) => theme.name === "foo")).toBe(false);
+	});
+
+	it("keeps a user theme ahead of a registered package theme with the same name", () => {
+		const darkTheme = JSON.parse(
+			readFileSync(new URL("../src/modes/interactive/theme/dark.json", import.meta.url), "utf-8"),
+		) as ThemeFile;
+		const bundledPath = join(tempRoot, "bundled-tokyonight.json");
+		const userPath = join(process.env.PI_CODING_AGENT_DIR!, "themes", "tokyonight.json");
+		writeFileSync(bundledPath, JSON.stringify({ ...darkTheme, name: "tokyonight" }, null, 2));
+		writeFileSync(userPath, JSON.stringify({ ...darkTheme, name: "tokyonight" }, null, 2));
+		setRegisteredThemes([loadThemeFromPath(bundledPath)]);
+
+		expect(getAvailableThemesWithPaths()).toContainEqual({ name: "tokyonight", path: userPath });
+		expect(getThemeByName("tokyonight")?.sourcePath).toBe(userPath);
 	});
 });

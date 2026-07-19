@@ -570,10 +570,19 @@ function parseThemeJsonContent(label: string, content: string): ThemeJson {
 	return parseThemeJson(label, json);
 }
 
+function getCustomThemePath(name: string): string | undefined {
+	const themePath = path.join(getCustomThemesDir(), `${name}.json`);
+	return fs.existsSync(themePath) ? themePath : undefined;
+}
+
 function loadThemeJson(name: string): ThemeJson {
 	const builtinThemes = getBuiltinThemes();
 	if (name in builtinThemes) {
 		return builtinThemes[name];
+	}
+	const customThemePath = getCustomThemePath(name);
+	if (customThemePath) {
+		return parseThemeJsonContent(customThemePath, fs.readFileSync(customThemePath, "utf-8"));
 	}
 	const registeredTheme = registeredThemes.get(name);
 	if (registeredTheme?.sourcePath) {
@@ -583,13 +592,7 @@ function loadThemeJson(name: string): ThemeJson {
 	if (registeredTheme) {
 		throw new Error(`Theme "${name}" does not have a source path for export`);
 	}
-	const customThemesDir = getCustomThemesDir();
-	const themePath = path.join(customThemesDir, `${name}.json`);
-	if (!fs.existsSync(themePath)) {
-		throw new Error(`Theme not found: ${name}`);
-	}
-	const content = fs.readFileSync(themePath, "utf-8");
-	return parseThemeJsonContent(name, content);
+	throw new Error(`Theme not found: ${name}`);
 }
 
 function createTheme(themeJson: ThemeJson, mode?: ColorMode, sourcePath?: string): Theme {
@@ -625,6 +628,13 @@ export function loadThemeFromPath(themePath: string, mode?: ColorMode): Theme {
 }
 
 function loadTheme(name: string, mode?: ColorMode): Theme {
+	if (name in getBuiltinThemes()) {
+		return createTheme(getBuiltinThemes()[name]!, mode);
+	}
+	const customThemePath = getCustomThemePath(name);
+	if (customThemePath) {
+		return loadThemeFromPath(customThemePath, mode);
+	}
 	const registeredTheme = registeredThemes.get(name);
 	if (registeredTheme) {
 		return registeredTheme;

@@ -78,6 +78,18 @@ Skill content here.`,
 			]);
 		});
 
+		it("should load bundled package themes from the package manifest", async () => {
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			const names = loader
+				.getThemes()
+				.themes.map((theme) => theme.name)
+				.filter((name): name is string => name !== undefined)
+				.sort();
+			expect(names).toEqual(["tokyonight"]);
+		});
+
 		it("should ignore extra markdown files in auto-discovered skill dirs", async () => {
 			const skillDir = join(agentDir, "skills", "pi-skills", "browser-tools");
 			mkdirSync(skillDir, { recursive: true });

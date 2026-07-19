@@ -4,14 +4,14 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { SessionRailComponent } from "../src/modes/interactive/components/session-rail.ts";
 import { initTheme, loadThemeFromPath, setThemeInstance, theme } from "../src/modes/interactive/theme/theme.ts";
 
-const THEME_PATH = fileURLToPath(new URL("../theme/afo-midnight.json", import.meta.url));
+const THEME_PATH = fileURLToPath(new URL("../src/modes/interactive/theme/dark.json", import.meta.url));
 
 function stripAnsi(value: string): string {
 	return value.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
 beforeAll(() => {
-	setThemeInstance(loadThemeFromPath(THEME_PATH));
+	setThemeInstance(loadThemeFromPath(THEME_PATH, "truecolor"));
 });
 
 afterAll(() => {
@@ -36,7 +36,7 @@ describe("session rail visual hierarchy", () => {
 		const lines = rail.render(40);
 		const plainLines = lines.map(stripAnsi);
 		const output = plainLines.join("\n");
-		expect(lines[0]?.trim()).toBe("");
+		expect(plainLines[0]?.trim()).toBe("");
 		expect(plainLines[1]).toContain(" ◆ All-For-One ─");
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBe(40);

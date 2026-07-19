@@ -235,7 +235,7 @@ function singleModeThemeItems(availableThemes: string[]): SelectItem[] {
 		{
 			value: AUTOMATIC_THEME_VALUE,
 			label: "Automatic",
-			description: "Use separate themes for light and dark terminal appearance",
+			description: "Use a theme based on terminal appearance",
 		},
 		...themeItems(availableThemes),
 	];
@@ -345,20 +345,20 @@ class ThemeSubmenu extends Container {
 		const content = new Container();
 		content.addChild(new Text(theme.bold(theme.fg("accent", "Automatic Theme")), 0, 0));
 		content.addChild(new Spacer(1));
-		content.addChild(new Text(theme.fg("muted", "Choose themes for light and dark terminal appearance."), 0, 0));
+		content.addChild(new Text(theme.fg("muted", "Choose themes for each terminal appearance."), 0, 0));
 		content.addChild(new Text(theme.fg("muted", "Terminal appearance detection requires terminal support."), 0, 0));
 		content.addChild(new Spacer(1));
 
 		const items: SettingItem[] = [
 			{
 				id: "light-theme",
-				label: "Light-terminal theme",
-				description: "Theme to use in automatic mode when the terminal has a light background",
+				label: "Primary terminal theme",
+				description: "Theme to use in automatic mode for the primary terminal appearance",
 				currentValue: this.lightTheme,
 				submenu: (currentValue, done) =>
 					this.createThemeSelect(
-						"Light-terminal Theme",
-						"Select the theme to use for a light terminal background",
+						"Primary Terminal Theme",
+						"Select the theme to use for the primary terminal appearance",
 						currentValue,
 						done,
 						(value) => {
@@ -370,13 +370,13 @@ class ThemeSubmenu extends Container {
 			},
 			{
 				id: "dark-theme",
-				label: "Dark theme",
-				description: "Theme to use in automatic mode when the terminal is dark",
+				label: "Secondary terminal theme",
+				description: "Theme to use in automatic mode for the secondary terminal appearance",
 				currentValue: this.darkTheme,
 				submenu: (currentValue, done) =>
 					this.createThemeSelect(
-						"Dark Theme",
-						"Select the theme to use for dark terminal appearance",
+						"Secondary Terminal Theme",
+						"Select the theme to use for the secondary terminal appearance",
 						currentValue,
 						done,
 						(value) => {
@@ -396,7 +396,7 @@ class ThemeSubmenu extends Container {
 			{
 				id: "single-mode",
 				label: "Change mode",
-				description: "Switch to one theme for light and dark",
+				description: "Switch to one theme for all terminal appearances",
 				currentValue: "switch to single theme",
 				values: ["switch to single theme"],
 			},

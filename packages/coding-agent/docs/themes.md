@@ -37,7 +37,7 @@ Select a theme via `/settings` or in `settings.json`:
 }
 ```
 
-On first run, pi uses the built-in `dark` theme. Automatic settings can still select separate custom themes for light and dark terminal appearance.
+On first run, pi uses the built-in `dark` theme. Automatic settings can still select themes based on terminal appearance.
 
 ## Creating a Custom Theme
 

@@ -614,6 +614,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const bundledSkillResources = getEnabledResources(bundledPackagePaths.skills);
 		const enabledPrompts = getEnabledPaths(resolvedPaths.prompts);
 		const enabledThemes = getEnabledPaths(resolvedPaths.themes);
+		const bundledThemes = getEnabledPaths(bundledPackagePaths.themes);
 
 		const enabledSkills = enabledSkillResources.map((resource) => this.mapSkillPath(resource, metadataByPath));
 		const bundledSkills = bundledSkillResources.map((resource) => this.mapSkillPath(resource, metadataByPath));
@@ -688,7 +689,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 
 		const themePaths = this.noThemes
 			? this.mergePaths(cliEnabledThemes, this.additionalThemePaths)
-			: this.mergePaths([...cliEnabledThemes, ...enabledThemes], this.additionalThemePaths);
+			: this.mergePaths([...cliEnabledThemes, ...enabledThemes, ...bundledThemes], this.additionalThemePaths);
 
 		this.lastThemePaths = themePaths;
 		this.updateThemesFromPaths(themePaths, metadataByPath);

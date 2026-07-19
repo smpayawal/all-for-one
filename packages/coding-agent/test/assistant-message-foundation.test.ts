@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
 import { initTheme, loadThemeFromPath, setRegisteredThemes, theme } from "../src/modes/interactive/theme/theme.ts";
 
-const AFO_MIDNIGHT_PATH = fileURLToPath(new URL("../theme/afo-midnight.json", import.meta.url));
+const TOKYO_NIGHT_PATH = fileURLToPath(new URL("../theme/tokyonight.json", import.meta.url));
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -36,7 +36,7 @@ function createMessage(content: AssistantMessage["content"]): AssistantMessage {
 }
 
 beforeAll(() => {
-	setRegisteredThemes([loadThemeFromPath(AFO_MIDNIGHT_PATH)]);
+	setRegisteredThemes([loadThemeFromPath(TOKYO_NIGHT_PATH)]);
 	initTheme("dark");
 });
 
@@ -108,7 +108,7 @@ describe("assistant message foundation", () => {
 		initTheme("dark");
 		const component = new AssistantMessageComponent(createMessage([{ type: "text", text: "# Theme-aware result" }]));
 
-		initTheme("AFO Midnight");
+		initTheme("tokyonight");
 		component.invalidate();
 		const lines = component.render(64);
 		const themedHeading = lines.some(

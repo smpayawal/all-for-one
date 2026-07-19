@@ -11,22 +11,12 @@ import {
 	setRegisteredThemes,
 } from "../src/modes/interactive/theme/theme.ts";
 
-const AFO_MIDNIGHT_PATH = fileURLToPath(new URL("../theme/afo-midnight.json", import.meta.url));
-const CATPPUCCIN_MOCHA_PATH = fileURLToPath(new URL("../theme/catppuccin-mocha.json", import.meta.url));
 const TOKYO_NIGHT_PATH = fileURLToPath(new URL("../theme/tokyonight.json", import.meta.url));
-const GITHUB_DARK_PATH = fileURLToPath(new URL("../theme/github-dark.json", import.meta.url));
-const EVERFOREST_PATH = fileURLToPath(new URL("../theme/everforest.json", import.meta.url));
 const PACKAGE_JSON_PATH = fileURLToPath(new URL("../package.json", import.meta.url));
 
-const PACKAGED_THEME_PATHS = [
-	AFO_MIDNIGHT_PATH,
-	CATPPUCCIN_MOCHA_PATH,
-	TOKYO_NIGHT_PATH,
-	GITHUB_DARK_PATH,
-	EVERFOREST_PATH,
-];
+const PACKAGED_THEME_PATHS = [TOKYO_NIGHT_PATH];
 
-const EXPECTED_PACKAGED_THEME_NAMES = ["AFO Midnight", "Catppuccin Mocha", "tokyonight", "GitHub Dark", "Everforest"];
+const EXPECTED_PACKAGED_THEME_NAMES = ["tokyonight"];
 
 function channelToLinear(channel: number): number {
 	const value = channel / 255;
@@ -80,14 +70,14 @@ describe("bundled All-For-One themes", () => {
 		registerPackagedThemes();
 		expect(getAvailableThemes()).not.toContain("light");
 		expect(getThemeByName("light")).toBeUndefined();
-		expect(resolveThemeSetting("AFO Midnight/dark", "light")).toBe("AFO Midnight");
-		expect(resolveThemeSetting("AFO Midnight/dark", "dark")).toBe("dark");
+		expect(resolveThemeSetting("tokyonight/dark", "light")).toBe("tokyonight");
+		expect(resolveThemeSetting("tokyonight/dark", "dark")).toBe("dark");
 		expect(resolveThemeSetting("light/dark", "light")).toBe("dark");
-		expect(resolveThemeSetting("light/GitHub Dark", "dark")).toBe("GitHub Dark");
+		expect(resolveThemeSetting("light/tokyonight", "dark")).toBe("tokyonight");
 		expect(resolveThemeSetting("light/GitHub Dark", "light")).toBe("dark");
 	});
 
-	test.each(["dark", "AFO Midnight", "Catppuccin Mocha", "tokyonight", "GitHub Dark", "Everforest"])(
+	test.each(["dark", "tokyonight"])(
 		"keeps %s workspace, result, and tool surfaces readable and distinct",
 		(themeName) => {
 			registerPackagedThemes();

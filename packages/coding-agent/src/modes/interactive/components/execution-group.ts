@@ -49,8 +49,10 @@ function padToWidth(text: string, width: number): string {
 }
 
 function insetLine(line: string, width: number, inset: number): string {
-	const rightPadding = Math.max(0, width - inset - visibleWidth(line));
-	return `${" ".repeat(inset)}${line}${" ".repeat(rightPadding)}`;
+	const contentWidth = Math.max(0, width - inset);
+	const clippedLine = truncateToWidth(line, contentWidth, "");
+	const rightPadding = Math.max(0, contentWidth - visibleWidth(clippedLine));
+	return `${" ".repeat(inset)}${clippedLine}${" ".repeat(rightPadding)}`;
 }
 
 function hasVisibleContent(line: string): boolean {

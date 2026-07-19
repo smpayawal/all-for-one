@@ -8,7 +8,7 @@ import { UserMessageComponent } from "../src/modes/interactive/components/user-m
 import { initTheme, loadThemeFromPath, setThemeInstance, theme } from "../src/modes/interactive/theme/theme.ts";
 import { getExecutionGroupTarget } from "../src/modes/interactive/tool-action-summary.ts";
 
-const THEME_PATH = fileURLToPath(new URL("../theme/afo-midnight.json", import.meta.url));
+const THEME_PATH = fileURLToPath(new URL("../src/modes/interactive/theme/dark.json", import.meta.url));
 
 function stripAnsi(value: string): string {
 	return value.replace(/\u001b\[[0-9;]*m/g, "");
@@ -16,8 +16,11 @@ function stripAnsi(value: string): string {
 
 class FakeToolComponent implements Component {
 	expanded = false;
+	private readonly lines: string[];
 
-	constructor(private readonly lines = ["native tool renderer", "native output detail"]) {}
+	constructor(lines = ["native tool renderer", "native output detail"]) {
+		this.lines = lines;
+	}
 
 	render(width: number): string[] {
 		return this.lines.map((line) => line.slice(0, width));
@@ -33,7 +36,7 @@ class FakeToolComponent implements Component {
 }
 
 beforeAll(() => {
-	setThemeInstance(loadThemeFromPath(THEME_PATH));
+	setThemeInstance(loadThemeFromPath(THEME_PATH, "truecolor"));
 });
 
 afterAll(() => {
@@ -158,7 +161,10 @@ describe("All-For-One transcript presentation", () => {
 	});
 
 	test("retains structured action summaries when a group is collapsed", () => {
-		const component = new FakeToolComponent(["read README.md", "README contents"]) as unknown as ToolExecutionComponent;
+		const component = new FakeToolComponent([
+			"read README.md",
+			"README contents",
+		]) as unknown as ToolExecutionComponent;
 		const group = new ExecutionGroupComponent("turn-3", false);
 		group.addAction({
 			id: "read-1",
