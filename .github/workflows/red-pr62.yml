@@ -1,0 +1,28 @@
+name: Red PR 62
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    if: github.event.pull_request.head.ref == 'fix/tui-resume-render-state'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+      - run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
+          test/tui-scroll-regression.test.ts
+          test/session-rail-style.test.ts
