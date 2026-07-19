@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+- Added reusable native verification for public GitHub Release assets, manifests, checksums, and compatibility launchers.
+- Added a controlled `merge-sync` operation for reviewed `sync/pi-*` pull requests.
+
+### Changed
+
+- Unified release preparation and tag validation behind a strict semantic-version parser.
+- Documented downstream ownership boundaries without moving runtime behavior out of its correct Pi layers.
+
 ## [0.1.0-rc.1] - 2026-07-19
 
 ### Added
