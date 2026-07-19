@@ -3,6 +3,7 @@ import {
 	type ExecutionGroupActionState,
 	type ExecutionGroupStatus,
 	formatExecutionGroupStatus,
+	getExecutionGroupStatusSymbol,
 	summarizeExecutionGroup,
 	type ToolActionStatus,
 } from "../execution-group-state.ts";
@@ -49,6 +50,10 @@ function padToWidth(text: string, width: number): string {
 function insetLine(line: string, width: number, inset: number): string {
 	const rightPadding = Math.max(0, width - inset - visibleWidth(line));
 	return `${" ".repeat(inset)}${line}${" ".repeat(rightPadding)}`;
+}
+
+function hasVisibleContent(line: string): boolean {
+	return line.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").trim().length > 0;
 }
 
 export class ExecutionGroupComponent implements Component {
@@ -185,17 +190,27 @@ export class ExecutionGroupComponent implements Component {
 		if (width === 1) return [border];
 
 		const bodyWidth = width - 1;
-		const actionHeaderWidth = Math.max(0, bodyWidth - 2);
-		const actionHeader = formatToolActionSummary(action, actionHeaderWidth);
-		const headerLine = `${border}${fillBackgroundLine(` ${actionHeader}`, bodyWidth, "selectedBg")}`;
-
 		const contentWidth = Math.max(0, bodyWidth - 2);
 		const rendered = action.component.render(contentWidth);
-		const bodyLines =
-			rendered.length === 0
-				? [`${border}${fillBackgroundLine("", bodyWidth, "customMessageBg")}`]
-				: rendered.map((line) => `${border}${fillBackgroundLine(` ${line}`, bodyWidth, "customMessageBg")}`);
-		return [headerLine, ...bodyLines];
+		if (rendered.length === 0) {
+			return [`${border}${fillBackgroundLine("", bodyWidth, "customMessageBg")}`];
+		}
+
+		const symbol = getExecutionGroupStatusSymbol(action.status);
+		const marker = `${theme.fg(getStatusColor(action.status), symbol)} `;
+		const markerWidth = visibleWidth(marker);
+		let markerApplied = false;
+		return rendered.map((line) => {
+			let content: string;
+			if (!markerApplied && hasVisibleContent(line)) {
+				const remainingWidth = Math.max(0, contentWidth - markerWidth);
+				content = `${marker}${truncateToWidth(line, remainingWidth, "")}`;
+				markerApplied = true;
+			} else {
+				content = truncateToWidth(line, contentWidth, "");
+			}
+			return `${border}${fillBackgroundLine(` ${content}`, bodyWidth, "customMessageBg")}`;
+		});
 	}
 
 	private renderActionSeparator(width: number): string {
