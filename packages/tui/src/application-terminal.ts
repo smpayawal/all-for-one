@@ -12,7 +12,8 @@ function isApplicationScreenEnabled(): boolean {
  *
  * The standard `ProcessTerminal` remains inline. All-For-One enables this
  * wrapper through its CLI so native Pi-compatible consumers keep their
- * existing scrollback behavior.
+ * existing scrollback behavior. Stopping the wrapper restores the shell's
+ * original screen buffer.
  */
 export class ProcessTerminal extends InlineProcessTerminal {
 	private alternateScreenActive = false;
