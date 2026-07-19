@@ -16,6 +16,8 @@ import {
 import { fillBackgroundLine } from "./background-fill.ts";
 import type { ToolExecutionComponent } from "./tool-execution.ts";
 
+const OUTER_INSET = 1;
+
 export interface ExecutionGroupAction extends ToolActionSummaryData {
 	id: string;
 	component: ToolExecutionComponent;
@@ -42,6 +44,11 @@ function getStatusColor(status: ExecutionGroupStatus): ThemeColor {
 
 function padToWidth(text: string, width: number): string {
 	return text + " ".repeat(Math.max(0, width - visibleWidth(text)));
+}
+
+function insetLine(line: string, width: number, inset: number): string {
+	const rightPadding = Math.max(0, width - inset - visibleWidth(line));
+	return `${" ".repeat(inset)}${line}${" ".repeat(rightPadding)}`;
 }
 
 export class ExecutionGroupComponent implements Component {
@@ -121,17 +128,19 @@ export class ExecutionGroupComponent implements Component {
 		const normalizedWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
 		if (normalizedWidth === 0) return [];
 
+		const inset = normalizedWidth >= 4 ? OUTER_INSET : 0;
+		const groupWidth = Math.max(1, normalizedWidth - inset * 2);
 		const stateActions: ExecutionGroupActionState[] = this.actionList.map((action) => ({ status: action.status }));
 		const summary = summarizeExecutionGroup(stateActions);
-		const lines = [this.renderHeader(normalizedWidth, summary.status, summary)];
+		const lines = [this.renderHeader(groupWidth, summary.status, summary)];
 
 		if (this.expanded) {
-			for (const action of this.actionList) lines.push(...this.renderExpandedAction(action, normalizedWidth));
+			for (const action of this.actionList) lines.push(...this.renderExpandedAction(action, groupWidth));
 		} else {
-			for (const action of this.actionList) lines.push(this.renderCollapsedAction(action, normalizedWidth));
+			for (const action of this.actionList) lines.push(this.renderCollapsedAction(action, groupWidth));
 		}
 
-		return lines;
+		return [" ".repeat(normalizedWidth), ...lines.map((line) => insetLine(line, normalizedWidth, inset))];
 	}
 
 	private renderHeader(
