@@ -76,14 +76,19 @@ jobs:
 
       - name: Prepare failure diagnostics
         if: steps.apply.outcome == 'failure'
-        run: tail -n 500 /tmp/tui-roadmap.log > /tmp/tui-roadmap-failure.log
+        run: |
+          mkdir -p /tmp/tui-roadmap-failure
+          tail -n 500 /tmp/tui-roadmap.log > /tmp/tui-roadmap-failure/output.log
+          cp /tmp/apply-tui-roadmap.py /tmp/tui-roadmap-failure/apply-tui-roadmap.py
+          git diff --binary > /tmp/tui-roadmap-failure/changes.patch
+          git status --short > /tmp/tui-roadmap-failure/status.txt
 
       - name: Upload failure diagnostics
         if: steps.apply.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: tui-roadmap-failure
-          path: /tmp/tui-roadmap-failure.log
+          path: /tmp/tui-roadmap-failure
           if-no-files-found: error
 
       - name: Fail when implementation failed
