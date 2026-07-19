@@ -60,6 +60,8 @@ for (const required of [
 	"scripts/prepare-allforone-release.mjs",
 	"--prerelease --latest=false",
 	"needs: [validate, build, native-release-smoke]",
+	"group: allforone-release-${{ github.event_name }}-",
+	"cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
 ]) {
 	if (!releaseWorkflow.includes(required)) {
 		throw new Error(`All-For-One release workflow is missing release lifecycle enforcement: ${required}`);
@@ -74,6 +76,7 @@ for (const required of [
 	"gh release download",
 	"scripts/verify-allforone-release-assets.mjs",
 	"scripts/smoke-allforone-archive.mjs",
+	"Checkout trusted verification tooling",
 ]) {
 	if (!verifyWorkflow.includes(required)) {
 		throw new Error(`Published release verification workflow is missing: ${required}`);
@@ -139,5 +142,5 @@ for (const required of [
 }
 
 console.log(
-	"All-For-One publication policy is valid: strict release versions, public asset verification, controlled sync merges, GitHub releases only, and Pi-compatible npm packages private.",
+	"All-For-One publication policy is valid: strict release versions, public asset verification, controlled sync merges, cancellable PR validation, GitHub releases only, and Pi-compatible npm packages private.",
 );
