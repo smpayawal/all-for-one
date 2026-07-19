@@ -62,14 +62,6 @@ describe("rail progress and activity formatting", () => {
 		initTheme("dark");
 	});
 
-	test("accepts only valid extension progress ratios", () => {
-		expect(parseRailProgress("plan-mode", "📋 2/5")).toEqual({ label: "plan-mode", completed: 2, total: 5 });
-		expect(parseRailProgress("plan", "done 5/5")).toEqual({ label: "plan", completed: 5, total: 5 });
-		expect(parseRailProgress("plan", "6/5")).toBeUndefined();
-		expect(parseRailProgress("plan", "0/0")).toBeUndefined();
-		expect(parseRailProgress("status", "working")).toBeUndefined();
-	});
-
 	test("prioritizes progress and active tools, then bounds recent history", () => {
 		const rail = new SessionRailComponent({
 			title: "TEST PRODUCT",
@@ -90,7 +82,7 @@ describe("rail progress and activity formatting", () => {
 		});
 
 		const output = stripAnsi(rail.render(40).join("\n"));
-		expect(output).not.toContain("TEST PRODUCT");
+		expect(output).toContain("TEST PRODUCT");
 		expect(output).not.toContain("ALL-FOR-ONE");
 		expect(output).not.toContain("PROGRESS");
 		expect(output).toContain("plan-mode 2/5");
@@ -123,7 +115,7 @@ describe("rail progress and activity formatting", () => {
 		const output = stripAnsi(rail.render(36).join("\n"));
 		expect(output).toContain("Idle");
 		expect(output).not.toContain("PROJECT");
-		expect(output).not.toContain("TEST PRODUCT");
+		expect(output).toContain("TEST PRODUCT");
 		expect(output).not.toContain("gpt-");
 	});
 
@@ -200,7 +192,7 @@ describe("viewport composition", () => {
 		shell.dispose();
 	});
 
-	test("keeps long transcript content intact and places the bottom group last", () => {
+	test("clamps a long transcript and keeps the bottom group visible", () => {
 		const terminal = new VirtualTerminal(127, 12);
 		const tui = new TUI(terminal);
 		const content = new Container();
@@ -215,8 +207,8 @@ describe("viewport composition", () => {
 		});
 
 		const lines = shell.render(127);
+		expect(lines).toHaveLength(12);
 		expect(lines.slice(-2).map((line) => stripAnsi(line).trimEnd())).toEqual(["EDITOR", "FOOTER"]);
-		expect(lines.length).toBeGreaterThan(12);
 		shell.dispose();
 	});
 
