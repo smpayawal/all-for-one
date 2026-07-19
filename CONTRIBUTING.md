@@ -4,7 +4,7 @@ All-For-One is an independent downstream project based on Pi. Keep changes small
 
 ## Contribution guidelines
 
-- Preserve Pi architecture and package boundaries.
+- Preserve stable package boundaries and Pi-compatible contracts unless a change is intentional, documented, and tested.
 - Prefer extensions or optional modules when functionality does not belong in the core.
 - Avoid unnecessary dependencies and broad refactors.
 - Do not edit unrelated files.
@@ -13,16 +13,17 @@ All-For-One is an independent downstream project based on Pi. Keep changes small
 
 ## Branches
 
-- Create work from `allforone`.
-- Submit changes back to `allforone`.
-- Do not add All-For-One features to `main`.
-- Do not merge `allforone` into `main` or rewrite its published history.
+- `main` is the official All-For-One product branch.
+- Create focused product work from `main` and submit changes back to `main`.
+- `pi` is the read-only native Pi reference branch.
+- Never add All-For-One product changes to `pi`.
+- Do not merge the complete `pi` branch into `main` by default.
 
-Upstream synchronization branches use the form `sync/pi-*`. These pull requests must be merged with a merge commit. Do not squash or rebase them because `main` must remain an ancestor of `allforone`. After review and successful checks, use the `merge-sync` action in the Upstream Pi Sync workflow with the pull request number.
+Selective upstream adoption branches use the form `adopt/pi-<short-sha>-<topic>`. Create them from `main`, identify the exact source Pi commit, and port only the changes that solve a demonstrated All-For-One requirement. Provider catalog updates, security fixes, platform fixes, and relevant runtime corrections are normal adoption candidates.
 
 ## Downstream ownership
 
-Keep behavior in the narrowest correct Pi layer. The All-For-One product namespace is not a general destination for downstream code.
+Keep behavior in the narrowest correct layer. The All-For-One product namespace is not a general destination for downstream code.
 
 | Area | Ownership |
 | --- | --- |
@@ -32,7 +33,7 @@ Keep behavior in the narrowest correct Pi layer. The All-For-One product namespa
 | `packages/coding-agent/src/extensions/` | Optional repository mapping, validation, and other extension-owned behavior. |
 | `packages/coding-agent/src/modes/interactive/` | TUI-only presentation such as the session rail and brand header. |
 
-Do not move a feature solely to make it look more All-For-One-specific. Extract a downstream module only when it creates a narrow interface, preserves Pi behavior, and measurably reduces ownership or upstream merge conflicts.
+Do not move a feature solely to make it look more All-For-One-specific. Extract a downstream module only when it creates a narrow interface, preserves required compatibility, and measurably reduces ownership or maintenance cost.
 
 ## Validation
 
@@ -51,4 +52,4 @@ Report any check that was not run or was limited by the environment. Follow the 
 
 ## Releases
 
-All-For-One releases use `afo-v*` tags and GitHub Releases. The inherited Pi package publication commands are not part of the downstream release process. See [RELEASING.md](RELEASING.md).
+All-For-One releases use `afo-v*` tags and GitHub Releases from `main`. The inherited Pi package publication commands are not part of the downstream release process. See [RELEASING.md](RELEASING.md).
