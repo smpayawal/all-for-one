@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.1.0-rc.2] - 2026-07-19
+
 ### Added
 
 - Added reusable native verification for public GitHub Release assets, manifests, checksums, tagged commits, and compatibility launchers.
