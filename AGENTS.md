@@ -86,7 +86,7 @@ If rebase conflicts occur:
 
 ## Issues and PRs
 
-See `CONTRIBUTING.md` for public contribution guidance and `RELEASING.md` for the downstream release process.
+Follow this file for repository workflow and [RELEASING.md](RELEASING.md) for the downstream release process.
 
 When reviewing pull requests:
 
