@@ -4,6 +4,7 @@ import { getMarkdownTheme, theme } from "../theme/theme.ts";
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
+const BACKGROUND_RESET = "\x1b[49m";
 const USER_MESSAGE_BORDER = "▎";
 const OUTER_INSET = 1;
 
@@ -60,7 +61,7 @@ export class UserMessageComponent extends Container {
 		const lines = super.render(contentWidth).map((line) => {
 			const framed = `${border}${line}`;
 			const rightPadding = Math.max(0, normalizedWidth - inset - visibleWidth(framed));
-			return `${" ".repeat(inset)}${framed}${" ".repeat(rightPadding)}`;
+			return `${" ".repeat(inset)}${framed}${" ".repeat(rightPadding)}${BACKGROUND_RESET}`;
 		});
 		if (lines.length === 0) return lines;
 
