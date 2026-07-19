@@ -1,6 +1,18 @@
 name: Verify Published All-For-One Release
 
 on:
+  pull_request:
+    branches: [allforone]
+    paths:
+      - '.github/workflows/allforone-verify-release.yml'
+      - 'scripts/allforone-release.mjs'
+      - 'scripts/allforone-release.test.mjs'
+      - 'scripts/allforone-version.mjs'
+      - 'scripts/prepare-allforone-release.mjs'
+      - 'scripts/prepare-allforone-release.test.mjs'
+      - 'scripts/smoke-allforone-archive.mjs'
+      - 'scripts/verify-allforone-release-assets.mjs'
+      - 'scripts/verify-allforone-release-assets.test.mjs'
   workflow_call:
     inputs:
       tag:
@@ -17,11 +29,36 @@ on:
 permissions: {}
 
 concurrency:
-  group: verify-allforone-release-${{ inputs.tag }}
+  group: verify-allforone-release-${{ inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
+  static:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Validate release verification utilities
+        run: |
+          node --test \
+            scripts/allforone-release.test.mjs \
+            scripts/prepare-allforone-release.test.mjs \
+            scripts/verify-allforone-release-assets.test.mjs
+
   validate:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -58,6 +95,7 @@ jobs:
           echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
 
   native-public-smoke:
+    if: github.event_name != 'pull_request'
     needs: validate
     strategy:
       fail-fast: false
