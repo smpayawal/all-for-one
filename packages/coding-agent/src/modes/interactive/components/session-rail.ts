@@ -66,7 +66,7 @@ function padRailLine(line: string, width: number, innerWidth: number): string {
 }
 
 function wrapRailText(value: string, width: number): string[] {
-	const contentWidth = Math.max(1, width - 2);
+	const contentWidth = Math.max(1, width);
 	const words = sanitize(value).split(/\s+/).filter(Boolean);
 	const lines: string[] = [];
 	let current = "";
@@ -96,7 +96,7 @@ function styleShortcutLine(line: string): string {
 		return theme.bold(theme.fg("accent", shortcut)) + theme.fg("dim", description);
 	});
 
-	return theme.fg("dim", " ") + styledSegments.join(theme.fg("dim", " · "));
+	return theme.fg("dim", "  ") + styledSegments.join(theme.fg("dim", " · "));
 }
 
 /** Extract an extension-provided completed/total status without trusting arbitrary status text. */
@@ -278,13 +278,15 @@ export class SessionRailComponent implements Component {
 
 		const visibleContent = lines.slice(0, contentLimit);
 		const padding = Array.from({ length: Math.max(0, contentLimit - visibleContent.length) }, () => "");
-		const help = shortcutLines.length > 0 ? ["", ...shortcutLines] : [];
-		const content = [...visibleContent, ...padding, ...help].slice(0, contentHeight);
-		const rendered = content.map((line) => padRailLine(line, normalizedWidth, innerWidth));
-		return [...Array.from({ length: topPadding }, () => " ".repeat(normalizedWidth)), ...rendered].slice(
-			0,
-			availableHeight,
-		);
+		const renderedBody = [...visibleContent, ...padding]
+			.slice(0, contentLimit)
+			.map((line) => padRailLine(line, normalizedWidth, innerWidth));
+		const renderedHelp = shortcutLines.length > 0 ? [" ".repeat(normalizedWidth), ...shortcutLines] : [];
+		return [
+			...Array.from({ length: topPadding }, () => " ".repeat(normalizedWidth)),
+			...renderedBody,
+			...renderedHelp,
+		].slice(0, availableHeight);
 	}
 
 	invalidate(): void {}
