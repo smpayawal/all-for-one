@@ -58,8 +58,11 @@ jobs:
       - name: Build packages
         run: npm run build
 
-      - name: Clean-worktree helper tests
-        run: node --test scripts/check-clean-worktree.test.mjs
+      - name: Repository helper tests
+        run: >-
+          node --test
+          scripts/check-clean-worktree.test.mjs
+          scripts/profile-startup-baseline.test.mjs
 
       - name: Session-efficiency report tests
         run: npm exec -- tsx --test scripts/session-efficiency-report.test.ts
