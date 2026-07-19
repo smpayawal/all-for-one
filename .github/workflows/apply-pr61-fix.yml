@@ -1,0 +1,180 @@
+name: Apply PR 61 fix
+
+on:
+  push:
+    branches: [fix/tui-alternate-screen-rail-help]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: fix/tui-alternate-screen-rail-help
+          fetch-depth: 0
+
+      - name: Apply focused source changes
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected source block not found: {path}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace(
+              "packages/tui/src/terminal.ts",
+              'const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\\x1b]9;4;0;\\x07";\nconst APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE = "\\x1b[13;2u";',
+              'const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\\x1b]9;4;0;\\x07";\nconst ALTERNATE_SCREEN_ENTER_SEQUENCE = "\\x1b[?1049h";\nconst ALTERNATE_SCREEN_EXIT_SEQUENCE = "\\x1b[?1049l";\nconst APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE = "\\x1b[13;2u";',
+          )
+          replace(
+              "packages/tui/src/terminal.ts",
+              '\t// Stop the terminal and restore state\n\tstop(): void;\n\n\t/**',
+              '\t// Stop the terminal and restore state\n\tstop(): void;\n\n\t// Optional full-screen application buffer lifecycle.\n\tenterAlternateScreen?(): void;\n\texitAlternateScreen?(): void;\n\n\t/**',
+          )
+          replace(
+              "packages/tui/src/terminal.ts",
+              '/**\n * Real terminal using process.stdin/stdout\n */\nexport class ProcessTerminal implements Terminal {\n\tprivate wasRaw = false;',
+              '/** Options for terminal behavior that should remain opt-in for compatibility. */\nexport interface ProcessTerminalOptions {\n\talternateScreen?: boolean;\n}\n\n/**\n * Real terminal using process.stdin/stdout\n */\nexport class ProcessTerminal implements Terminal {\n\tprivate readonly alternateScreenEnabled: boolean;\n\tprivate alternateScreenActive = false;\n\tprivate wasRaw = false;',
+          )
+          replace(
+              "packages/tui/src/terminal.ts",
+              '\t})();\n\n\tget kittyProtocolActive(): boolean {',
+              '\t})();\n\n\tconstructor(options: ProcessTerminalOptions = {}) {\n\t\tthis.alternateScreenEnabled = options.alternateScreen ?? false;\n\t}\n\n\tget kittyProtocolActive(): boolean {',
+          )
+          replace(
+              "packages/tui/src/terminal.ts",
+              '\tget modifyOtherKeysActive(): boolean {\n\t\treturn this._modifyOtherKeysActive;\n\t}\n\n\tstart(',
+              '\tget modifyOtherKeysActive(): boolean {\n\t\treturn this._modifyOtherKeysActive;\n\t}\n\n\tenterAlternateScreen(): void {\n\t\tif (!this.alternateScreenEnabled || this.alternateScreenActive) return;\n\t\tthis.write(ALTERNATE_SCREEN_ENTER_SEQUENCE);\n\t\tthis.alternateScreenActive = true;\n\t}\n\n\texitAlternateScreen(): void {\n\t\tif (!this.alternateScreenActive) return;\n\t\tthis.write(ALTERNATE_SCREEN_EXIT_SEQUENCE);\n\t\tthis.alternateScreenActive = false;\n\t}\n\n\tstart(',
+          )
+          replace(
+              "packages/tui/src/terminal.ts",
+              '\t\t// Pause stdin to prevent any buffered input (e.g., Ctrl+D) from\n',
+              '\t\tthis.exitAlternateScreen();\n\n\t\t// Pause stdin to prevent any buffered input (e.g., Ctrl+D) from\n',
+          )
+          replace(
+              "packages/tui/src/index.ts",
+              'export { ProcessTerminal, type Terminal } from "./terminal.ts";',
+              'export { ProcessTerminal, type ProcessTerminalOptions, type Terminal } from "./terminal.ts";',
+          )
+          replace(
+              "packages/tui/src/tui.ts",
+              '\t\tthis.terminal.start(\n\t\t\t(data) => this.handleInput(data),\n\t\t\t() => this.requestRender(),\n\t\t);\n\t\tthis.terminal.hideCursor();',
+              '\t\tthis.terminal.start(\n\t\t\t(data) => this.handleInput(data),\n\t\t\t() => this.requestRender(),\n\t\t);\n\t\tthis.terminal.enterAlternateScreen?.();\n\t\tthis.terminal.hideCursor();',
+          )
+          replace(
+              "packages/tui/src/tui.ts",
+              '\t\tthis.terminal.showCursor();\n\t\tthis.terminal.stop();\n\t}',
+              '\t\tthis.terminal.showCursor();\n\t\tthis.terminal.stop();\n\t\tthis.terminal.exitAlternateScreen?.();\n\t}',
+          )
+          replace(
+              "packages/coding-agent/src/modes/interactive/interactive-mode.ts",
+              '\t\tthis.ui = new TUI(new ProcessTerminal(), this.settingsManager.getShowHardwareCursor());',
+              '\t\tthis.ui = new TUI(\n\t\t\tnew ProcessTerminal({ alternateScreen: true }),\n\t\t\tthis.settingsManager.getShowHardwareCursor(),\n\t\t);',
+          )
+          replace(
+              "packages/coding-agent/src/modes/interactive/components/session-rail.ts",
+              '\t/** Retained for compatibility; persistent shortcut help is intentionally not rendered. */\n\tshortcutSummary?: string;',
+              '\t/** Compact command help anchored at the bottom of the rail when space permits. */\n\tshortcutSummary?: string;',
+          )
+          replace(
+              "packages/coding-agent/src/modes/interactive/components/session-rail.ts",
+              'function formatProductTitle(title: string, width: number): string {\n\treturn theme.bold(theme.fg("accent", railLine(title, width)));\n}',
+              'function formatProductTitle(title: string, width: number): string {\n\tconst label = railLine(title, width);\n\tconst remaining = Math.max(0, width - visibleWidth(label));\n\tconst divider = remaining > 1 ? ` ${"─".repeat(remaining - 1)}` : " ".repeat(remaining);\n\treturn theme.bold(theme.fg("accent", `${label}${divider}`));\n}',
+          )
+          replace(
+              "packages/coding-agent/src/modes/interactive/components/session-rail.ts",
+              'function appendWholeSection(target: string[], section: readonly string[], limit: number): boolean {',
+              'function createShortcutSection(summary: string | undefined, width: number): string[] {\n\tif (!summary) return [];\n\tconst shortcuts = summary\n\t\t.split(/\\s*·\\s*/u)\n\t\t.map(sanitize)\n\t\t.filter(Boolean);\n\treturn shortcuts.length > 0 ? createSection("SHORTCUTS", shortcuts, width) : [];\n}\n\nfunction appendWholeSection(target: string[], section: readonly string[], limit: number): boolean {',
+          )
+          replace(
+              "packages/coding-agent/src/modes/interactive/components/session-rail.ts",
+              '''\tprivate renderUncached(normalizedWidth: number, availableHeight: number): string[] {
+\t\tif (availableHeight === 0) return [];
+
+\t\tconst innerWidth = Math.max(1, normalizedWidth - HORIZONTAL_PADDING * 2);
+\t\tconst topPadding = availableHeight >= TOP_PADDING_MIN_HEIGHT ? 1 : 0;
+\t\tconst contentLimit = Math.max(0, availableHeight - topPadding);
+\t\tconst lines: string[] = [];
+\t\tconst title = sanitize(this.data.title);
+
+\t\tif (title) lines.push(formatProductTitle(title, innerWidth));
+\t\tappendWholeSection(lines, createNowSection(this.data, innerWidth), contentLimit);
+\t\tif (this.data.agents.length > 0) {
+\t\t\tappendWholeSection(
+\t\t\t\tlines,
+\t\t\t\tcreateSection("ACTIVE INSTRUCTIONS", formatResourceList(this.data.agents), innerWidth),
+\t\t\t\tcontentLimit,
+\t\t\t);
+\t\t}
+
+\t\tconst visibleContent = lines.slice(0, contentLimit);
+\t\tconst padding = Array.from({ length: Math.max(0, contentLimit - visibleContent.length) }, () => "");
+\t\tconst renderedBody = [...visibleContent, ...padding]
+\t\t\t.slice(0, contentLimit)
+\t\t\t.map((line) => padRailLine(line, normalizedWidth, innerWidth));
+\t\tconst rendered = [
+\t\t\t...Array.from({ length: topPadding }, () => " ".repeat(normalizedWidth)),
+\t\t\t...renderedBody,
+\t\t].slice(0, availableHeight);
+\t\treturn rendered.map((line) => fillBackgroundLine(line, normalizedWidth, "customMessageBg"));
+\t}
+''',
+              '''\tprivate renderUncached(normalizedWidth: number, availableHeight: number): string[] {
+\t\tif (availableHeight === 0) return [];
+
+\t\tconst innerWidth = Math.max(1, normalizedWidth - HORIZONTAL_PADDING * 2);
+\t\tconst topPadding = availableHeight >= TOP_PADDING_MIN_HEIGHT ? 1 : 0;
+\t\tconst contentLimit = Math.max(0, availableHeight - topPadding);
+\t\tconst shortcutSection = createShortcutSection(this.data.shortcutSummary, innerWidth);
+\t\tconst showShortcuts = shortcutSection.length > 0 && shortcutSection.length < contentLimit;
+\t\tconst topContentLimit = showShortcuts ? contentLimit - shortcutSection.length : contentLimit;
+\t\tconst lines: string[] = [];
+\t\tconst title = sanitize(this.data.title);
+
+\t\tif (title && topContentLimit > 0) lines.push(formatProductTitle(title, innerWidth));
+\t\tappendWholeSection(lines, createNowSection(this.data, innerWidth), topContentLimit);
+\t\tif (this.data.agents.length > 0) {
+\t\t\tappendWholeSection(
+\t\t\t\tlines,
+\t\t\t\tcreateSection("ACTIVE INSTRUCTIONS", formatResourceList(this.data.agents), innerWidth),
+\t\t\t\ttopContentLimit,
+\t\t\t);
+\t\t}
+
+\t\tconst visibleTop = lines.slice(0, topContentLimit);
+\t\tconst bottom = showShortcuts ? shortcutSection : [];
+\t\tconst padding = Array.from(
+\t\t\t{ length: Math.max(0, contentLimit - visibleTop.length - bottom.length) },
+\t\t\t() => "",
+\t\t);
+\t\tconst renderedBody = [...visibleTop, ...padding, ...bottom]
+\t\t\t.slice(0, contentLimit)
+\t\t\t.map((line) => padRailLine(line, normalizedWidth, innerWidth));
+\t\tconst rendered = [
+\t\t\t...Array.from({ length: topPadding }, () => " ".repeat(normalizedWidth)),
+\t\t\t...renderedBody,
+\t\t].slice(0, availableHeight);
+\t\treturn rendered.map((line) => fillBackgroundLine(line, normalizedWidth, "customMessageBg"));
+\t}
+''',
+          )
+          PY
+
+      - name: Commit focused fix and remove helper workflow
+        shell: bash
+        run: |
+          rm .github/workflows/apply-pr61-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add packages/tui/src/terminal.ts packages/tui/src/index.ts packages/tui/src/tui.ts packages/coding-agent/src/modes/interactive/interactive-mode.ts packages/coding-agent/src/modes/interactive/components/session-rail.ts .github/workflows/apply-pr61-fix.yml
+          git commit -m "fix: isolate interactive TUI and restore rail help"
+          git push origin HEAD:fix/tui-alternate-screen-rail-help
