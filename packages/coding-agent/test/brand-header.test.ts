@@ -3,7 +3,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { BrandHeaderComponent } from "../src/modes/interactive/components/brand-header.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
-
 describe("interactive product branding", () => {
 	beforeAll(() => {
 		initTheme("dark");
