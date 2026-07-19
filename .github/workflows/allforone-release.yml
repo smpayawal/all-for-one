@@ -5,6 +5,7 @@ on:
     branches: [allforone]
     paths:
       - '.github/workflows/allforone-release.yml'
+      - '.github/workflows/allforone-verify-release.yml'
       - 'CHANGELOG-AFO.md'
       - 'package.json'
       - 'packages/coding-agent/package.json'
@@ -13,12 +14,15 @@ on:
       - 'packages/coding-agent/src/allforone/**'
       - 'scripts/allforone-release.mjs'
       - 'scripts/allforone-release.test.mjs'
+      - 'scripts/allforone-version.mjs'
       - 'scripts/build-allforone-binaries.sh'
       - 'scripts/local-release.mjs'
       - 'scripts/prepare-allforone-release.mjs'
       - 'scripts/prepare-allforone-release.test.mjs'
       - 'scripts/smoke-allforone-archive.mjs'
       - 'scripts/smoke-allforone-archive.test.mjs'
+      - 'scripts/verify-allforone-release-assets.mjs'
+      - 'scripts/verify-allforone-release-assets.test.mjs'
   push:
     tags:
       - 'afo-v*'
@@ -32,8 +36,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: allforone-release-${{ inputs.tag || github.ref }}
-  cancel-in-progress: false
+  group: allforone-release-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || inputs.tag || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   validate:
@@ -87,11 +91,12 @@ jobs:
             node scripts/prepare-allforone-release.mjs "${version}" --check --json
           fi
 
-          if [[ "${version}" == *-* ]]; then
-            is_prerelease=true
-          else
-            is_prerelease=false
-          fi
+          is_prerelease="$(
+            VERSION="${version}" node --input-type=module <<'NODE'
+          import { isPrereleaseVersion } from './scripts/allforone-version.mjs';
+          process.stdout.write(String(isPrereleaseVersion(process.env.VERSION)));
+          NODE
+          )"
 
           echo "release_tag=${release_tag}" >> "${GITHUB_OUTPUT}"
           echo "source_sha=${source_sha}" >> "${GITHUB_OUTPUT}"
@@ -106,7 +111,8 @@ jobs:
           node --test \
             scripts/allforone-release.test.mjs \
             scripts/prepare-allforone-release.test.mjs \
-            scripts/smoke-allforone-archive.test.mjs
+            scripts/smoke-allforone-archive.test.mjs \
+            scripts/verify-allforone-release-assets.test.mjs
           bash -n scripts/build-allforone-binaries.sh
           npm run build
           node packages/coding-agent/dist/allforone-cli.js --version
@@ -443,3 +449,12 @@ jobs:
             test "${is_latest}" = "false"
           fi
           trap - ERR
+
+  verify-published-release:
+    if: github.event_name != 'pull_request'
+    needs: [validate, publish]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/allforone-verify-release.yml
+    with:
+      tag: ${{ needs.validate.outputs.release_tag }}

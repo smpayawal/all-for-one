@@ -1,0 +1,180 @@
+name: Verify Published All-For-One Release
+
+on:
+  pull_request:
+    branches: [allforone]
+    paths:
+      - '.github/workflows/allforone-verify-release.yml'
+      - 'scripts/allforone-release.mjs'
+      - 'scripts/allforone-release.test.mjs'
+      - 'scripts/allforone-version.mjs'
+      - 'scripts/prepare-allforone-release.mjs'
+      - 'scripts/prepare-allforone-release.test.mjs'
+      - 'scripts/smoke-allforone-archive.mjs'
+      - 'scripts/verify-allforone-release-assets.mjs'
+      - 'scripts/verify-allforone-release-assets.test.mjs'
+  workflow_call:
+    inputs:
+      tag:
+        description: Existing All-For-One release tag to verify
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing All-For-One release tag to verify
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: verify-allforone-release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  static:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Validate release verification utilities
+        run: |
+          node --test \
+            scripts/allforone-release.test.mjs \
+            scripts/prepare-allforone-release.test.mjs \
+            scripts/verify-allforone-release-assets.test.mjs
+
+  validate:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_commit: ${{ steps.release.outputs.release_commit }}
+      tooling_sha: ${{ steps.release.outputs.tooling_sha }}
+    steps:
+      - name: Checkout trusted verification tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: allforone
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Validate public release metadata
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tooling_sha="$(git rev-parse HEAD)"
+          git fetch --tags origin
+          release_commit="$(git rev-list -n 1 "${RELEASE_TAG}" --)"
+          test -n "${release_commit}"
+          gh release view "${RELEASE_TAG}" --json tagName,isDraft,isPrerelease > release.json
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { parseAllForOneReleaseTag } from './scripts/allforone-release.mjs';
+          import { isPrereleaseVersion } from './scripts/allforone-version.mjs';
+          const version = parseAllForOneReleaseTag(process.env.RELEASE_TAG);
+          const release = JSON.parse(readFileSync('release.json', 'utf8'));
+          if (release.tagName !== process.env.RELEASE_TAG) throw new Error(`Unexpected release tag: ${release.tagName}`);
+          if (release.isDraft) throw new Error(`Release ${release.tagName} is still a draft.`);
+          if (release.isPrerelease !== isPrereleaseVersion(version)) {
+            throw new Error(`Release ${release.tagName} has an incorrect prerelease flag.`);
+          }
+          NODE
+          echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "release_commit=${release_commit}" >> "${GITHUB_OUTPUT}"
+          echo "tooling_sha=${tooling_sha}" >> "${GITHUB_OUTPUT}"
+
+  native-public-smoke:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            archive: all-for-one-linux-x64.tar.gz
+          - name: macos-arm64
+            os: macos-latest
+            archive: all-for-one-darwin-arm64.tar.gz
+          - name: windows-x64
+            os: windows-latest
+            archive: all-for-one-windows-x64.zip
+    name: Public release smoke (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ needs.validate.outputs.release_tag }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.release_commit }}
+      TOOLING_SHA: ${{ needs.validate.outputs.tooling_sha }}
+      ARCHIVE: ${{ matrix.archive }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout pinned verification tooling
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.TOOLING_SHA }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Download public release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          gh release download "${RELEASE_TAG}" --dir release-assets --clobber
+
+      - name: Verify public release checksums and manifest
+        run: >-
+          node scripts/verify-allforone-release-assets.mjs
+          --dir release-assets
+          --tag "${{ env.RELEASE_TAG }}"
+          --commit "${{ env.RELEASE_COMMIT }}"
+          --json
+
+      - name: Extract and smoke Unix archive
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p extracted
+          tar -xzf "release-assets/${ARCHIVE}" -C extracted
+          node scripts/smoke-allforone-archive.mjs --dir extracted/allforone
+
+      - name: Extract Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Expand-Archive -LiteralPath "release-assets/$env:ARCHIVE" -DestinationPath extracted
+
+      - name: Smoke Windows archive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: node scripts/smoke-allforone-archive.mjs --dir extracted
