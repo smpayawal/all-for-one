@@ -1,0 +1,47 @@
+name: Diagnose PR 61
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.ref == 'fix/tui-alternate-screen-rail-help'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - name: Capture Biome diagnostics
+        shell: bash
+        run: |
+          mkdir -p .artifacts
+          npm exec -- biome check --error-on-warnings --reporter=json \
+            packages/tui/src/application-terminal.ts \
+            packages/tui/src/index.ts \
+            packages/tui/test/process-terminal-screen-mode.test.ts \
+            packages/coding-agent/src/allforone-cli.ts \
+            packages/coding-agent/src/modes/interactive/components/session-rail.ts \
+            packages/coding-agent/test/session-rail-style.test.ts \
+            > .artifacts/biome-pr61.json || true
+
+      - name: Commit diagnostics and remove helper
+        run: |
+          rm .github/workflows/diagnose-pr61.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .artifacts/biome-pr61.json .github/workflows/diagnose-pr61.yml
+          git commit -m "chore: capture PR 61 Biome diagnostics"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
