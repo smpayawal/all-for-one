@@ -90,6 +90,7 @@ jobs:
           test/validate-executable-identity.test.ts
           test/exec.test.ts
           test/allforone-baseline.test.ts
+          test/product-identity.test.ts
           test/args.test.ts
           test/settings-manager.test.ts
           test/system-prompt.test.ts

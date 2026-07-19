@@ -12,6 +12,11 @@
 - Unified release preparation, tag validation, and prerelease classification behind a strict semantic-version parser.
 - Made successful publication automatically verify the public release payload with pinned verification tooling.
 - Documented downstream ownership boundaries without moving runtime behavior out of its correct Pi layers.
+- Clarified All-For-One as an independently maintained terminal coding harness based on Pi.
+
+### Fixed
+
+- Prevented `allforone` and `afo` self-update commands from consulting or installing through Pi's release channel; product self-update now fails closed with All-For-One release guidance.
 
 ## [0.1.0-rc.1] - 2026-07-19
 

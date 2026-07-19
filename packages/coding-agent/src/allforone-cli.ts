@@ -3,6 +3,7 @@
 import {
 	applyProductEnvAliases,
 	formatProductVersion,
+	getProductUpdateInterception,
 	PRODUCT,
 	rewriteProductCommandInHelp,
 } from "./allforone/index.ts";
@@ -21,6 +22,13 @@ const args = process.argv.slice(2);
 if (args.includes("--version") || args.includes("-v")) {
 	console.log(formatProductVersion());
 	process.exit(0);
+}
+
+const productUpdateInterception = getProductUpdateInterception(args);
+if (productUpdateInterception) {
+	const write = productUpdateInterception.exitCode === 0 ? console.log : console.error;
+	write(productUpdateInterception.output);
+	process.exit(productUpdateInterception.exitCode);
 }
 
 if (args.includes("--help") || args.includes("-h")) {

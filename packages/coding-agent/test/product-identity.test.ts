@@ -1,7 +1,21 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { formatProductVersion, PRODUCT, rewriteProductCommandInHelp } from "../src/allforone/index.ts";
+
+function runProductCli(...args: string[]) {
+	const cliPath = resolve(__dirname, "../dist/allforone-cli.js");
+	expect(existsSync(cliPath)).toBe(true);
+	return spawnSync(process.execPath, [cliPath, ...args], {
+		cwd: resolve(__dirname, "../../.."),
+		encoding: "utf8",
+		env: {
+			...process.env,
+			AFO_OFFLINE: "1",
+		},
+	});
+}
 
 describe("All-For-One product identity", () => {
 	test("uses an independent product version with an explicit Pi baseline", () => {
@@ -53,5 +67,25 @@ describe("All-For-One product identity", () => {
 		expect(rewritten).toContain("  allforone [options]");
 		expect(rewritten).toContain("  allforone update [source|self|pi]");
 		expect(rewritten).toContain("PI_OFFLINE");
+	});
+
+	test("fails closed instead of using Pi's self-update channel", () => {
+		const result = runProductCli("update", "--self");
+		const output = `${result.stdout}\n${result.stderr}`;
+
+		expect(result.status).toBe(1);
+		expect(result.stderr).toContain("All-For-One cannot self-update this installation yet.");
+		expect(result.stderr).toContain(`${PRODUCT.repository}/releases/latest`);
+		expect(output).not.toContain("Could not determine latest pi version");
+		expect(output).not.toContain("earendil-works/pi-mono/releases");
+	});
+
+	test("shows All-For-One-specific update help", () => {
+		const result = runProductCli("update", "--help");
+
+		expect(result.status).toBe(0);
+		expect(result.stdout).toContain("Update All-For-One, installed packages, or model catalogs.");
+		expect(result.stdout).toContain("Update All-For-One only");
+		expect(result.stdout).not.toContain("Update pi");
 	});
 });
