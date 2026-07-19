@@ -42,8 +42,7 @@ jobs:
           if 'export function normalizeThemeSetting(' not in text:
               if marker not in text:
                   raise SystemExit('resolveThemeSetting marker not found')
-              text = text.replace(marker, helper + marker, 1)
-              path.write_text(text)
+              path.write_text(text.replace(marker, helper + marker, 1))
           PY
 
       - name: Add compatibility regression assertion
@@ -118,27 +117,18 @@ jobs:
           npm run shrinkwrap:coding-agent
           npm run install-lock:coding-agent
 
-      - name: Capture static checks
-        id: check
+      - name: Run targeted static validation
         shell: bash
         run: |
-          set +e
-          npm run check > theme-check.log 2>&1
-          status=$?
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
-
-      - name: Upload static-check log
-        uses: actions/upload-artifact@v4
-        with:
-          name: theme-check-log
-          path: theme-check.log
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Fail when static checks failed
-        if: steps.check.outputs.status != '0'
-        run: exit 1
+          set -euo pipefail
+          npx biome check \
+            packages/coding-agent/src/modes/interactive/theme/theme.ts \
+            packages/coding-agent/test/bundled-themes.test.ts \
+            packages/coding-agent/package.json \
+            packages/coding-agent/docs/themes.md
+          npm run check:shrinkwrap
+          npm run check:install-lock:coding-agent
+          npx tsgo --noEmit
 
       - name: Restore generated model catalogs
         shell: bash
