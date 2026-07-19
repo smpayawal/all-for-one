@@ -65,10 +65,10 @@ jobs:
     outputs:
       release_tag: ${{ steps.release.outputs.release_tag }}
     steps:
-      - name: Checkout verified release tag
+      - name: Checkout trusted verification tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ inputs.tag }}
+          ref: allforone
           fetch-depth: 0
           persist-credentials: false
 
@@ -84,7 +84,12 @@ jobs:
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          node scripts/allforone-release.mjs validate --tag "${RELEASE_TAG}" --json
+          node --input-type=module <<'NODE'
+          import { parseAllForOneReleaseTag } from './scripts/allforone-release.mjs';
+          process.stdout.write(`${parseAllForOneReleaseTag(process.env.RELEASE_TAG)}\n`);
+          NODE
+          git fetch --tags origin
+          test -n "$(git rev-list -n 1 "${RELEASE_TAG}" --)"
           gh release view "${RELEASE_TAG}" --json tagName,isDraft,isPrerelease > release.json
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
@@ -119,10 +124,10 @@ jobs:
       ARCHIVE: ${{ matrix.archive }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Checkout verified release tag
+      - name: Checkout trusted verification tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: allforone
           persist-credentials: false
 
       - name: Setup Node.js
