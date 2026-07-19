@@ -64,8 +64,18 @@ jobs:
       - name: Build TUI package
         run: npm --prefix packages/tui run build
 
-      - name: Build AI package
-        run: npm --prefix packages/ai run build
+      - name: Generate AI model catalog
+        run: cd packages/ai && node scripts/generate-models.ts
+
+      - name: Ensure Kimi coding compatibility
+        run: cd packages/ai && node scripts/ensure-kimi-coding-compat.ts
+
+      - name: Compile AI package
+        run: |
+          cd packages/ai
+          npm exec -- tsgo -p tsconfig.build.json
+          npm exec -- shx rm -rf dist/providers/data
+          npm exec -- shx cp -r src/providers/data dist/providers/data
 
       - name: Build agent package
         run: npm --prefix packages/agent run build
