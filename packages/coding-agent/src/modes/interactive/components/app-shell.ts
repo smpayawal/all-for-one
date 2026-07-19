@@ -6,8 +6,8 @@ import {
 	SESSION_RAIL_MAX_WIDTH,
 	SESSION_RAIL_MIN_WIDTH,
 } from "../responsive-layout.ts";
-import { fillBackgroundLine, fillBackgroundLines } from "./background-fill.ts";
 import { theme } from "../theme/theme.ts";
+import { fillBackgroundLine, fillBackgroundLines } from "./background-fill.ts";
 
 export interface InteractiveApplicationShellOptions {
 	tui: TUI;
@@ -100,8 +100,8 @@ export class InteractiveApplicationShell implements Component {
 		const mainLines = this.renderTranscriptLines(transcriptLines, targetTranscriptHeight, this.layout);
 		return [
 			...mainLines,
-			...fillBackgroundLines(editorLines, width, "toolPendingBg"),
-			...fillBackgroundLines(accessoryLines, width, "toolPendingBg"),
+			...fillBackgroundLines(editorLines, width, "customMessageBg"),
+			...fillBackgroundLines(accessoryLines, width, "customMessageBg"),
 			...fillBackgroundLines(footerLines, width, "customMessageBg"),
 		];
 	}
@@ -124,7 +124,7 @@ export class InteractiveApplicationShell implements Component {
 	private renderTranscriptLines(lines: string[], targetHeight: number, layout: ResponsiveLayout): string[] {
 		if (!layout.rail.visible) {
 			const padded = [...lines, ...Array.from({ length: Math.max(0, targetHeight - lines.length) }, () => "")];
-			return fillBackgroundLines(padded, layout.transcript.width, "toolPendingBg");
+			return fillBackgroundLines(padded, layout.transcript.width, "customMessageBg");
 		}
 
 		const decoratedLines = lines.map((line) => this.addRailDivider(line, layout.transcript.width));
@@ -135,6 +135,6 @@ export class InteractiveApplicationShell implements Component {
 	private addRailDivider(line: string, transcriptWidth: number): string {
 		const truncated = truncateToWidth(line, transcriptWidth, "");
 		const padding = " ".repeat(Math.max(0, transcriptWidth - visibleWidth(truncated)));
-		return fillBackgroundLine(`${truncated}${padding}${theme.fg("border", "│")}`, transcriptWidth + 1, "toolPendingBg");
+		return fillBackgroundLine(`${truncated}${padding}${theme.fg("border", "│")}`, transcriptWidth + 1, "customMessageBg");
 	}
 }
