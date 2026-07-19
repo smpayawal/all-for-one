@@ -88,14 +88,17 @@ describe("assistant message foundation", () => {
 
 	test("refreshes captured Markdown colors after a theme change", () => {
 		initTheme("dark");
-		const component = new AssistantMessageComponent(createMessage([{ type: "text", text: "# Theme-aware result" }]));
+		const component = new AssistantMessageComponent(
+			createMessage([{ type: "text", text: "# Theme-aware result" }]),
+		);
 
 		initTheme("light");
 		component.invalidate();
 		const lines = component.render(64);
-		expect(lines.some((line) => line.includes(theme.getFgAnsi("mdHeading")) && stripAnsi(line).includes("Theme-aware"))).toBe(
-			true,
+		const themedHeading = lines.some(
+			(line) => line.includes(theme.getFgAnsi("mdHeading")) && stripAnsi(line).includes("Theme-aware"),
 		);
+		expect(themedHeading).toBe(true);
 		expect(lines.some((line) => line.includes(theme.getBgAnsi("selectedBg")))).toBe(true);
 	});
 
