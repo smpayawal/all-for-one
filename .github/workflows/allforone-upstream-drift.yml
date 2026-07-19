@@ -1,43 +1,50 @@
-name: All-For-One upstream drift
+name: All-For-One Pi reference status
 
 on:
   push:
-    branches: [main]
+    branches: [pi]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: allforone-upstream-drift
+  group: allforone-pi-reference-status
   cancel-in-progress: true
 
 jobs:
-  check:
+  report:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout allforone
+      - name: Checkout product branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: allforone
+          ref: main
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Verify main is an ancestor of allforone
-        env:
-          PUSHED_MAIN_SHA: ${{ github.sha }}
+      - name: Report Pi reference relationship
         run: |
           set -euo pipefail
-          allforone_sha="$(git rev-parse HEAD)"
-          if git merge-base --is-ancestor "$PUSHED_MAIN_SHA" HEAD; then
-            echo "main ${PUSHED_MAIN_SHA} is an ancestor of allforone ${allforone_sha}."
-            counts="$(git rev-list --left-right --count "${PUSHED_MAIN_SHA}...HEAD")"
-            read -r main_only allforone_only <<< "$counts"
-            echo "main-only commits: ${main_only}"
-            echo "allforone-only commits: ${allforone_only}"
+          git fetch --no-tags origin pi:refs/remotes/origin/pi main:refs/remotes/origin/main
+
+          pi_sha="$(git rev-parse origin/pi)"
+          main_sha="$(git rev-parse origin/main)"
+          counts="$(git rev-list --left-right --count "${pi_sha}...${main_sha}")"
+          read -r pi_only main_only <<< "${counts}"
+
+          {
+            echo '## Pi reference status'
+            echo
+            printf -- '- `pi`: `%s`\n' "${pi_sha}"
+            printf -- '- `main`: `%s`\n' "${main_sha}"
+            printf -- '- Pi-only commits: `%s`\n' "${pi_only}"
+            printf -- '- All-For-One-only commits: `%s`\n' "${main_only}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          if git merge-base --is-ancestor origin/pi origin/main; then
+            echo 'The current Pi reference is already contained in main.' >> "${GITHUB_STEP_SUMMARY}"
           else
-            echo "::error::allforone is behind or diverged from the pushed main commit."
-            echo "pushed main: ${PUSHED_MAIN_SHA}"
-            echo "allforone: ${allforone_sha}"
-            git rev-list --left-right --count "${PUSHED_MAIN_SHA}...HEAD"
-            exit 1
+            echo 'The branches have intentionally diverged or contain unreviewed Pi changes. Review selectively; this is not a failure.' >> "${GITHUB_STEP_SUMMARY}"
           fi
