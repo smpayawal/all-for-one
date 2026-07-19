@@ -10,6 +10,7 @@ export {
 } from "../responsive-layout.ts";
 
 const HORIZONTAL_PADDING = 1;
+const SECTION_BODY_INDENT = 2;
 const TOP_PADDING_MIN_HEIGHT = 12;
 
 export type SessionRailLifecycle =
@@ -57,6 +58,12 @@ function sanitize(value: string): string {
 
 function railLine(value: string, width: number): string {
 	return truncateToWidth(sanitize(value), Math.max(1, width), theme.fg("dim", "..."));
+}
+
+function indentSectionBody(line: string, width: number): string {
+	const indent = " ".repeat(Math.min(SECTION_BODY_INDENT, Math.max(0, width - 1)));
+	const contentWidth = Math.max(0, width - visibleWidth(indent));
+	return `${indent}${truncateToWidth(line, contentWidth, "")}`;
 }
 
 function padRailLine(line: string, width: number, innerWidth: number): string {
@@ -134,31 +141,39 @@ function formatBrandLine(title: string, width: number): string {
 	return truncated + " ".repeat(Math.max(0, width - visibleWidth(truncated)));
 }
 
-function formatLifecycle(lifecycle: SessionRailLifecycle): string {
+function formatLifecycle(lifecycle: SessionRailLifecycle, width: number): string {
+	let value: string;
 	switch (lifecycle.kind) {
 		case "idle":
-			return theme.fg("muted", " Idle");
+			value = theme.fg("muted", "Idle");
+			break;
 		case "agent":
-			return theme.fg("borderAccent", " Working");
+			value = theme.fg("borderAccent", "Working");
+			break;
 		case "retry":
-			return theme.fg("warning", ` Retrying ${lifecycle.attempt}/${lifecycle.maxAttempts}`);
+			value = theme.fg("warning", `Retrying ${lifecycle.attempt}/${lifecycle.maxAttempts}`);
+			break;
 		case "compaction":
-			return theme.fg("warning", " Compacting");
+			value = theme.fg("warning", "Compacting");
+			break;
 	}
+	return indentSectionBody(value, width);
 }
 
 function formatToolEvent(event: SessionRailToolEvent, width: number): string {
 	const marker = event.status === "success" ? theme.fg("success", "✓") : theme.fg("error", "×");
-	return ` ${marker} ${theme.fg("muted", railLine(event.toolName, Math.max(1, width - 3)))}`;
+	const content = `${marker} ${theme.fg("muted", railLine(event.toolName, Math.max(1, width - 4)))}`;
+	return indentSectionBody(content, width);
 }
 
 function formatProgress(progress: SessionRailProgress, width: number): string {
+	const bodyWidth = Math.max(1, width - SECTION_BODY_INDENT);
 	const ratio = `${progress.completed}/${progress.total}`;
-	const label = railLine(`${progress.label} ${ratio}`, Math.max(1, width - 13));
-	const barWidth = Math.max(4, Math.min(10, width - visibleWidth(label) - 4));
+	const label = railLine(`${progress.label} ${ratio}`, Math.max(1, bodyWidth - 13));
+	const barWidth = Math.max(4, Math.min(10, bodyWidth - visibleWidth(label) - 2));
 	const filled = Math.round((progress.completed / progress.total) * barWidth);
 	const bar = theme.fg("success", "━".repeat(filled)) + theme.fg("borderMuted", "─".repeat(barWidth - filled));
-	return ` ${theme.fg("muted", label)} ${bar}`;
+	return indentSectionBody(`${theme.fg("muted", label)} ${bar}`, width);
 }
 
 function formatResourceName(resourcePath: string): string {
@@ -173,7 +188,10 @@ function formatResourceList(resources: readonly string[]): string[] {
 }
 
 function createSection(label: string, values: readonly string[], width: number, valueColor: ThemeColor = "muted"): string[] {
-	return [sectionTitle(label), ...values.map((value) => theme.fg(valueColor, railLine(` ${value}`, width)))];
+	return [
+		sectionTitle(label),
+		...values.map((value) => indentSectionBody(theme.fg(valueColor, railLine(value, width)), width)),
+	];
 }
 
 function createCurrentTurnSection(data: SessionRailData, width: number): string[] {
@@ -234,22 +252,26 @@ export class SessionRailComponent implements Component {
 		const title = sanitize(this.data.title);
 		lines.push(formatBrandLine(title, innerWidth));
 
-		const activity: string[] = [sectionTitle("ACTIVITY"), formatLifecycle(this.data.lifecycle)];
+		const activity: string[] = [sectionTitle("ACTIVITY"), formatLifecycle(this.data.lifecycle, innerWidth)];
 		const outcomes = [
 			...(this.data.completedTools > 0 ? [`${this.data.completedTools} succeeded`] : []),
 			...(this.data.failedTools > 0 ? [`${this.data.failedTools} failed`] : []),
 		];
-		if (outcomes.length > 0) activity.push(theme.fg("muted", ` ${outcomes.join(" · ")}`));
+		if (outcomes.length > 0) {
+			activity.push(indentSectionBody(theme.fg("muted", outcomes.join(" · ")), innerWidth));
+		}
 		if (this.data.progress) activity.push(formatProgress(this.data.progress, innerWidth));
 		for (const toolName of this.data.activeTools.slice(0, 3)) {
-			activity.push(theme.fg("borderAccent", railLine(` ● ${toolName}`, innerWidth)));
+			activity.push(indentSectionBody(theme.fg("borderAccent", railLine(`● ${toolName}`, innerWidth)), innerWidth));
 		}
 		if (this.data.activeTools.length > 3) {
-			activity.push(theme.fg("muted", ` +${this.data.activeTools.length - 3} more active`));
+			activity.push(
+				indentSectionBody(theme.fg("muted", `+${this.data.activeTools.length - 3} more active`), innerWidth),
+			);
 		}
 		for (const event of this.data.recentTools.slice(-3)) activity.push(formatToolEvent(event, innerWidth));
 		if (this.data.recentTools.length > 3) {
-			activity.push(theme.fg("muted", ` +${this.data.recentTools.length - 3} more`));
+			activity.push(indentSectionBody(theme.fg("muted", `+${this.data.recentTools.length - 3} more`), innerWidth));
 		}
 
 		if (contentLimit > lines.length) {
