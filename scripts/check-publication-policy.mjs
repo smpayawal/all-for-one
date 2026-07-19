@@ -85,20 +85,24 @@ for (const required of [
 	"## All-For-One release and synchronization",
 	"All-For-One releases use `afo-v*` tags and GitHub Releases only.",
 	"Pull requests from `sync/pi-*` must be merged with a merge commit.",
-	"## All-For-One ownership boundaries",
 	"## Upstream Pi release reference",
 ]) {
 	if (!agents.includes(required)) {
-		throw new Error(`AGENTS.md is missing downstream release or ownership guidance: ${required}`);
+		throw new Error(`AGENTS.md is missing downstream release guidance: ${required}`);
 	}
 }
 
 const contributing = readFileSync(join(root, "CONTRIBUTING.md"), "utf8");
-if (!contributing.includes("Do not squash or rebase them because `main` must remain an ancestor of `allforone`.")) {
-	throw new Error("CONTRIBUTING.md must document merge-commit-only handling for sync/pi-* pull requests.");
-}
-if (!contributing.includes("merge-sync")) {
-	throw new Error("CONTRIBUTING.md must direct sync/pi-* pull requests through the controlled merge-sync action.");
+for (const required of [
+	"Do not squash or rebase them because `main` must remain an ancestor of `allforone`.",
+	"merge-sync",
+	"## Downstream ownership",
+	"The All-For-One product namespace is not a general destination for downstream code.",
+	"Do not move a feature solely to make it look more All-For-One-specific.",
+]) {
+	if (!contributing.includes(required)) {
+		throw new Error(`CONTRIBUTING.md is missing synchronization or ownership guidance: ${required}`);
+	}
 }
 
 const releasing = readFileSync(join(root, "RELEASING.md"), "utf8");
