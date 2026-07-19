@@ -651,7 +651,7 @@ export class TUI extends Container {
 			this.terminal.write("\x1b[?2031h");
 		}
 		this.queryCellSize();
-		this.requestRender();
+		this.requestRender(this.terminal.consumeScreenReset?.() ?? false);
 	}
 
 	addInputListener(listener: InputListener): () => void {

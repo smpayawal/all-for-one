@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe("ProcessTerminal alternate screen mode", () => {
-	it("enters and exits the alternate screen exactly once when enabled", () => {
+	it("enters and exits the alternate screen idempotently when enabled", () => {
 		const writes: string[] = [];
 		const previousWrite = process.stdout.write;
 		process.env.PI_TUI_ALTERNATE_SCREEN = "1";
@@ -26,10 +26,15 @@ describe("ProcessTerminal alternate screen mode", () => {
 			const terminal = new ProcessTerminal();
 			terminal.enterAlternateScreen();
 			terminal.enterAlternateScreen();
+			assert.equal(terminal.consumeScreenReset(), true);
+			assert.equal(terminal.consumeScreenReset(), false);
 			terminal.exitAlternateScreen();
+			terminal.exitAlternateScreen();
+			terminal.enterAlternateScreen();
+			assert.equal(terminal.consumeScreenReset(), true);
 			terminal.exitAlternateScreen();
 
-			assert.deepEqual(writes, ["\x1b[?1049h", "\x1b[?1049l"]);
+			assert.deepEqual(writes, ["\x1b[?1049h", "\x1b[?1049l", "\x1b[?1049h", "\x1b[?1049l"]);
 		} finally {
 			process.stdout.write = previousWrite;
 		}
@@ -49,6 +54,7 @@ describe("ProcessTerminal alternate screen mode", () => {
 			terminal.enterAlternateScreen();
 			terminal.exitAlternateScreen();
 
+			assert.equal(terminal.consumeScreenReset(), false);
 			assert.deepEqual(writes, []);
 		} finally {
 			process.stdout.write = previousWrite;

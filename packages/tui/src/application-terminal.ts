@@ -17,11 +17,19 @@ function isApplicationScreenEnabled(): boolean {
  */
 export class ProcessTerminal extends InlineProcessTerminal {
 	private alternateScreenActive = false;
+	private screenResetPending = false;
 
 	enterAlternateScreen(): void {
 		if (!isApplicationScreenEnabled() || this.alternateScreenActive) return;
 		this.write(ALTERNATE_SCREEN_ENTER_SEQUENCE);
 		this.alternateScreenActive = true;
+		this.screenResetPending = true;
+	}
+
+	consumeScreenReset(): boolean {
+		const pending = this.screenResetPending;
+		this.screenResetPending = false;
+		return pending;
 	}
 
 	exitAlternateScreen(): void {

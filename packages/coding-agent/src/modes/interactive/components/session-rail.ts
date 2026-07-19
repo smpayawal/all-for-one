@@ -164,13 +164,23 @@ function createSection(
 	];
 }
 
+function formatShortcut(shortcut: string, width: number): string {
+	const match = shortcut.match(/^(.+?)\s+—\s+(.+)$/u);
+	if (!match) return indentSectionBody(theme.fg("muted", railLine(shortcut, width)), width);
+	const [, key, action] = match;
+	const content = `${theme.bold(theme.fg("accent", key!))}${theme.fg("dim", " — ")}${theme.fg("muted", action!)}`;
+	return indentSectionBody(content, width);
+}
+
 function createShortcutSection(summary: string | undefined, width: number): string[] {
 	if (!summary) return [];
 	const shortcuts = summary
 		.split(/\s*·\s*/u)
 		.map(sanitize)
 		.filter(Boolean);
-	return shortcuts.length > 0 ? createSection("SHORTCUTS", shortcuts, width) : [];
+	return shortcuts.length > 0
+		? [sectionTitle("SHORTCUTS"), ...shortcuts.map((shortcut) => formatShortcut(shortcut, width))]
+		: [];
 }
 
 function appendWholeSection(target: string[], section: readonly string[], limit: number): boolean {
