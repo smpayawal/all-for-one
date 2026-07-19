@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { SessionRailComponent } from "../src/modes/interactive/components/session-rail.ts";
-import { initTheme, loadThemeFromPath, setThemeInstance } from "../src/modes/interactive/theme/theme.ts";
+import { initTheme, loadThemeFromPath, setThemeInstance, theme } from "../src/modes/interactive/theme/theme.ts";
 
 const THEME_PATH = fileURLToPath(new URL("../theme/afo-midnight.json", import.meta.url));
 
@@ -38,7 +38,10 @@ describe("session rail visual hierarchy", () => {
 		const output = plainLines.join("\n");
 		expect(lines[0]?.trim()).toBe("");
 		expect(plainLines[1]).toContain(" ◆ All-For-One ─");
-		for (const line of lines) expect(visibleWidth(line)).toBe(40);
+		for (const line of lines) {
+			expect(visibleWidth(line)).toBe(40);
+			expect(line).toContain(theme.getBgAnsi("customMessageBg"));
+		}
 		expect(output.indexOf("Working")).toBeLessThan(output.indexOf("3 succeeded"));
 		expect(output.indexOf("3 succeeded")).toBeLessThan(output.indexOf("implementation 2/5"));
 		expect(plainLines.find((line) => line.includes("Working"))).toMatch(/^ {3}Working/);
