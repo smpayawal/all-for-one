@@ -60,6 +60,7 @@ export class AssistantMessageComponent extends Container {
 	private contentContainer: Container;
 	private hideThinkingBlock: boolean;
 	private markdownTheme: MarkdownTheme;
+	private readonly followsGlobalMarkdownTheme: boolean;
 	private hiddenThinkingLabel: string;
 	private outputPad: number;
 	private lastMessage?: AssistantMessage;
@@ -68,14 +69,15 @@ export class AssistantMessageComponent extends Container {
 	constructor(
 		message?: AssistantMessage,
 		hideThinkingBlock = false,
-		markdownTheme: MarkdownTheme = getMarkdownTheme(),
+		markdownTheme?: MarkdownTheme,
 		hiddenThinkingLabel = "Thinking...",
 		outputPad = 1,
 	) {
 		super();
 
 		this.hideThinkingBlock = hideThinkingBlock;
-		this.markdownTheme = markdownTheme;
+		this.followsGlobalMarkdownTheme = markdownTheme === undefined;
+		this.markdownTheme = markdownTheme ?? getMarkdownTheme();
 		this.hiddenThinkingLabel = hiddenThinkingLabel;
 		this.outputPad = outputPad;
 
@@ -89,7 +91,9 @@ export class AssistantMessageComponent extends Container {
 
 	override invalidate(): void {
 		super.invalidate();
-		this.markdownTheme = getMarkdownTheme();
+		if (this.followsGlobalMarkdownTheme) {
+			this.markdownTheme = getMarkdownTheme();
+		}
 		if (this.lastMessage) {
 			this.updateContent(this.lastMessage);
 		}
