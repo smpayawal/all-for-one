@@ -22,6 +22,7 @@ describe("session rail visual hierarchy", () => {
 	test("renders the compact operational hierarchy with consistent width and indentation", () => {
 		const rail = new SessionRailComponent({
 			title: "All-For-One",
+			shortcutSummary: "esc interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
 			agents: ["project/AGENTS.md"],
 			skills: ["systematic-debugging"],
 			progress: { label: "implementation", completed: 2, total: 5 },
@@ -36,8 +37,10 @@ describe("session rail visual hierarchy", () => {
 		const lines = rail.render(40);
 		const plainLines = lines.map(stripAnsi);
 		const output = plainLines.join("\n");
+		const meaningfulLines = plainLines.map((line) => line.trimEnd()).filter((line) => line.trim().length > 0);
 		expect(output).toContain("NOW");
 		expect(output.match(/All-For-One/g)).toHaveLength(1);
+		expect(meaningfulLines[0]).toMatch(/^ All-For-One ─+$/);
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBe(40);
 			expect(line).toContain(theme.getBgAnsi("customMessageBg"));
@@ -49,5 +52,11 @@ describe("session rail visual hierarchy", () => {
 		expect(output).toContain("ACTIVE INSTRUCTIONS");
 		expect(output).not.toContain("systematic-debugging");
 		expect(output).not.toContain("SKILLS");
+		expect(output).toContain("SHORTCUTS");
+		expect(output).toContain("/ commands");
+		expect(output).toContain("! bash");
+		expect(output).toContain("ctrl+o more");
+		expect(output.indexOf("SHORTCUTS")).toBeGreaterThan(output.indexOf("ACTIVE INSTRUCTIONS"));
+		expect(meaningfulLines.at(-1)).toContain("ctrl+o more");
 	});
 });
