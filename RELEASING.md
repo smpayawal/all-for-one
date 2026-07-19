@@ -56,6 +56,8 @@ Before creating a release tag:
 7. Build the standalone archives and run the available local smoke tests from outside the repository.
 8. Review the final diff and confirm no Pi package version, package name, configuration path, session format, SDK surface, or RPC contract changed unintentionally.
 
+All product versions and `afo-v*` tags must use strict semantic versioning. Numeric major, minor, patch, and prerelease identifiers must not contain leading zeroes.
+
 ## Native archive validation
 
 The release workflow downloads and executes the same archives that it is preparing to publish. Publication is blocked unless the following native smoke jobs pass:
@@ -96,6 +98,8 @@ git push origin afo-vX.Y.Z
 
 Pushing an All-For-One tag starts `.github/workflows/allforone-release.yml`. The workflow validates the tag and prepared changelog state, rebuilds the standalone archives, generates release notes and a manifest, produces SHA-256 checksums, runs native archive smoke tests, and publishes a GitHub Release only after those tests pass.
 
+Temporary pull-request workflows must not create tags or publish releases. Release preparation may happen on a focused branch, but tag creation and publication must use the reviewed permanent release path.
+
 Do not move, replace, or reuse a published tag. Public releases are immutable. When a release needs correction, prepare a new version.
 
 ## Failed release handling
@@ -108,23 +112,23 @@ Do not move, replace, or reuse a published tag. Public releases are immutable. W
 
 ## Verify the published release
 
-After publication:
+After publication, run the **Verify Published All-For-One Release** workflow with the exact `afo-v*` tag. The workflow downloads the public GitHub Release payload on Linux x64, macOS arm64, and Windows x64, verifies the manifest and every SHA-256 checksum, extracts the native archive, and executes `allforone`, `afo`, and `pi` smoke checks.
 
-1. Download the release assets from GitHub.
-2. Verify `SHA256SUMS`.
-3. Extract the archive on each supported platform available for testing.
-4. Run `allforone --version` and `allforone --help`.
-5. Run the `afo` and `pi` compatibility launchers.
-6. Confirm the reported All-For-One version and Pi compatibility baseline.
-7. Record any platform that was not tested.
+Manual verification is also available:
 
-A release is not considered verified until the public assets, rather than workspace build output, have been downloaded and executed.
+```bash
+node scripts/verify-allforone-release-assets.mjs --dir release-assets --tag afo-vX.Y.Z --json
+```
+
+A release is not considered verified until the public assets, rather than workspace build output, have been downloaded and executed. Record any architecture that remains best-effort.
 
 ## Upstream synchronization before a release
 
 Use the `Upstream Pi Sync` workflow to inspect drift. Updating `main` and preparing a `sync/pi-*` pull request are separate, explicit actions.
 
 A `sync/pi-*` pull request must be merged with a merge commit. Never squash or rebase it because the native Pi `main` commit must remain an ancestor of `allforone`.
+
+After review and successful checks, run the workflow with action `merge-sync` and provide the pull request number. The workflow verifies the exact sync head, waits for checks, merges with `--merge`, and revalidates `main` ancestry on the resulting `allforone` branch.
 
 After the merge, run the upstream relationship check again before releasing.
 
