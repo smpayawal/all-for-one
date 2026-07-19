@@ -62,6 +62,9 @@ for (const required of [
 	"needs: [validate, build, native-release-smoke]",
 	"group: allforone-release-${{ github.event_name }}-",
 	"cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+	"isPrereleaseVersion } from './scripts/allforone-version.mjs'",
+	"verify-published-release:",
+	"uses: ./.github/workflows/allforone-verify-release.yml",
 ]) {
 	if (!releaseWorkflow.includes(required)) {
 		throw new Error(`All-For-One release workflow is missing release lifecycle enforcement: ${required}`);
@@ -77,6 +80,9 @@ for (const required of [
 	"scripts/verify-allforone-release-assets.mjs",
 	"scripts/smoke-allforone-archive.mjs",
 	"Checkout trusted verification tooling",
+	"tooling_sha:",
+	"release_commit:",
+	"--commit \"${{ env.RELEASE_COMMIT }}\"",
 ]) {
 	if (!verifyWorkflow.includes(required)) {
 		throw new Error(`Published release verification workflow is missing: ${required}`);
@@ -116,6 +122,7 @@ for (const required of [
 	"explicitly prevents them from becoming the latest stable release",
 	"Verify Published All-For-One Release",
 	"Temporary pull-request workflows must not create tags or publish releases.",
+	"--commit <tag-commit-sha>",
 	"merge-sync",
 ]) {
 	if (!releasing.includes(required)) {
@@ -142,5 +149,5 @@ for (const required of [
 }
 
 console.log(
-	"All-For-One publication policy is valid: strict release versions, public asset verification, controlled sync merges, cancellable PR validation, GitHub releases only, and Pi-compatible npm packages private.",
+	"All-For-One publication policy is valid: strict release versions, tag-bound public asset verification, controlled sync merges, cancellable PR validation, GitHub releases only, and Pi-compatible npm packages private.",
 );
