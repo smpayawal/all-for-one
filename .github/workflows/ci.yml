@@ -35,8 +35,29 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Check
-        run: npm run check
+      - name: Check publication policy
+        run: npm run check:publication-policy
+
+      - name: Check formatting and linting
+        run: npm exec -- biome check --error-on-warnings .
+
+      - name: Check pinned dependencies
+        run: npm run check:pinned-deps
+
+      - name: Check TypeScript imports
+        run: npm run check:ts-imports
+
+      - name: Check coding-agent shrinkwrap
+        run: npm run check:shrinkwrap
+
+      - name: Check coding-agent install lock
+        run: npm run check:install-lock:coding-agent
+
+      - name: Check TypeScript
+        run: npm exec -- tsgo --noEmit
+
+      - name: Check browser smoke configuration
+        run: npm run check:browser-smoke
 
       - name: Test
         run: npm test

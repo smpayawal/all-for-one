@@ -1,8 +1,8 @@
-name: Upstream Pi Sync
+name: Upstream Pi Reference
 
 on:
   pull_request:
-    branches: [allforone]
+    branches: [main]
     paths:
       - '.github/workflows/upstream-pi-sync.yml'
       - 'scripts/check-upstream-relationship.mjs'
@@ -14,24 +14,18 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Synchronization action'
+        description: 'Pi reference action'
         required: true
         default: check
         type: choice
         options:
           - check
-          - update-main
-          - prepare-sync
-          - merge-sync
-      pull_request:
-        description: 'sync/pi-* pull request number for merge-sync'
-        required: false
-        type: string
+          - update-pi
 
 permissions: {}
 
 concurrency:
-  group: upstream-pi-sync-${{ github.event_name == 'pull_request' && github.ref || 'repository' }}
+  group: upstream-pi-reference-${{ github.event_name == 'pull_request' && github.ref || 'repository' }}
   cancel-in-progress: false
 
 env:
@@ -43,22 +37,22 @@ jobs:
     permissions:
       contents: read
     outputs:
-      main_action: ${{ steps.report.outputs.main_action }}
-      main_sha: ${{ steps.report.outputs.main_sha }}
+      pi_action: ${{ steps.report.outputs.pi_action }}
+      pi_sha: ${{ steps.report.outputs.pi_sha }}
       upstream_sha: ${{ steps.report.outputs.upstream_sha }}
       product_action: ${{ steps.report.outputs.product_action }}
     steps:
       - name: Checkout All-For-One
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || 'allforone' }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || 'main' }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Fetch tracked refs
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main:refs/remotes/origin/main allforone:refs/remotes/origin/allforone
+          git fetch --no-tags origin pi:refs/remotes/origin/pi main:refs/remotes/origin/main
           git remote add upstream "${UPSTREAM_REPOSITORY}"
           git fetch --no-tags upstream main:refs/remotes/upstream/main
 
@@ -72,8 +66,8 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/upstream-sync-status.mjs \
-            --main origin/main \
-            --product origin/allforone \
+            --main origin/pi \
+            --product origin/main \
             --upstream upstream/main \
             --json > upstream-sync-status.json
 
@@ -81,223 +75,69 @@ jobs:
           import { readFileSync, appendFileSync } from 'node:fs';
           const report = JSON.parse(readFileSync('upstream-sync-status.json', 'utf8'));
           const output = process.env.GITHUB_OUTPUT;
-          appendFileSync(output, `main_action=${report.main.action}\n`);
-          appendFileSync(output, `main_sha=${report.main.commit}\n`);
+          appendFileSync(output, `pi_action=${report.main.action}\n`);
+          appendFileSync(output, `pi_sha=${report.main.commit}\n`);
           appendFileSync(output, `upstream_sha=${report.main.upstreamCommit}\n`);
           appendFileSync(output, `product_action=${report.product.action}\n`);
           NODE
 
           {
-            echo '## Upstream Pi synchronization status'
+            echo '## Upstream Pi reference status'
             echo
             echo '```json'
             cat upstream-sync-status.json
             echo '```'
+            echo
+            echo 'Updating `pi` does not merge upstream Pi into `main`.'
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload status report
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: upstream-pi-status
+          name: upstream-pi-reference-status
           path: upstream-sync-status.json
           if-no-files-found: error
           retention-days: 14
 
-  update-main:
-    if: github.event_name == 'workflow_dispatch' && (inputs.action == 'update-main' || inputs.action == 'prepare-sync')
+  update-pi:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'update-pi'
     needs: status
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    outputs:
-      main_sha: ${{ steps.update.outputs.main_sha }}
-      changed: ${{ steps.update.outputs.changed }}
     steps:
-      - name: Checkout clean main mirror
+      - name: Checkout Pi reference
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: main
+          ref: pi
           fetch-depth: 0
 
-      - name: Fetch and validate upstream Pi
-        id: update
+      - name: Fast-forward Pi reference
         env:
-          EXPECTED_ACTION: ${{ needs.status.outputs.main_action }}
-          EXPECTED_MAIN_SHA: ${{ needs.status.outputs.main_sha }}
+          EXPECTED_ACTION: ${{ needs.status.outputs.pi_action }}
+          EXPECTED_PI_SHA: ${{ needs.status.outputs.pi_sha }}
           EXPECTED_UPSTREAM_SHA: ${{ needs.status.outputs.upstream_sha }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin main:refs/remotes/origin/main allforone:refs/remotes/origin/allforone
+          git fetch --no-tags origin pi:refs/remotes/origin/pi
           git remote add upstream "${UPSTREAM_REPOSITORY}"
           git fetch --no-tags upstream main:refs/remotes/upstream/main
 
-          actual_main_sha="$(git rev-parse origin/main)"
+          actual_pi_sha="$(git rev-parse origin/pi)"
           actual_upstream_sha="$(git rev-parse upstream/main)"
-          test "${actual_main_sha}" = "${EXPECTED_MAIN_SHA}"
+          test "${actual_pi_sha}" = "${EXPECTED_PI_SHA}"
           test "${actual_upstream_sha}" = "${EXPECTED_UPSTREAM_SHA}"
 
-          node scripts/upstream-sync-status.mjs \
-            --main origin/main \
-            --product origin/allforone \
-            --upstream upstream/main \
-            --json > upstream-sync-status.json
-
-          actual_action="$(node -e "const fs=require('node:fs'); process.stdout.write(JSON.parse(fs.readFileSync('upstream-sync-status.json','utf8')).main.action)")"
-          test "${actual_action}" = "${EXPECTED_ACTION}"
-
-          if [[ "${actual_action}" == "current" ]]; then
-            echo "changed=false" >> "${GITHUB_OUTPUT}"
-            echo "main_sha=${actual_main_sha}" >> "${GITHUB_OUTPUT}"
-            echo 'main already matches upstream Pi.' >> "${GITHUB_STEP_SUMMARY}"
+          if [[ "${EXPECTED_ACTION}" == "current" ]]; then
+            echo '`pi` already matches upstream Pi.' >> "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
 
-          if [[ "${actual_action}" != "fast-forward" ]]; then
-            echo "::error::main cannot be safely fast-forwarded; status is ${actual_action}."
+          if [[ "${EXPECTED_ACTION}" != "fast-forward" ]]; then
+            echo "::error::pi cannot be safely fast-forwarded; status is ${EXPECTED_ACTION}."
             exit 1
           fi
 
-          git push origin upstream/main:refs/heads/main
-          echo "changed=true" >> "${GITHUB_OUTPUT}"
-          echo "main_sha=${actual_upstream_sha}" >> "${GITHUB_OUTPUT}"
-          echo "Fast-forwarded main to ${actual_upstream_sha}." >> "${GITHUB_STEP_SUMMARY}"
-
-  prepare-sync:
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'prepare-sync'
-    needs: [status, update-main]
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-      contents: write
-      pull-requests: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      MAIN_SHA: ${{ needs.update-main.outputs.main_sha }}
-    steps:
-      - name: Checkout All-For-One product branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: allforone
-          fetch-depth: 0
-
-      - name: Create reviewed upstream synchronization pull request
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin main:refs/remotes/origin/main allforone:refs/remotes/origin/allforone
-          test "$(git rev-parse origin/main)" = "${MAIN_SHA}"
-
-          if git merge-base --is-ancestor origin/main HEAD; then
-            echo 'allforone already contains the current main baseline.' >> "${GITHUB_STEP_SUMMARY}"
-            exit 0
-          fi
-
-          short_sha="$(git rev-parse --short=12 origin/main)"
-          branch="sync/pi-${short_sha}"
-          if git ls-remote --exit-code --heads origin "${branch}" >/dev/null 2>&1; then
-            echo "::error::Remote synchronization branch already exists: ${branch}"
-            exit 1
-          fi
-
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git switch -c "${branch}"
-
-          if ! git merge --no-ff --no-edit origin/main; then
-            echo '::error::Upstream Pi merge has conflicts. Resolve it locally on a sync/pi-* branch.'
-            git status --short || true
-            git merge --abort || true
-            exit 1
-          fi
-
-          node scripts/check-upstream-relationship.mjs --main origin/main --current HEAD --json
-          git push origin "HEAD:refs/heads/${branch}"
-
-          {
-            echo '## Upstream Pi synchronization'
-            echo
-            printf -- '- Pi baseline commit: `%s`\n' "${MAIN_SHA}"
-            echo '- Product base: `allforone`'
-            printf -- '- Integration branch: `%s`\n' "${branch}"
-            echo '- Required merge method: create a merge commit'
-            echo
-            echo 'This pull request was prepared by the controlled upstream synchronization workflow. It must pass the normal All-For-One CI and be reviewed before merge.'
-            echo
-            echo '**Do not squash or rebase this pull request.** The Pi baseline must remain an ancestor of `allforone`.'
-            echo
-            echo 'After review, run the Upstream Pi Sync workflow with `merge-sync` and this pull request number.'
-            echo
-            echo 'No automatic merge is enabled.'
-          } > /tmp/upstream-sync-pr.md
-
-          pr_url="$(gh pr create \
-            --base allforone \
-            --head "${branch}" \
-            --title "chore: synchronize Pi ${short_sha}" \
-            --body-file /tmp/upstream-sync-pr.md)"
-
-          gh workflow run allforone-ci.yml --ref "${branch}"
-          printf 'Created synchronization pull request: %s\n' "${pr_url}" >> "${GITHUB_STEP_SUMMARY}"
-          echo 'Merge this synchronization pull request through the merge-sync action.' >> "${GITHUB_STEP_SUMMARY}"
-          echo 'Dispatched All-For-One CI for the synchronization commit.' >> "${GITHUB_STEP_SUMMARY}"
-
-  merge-sync:
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'merge-sync'
-    needs: status
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: write
-      pull-requests: write
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      PR_NUMBER: ${{ inputs.pull_request }}
-    steps:
-      - name: Checkout All-For-One product branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: allforone
-          fetch-depth: 0
-
-      - name: Validate synchronization pull request
-        run: |
-          set -euo pipefail
-          if [[ ! "${PR_NUMBER}" =~ ^[1-9][0-9]*$ ]]; then
-            echo '::error::merge-sync requires a numeric sync pull request number.'
-            exit 1
-          fi
-
-          gh pr view "${PR_NUMBER}" \
-            --json state,isDraft,baseRefName,headRefName,headRefOid \
-            > sync-pr.json
-
-          node --input-type=module <<'NODE'
-          import { appendFileSync, readFileSync } from 'node:fs';
-          const pull = JSON.parse(readFileSync('sync-pr.json', 'utf8'));
-          if (pull.state !== 'OPEN') throw new Error(`Pull request is not open: ${pull.state}`);
-          if (pull.isDraft) throw new Error('Synchronization pull request is still a draft.');
-          if (pull.baseRefName !== 'allforone') throw new Error(`Unexpected base branch: ${pull.baseRefName}`);
-          if (!pull.headRefName.startsWith('sync/pi-')) throw new Error(`Unexpected synchronization branch: ${pull.headRefName}`);
-          appendFileSync(process.env.GITHUB_ENV, `SYNC_HEAD=${pull.headRefName}\nSYNC_SHA=${pull.headRefOid}\n`);
-          NODE
-
-      - name: Verify exact synchronization head and checks
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin \
-            main:refs/remotes/origin/main \
-            allforone:refs/remotes/origin/allforone \
-            "${SYNC_HEAD}:refs/remotes/origin/${SYNC_HEAD}"
-          test "$(git rev-parse "origin/${SYNC_HEAD}")" = "${SYNC_SHA}"
-          git merge-base --is-ancestor origin/main "origin/${SYNC_HEAD}"
-          gh pr checks "${PR_NUMBER}" --watch --fail-fast
-
-      - name: Merge with an exact merge commit and revalidate ancestry
-        run: |
-          set -euo pipefail
-          gh pr merge "${PR_NUMBER}" --merge --match-head-commit "${SYNC_SHA}" --delete-branch
-          git fetch --no-tags origin main:refs/remotes/origin/main allforone:refs/remotes/origin/allforone
-          node scripts/check-upstream-relationship.mjs \
-            --main origin/main \
-            --current origin/allforone \
-            --json
-          echo "Merged synchronization pull request #${PR_NUMBER} with a merge commit and verified main ancestry." >> "${GITHUB_STEP_SUMMARY}"
+          git push origin upstream/main:refs/heads/pi
+          echo "Fast-forwarded pi to ${actual_upstream_sha}." >> "${GITHUB_STEP_SUMMARY}"
+          echo 'Review and adopt relevant changes through focused branches created from `main`.' >> "${GITHUB_STEP_SUMMARY}"

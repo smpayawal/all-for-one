@@ -49,6 +49,10 @@ Publication is gated by native archive smoke tests for macOS arm64, Linux x64, a
 
 ## Development
 
+`main` is the All-For-One product branch. `pi` is the native Pi reference used for upstream review and selective adoption.
+
+Create focused product branches from `main`. Do not add All-For-One changes to `pi`, and do not merge the complete `pi` branch into `main` by default.
+
 ```bash
 npm install --ignore-scripts
 npm run build
