@@ -4,11 +4,11 @@
 
 # All-For-One
 
-*My personal fork of [Pi](https://github.com/earendil-works/pi).*
+*An independently maintained terminal coding harness based on [Pi](https://github.com/earendil-works/pi).*
 
-All-For-One is a lightweight terminal coding harness based on Pi. I use it as my day-to-day coding agent and maintain a small set of changes that fit the way I work.
+All-For-One is the coding agent I use day to day. It keeps Pi's adaptive single-agent foundation while adding a focused set of workflow, interface, validation, and release changes.
 
-It keeps Pi's core behavior, so existing `.pi` configuration and the original `pi` command continue to work.
+Existing `.pi` configuration and the original `pi` command continue to work.
 
 ## What changed
 
@@ -42,6 +42,8 @@ Provider setup, models, themes, extensions, and general configuration continue t
 ## Releases
 
 Standalone releases use GitHub Releases and include builds for macOS, Linux, and Windows. Each archive provides `allforone`, `afo`, and the compatible `pi` launcher.
+
+Automatic All-For-One self-update is not available yet. Download new versions from the repository's GitHub Releases page.
 
 Publication is gated by native archive smoke tests for macOS arm64, Linux x64, and Windows x64. See [RELEASING.md](RELEASING.md) for the release process and current platform coverage.
 
