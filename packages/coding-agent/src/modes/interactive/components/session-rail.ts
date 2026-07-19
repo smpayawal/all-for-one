@@ -115,10 +115,20 @@ function sectionTitle(label: string): string {
 	return theme.bold(theme.fg("customMessageLabel", label));
 }
 
+function formatBrandLine(title: string, width: number): string {
+	const mark = "◆";
+	const plainTitle = `${mark} ${title}`;
+	const ruleWidth = Math.max(0, width - visibleWidth(plainTitle) - 1);
+	const rule = ruleWidth > 0 ? ` ${theme.fg("border", "─".repeat(ruleWidth))}` : "";
+	const styled = `${theme.fg("warning", mark)} ${theme.bold(theme.fg("accent", title))}${rule}`;
+	const truncated = truncateToWidth(styled, width, "");
+	return truncated + " ".repeat(Math.max(0, width - visibleWidth(truncated)));
+}
+
 function formatLifecycle(lifecycle: SessionRailLifecycle): string {
 	switch (lifecycle.kind) {
 		case "idle":
-			return theme.fg("dim", "  Idle");
+			return theme.fg("muted", "  Idle");
 		case "agent":
 			return theme.fg("borderAccent", "  Working");
 		case "retry":
@@ -153,7 +163,7 @@ function formatResourceList(resources: readonly string[]): string[] {
 	return [...visibleResources, ...(remaining > 0 ? [`+${remaining} more`] : [])];
 }
 
-function createSection(label: string, values: readonly string[], width: number, valueColor: ThemeColor = "dim"): string[] {
+function createSection(label: string, values: readonly string[], width: number, valueColor: ThemeColor = "muted"): string[] {
 	return [sectionTitle(label), ...values.map((value) => theme.fg(valueColor, railLine(`  ${value}`, width)))];
 }
 
@@ -172,7 +182,7 @@ function createCurrentTurnSection(data: SessionRailData, width: number): string[
 		values.push("Waiting for input");
 	}
 	let valueColor: ThemeColor = "borderAccent";
-	if (data.lifecycle.kind === "idle") valueColor = "dim";
+	if (data.lifecycle.kind === "idle") valueColor = "muted";
 	if (data.lifecycle.kind === "retry" || data.lifecycle.kind === "compaction") valueColor = "warning";
 	return createSection("CURRENT TURN", values, width, valueColor);
 }
@@ -210,26 +220,24 @@ export class SessionRailComponent implements Component {
 		const lines: string[] = [];
 
 		const title = sanitize(this.data.title);
-		const titleRuleWidth = Math.max(1, normalizedWidth - visibleWidth(title) - 1);
-		lines.push(`${theme.bold(theme.fg("accent", title))} ${theme.fg("border", "─".repeat(titleRuleWidth))}`);
+		lines.push(formatBrandLine(title, normalizedWidth));
 
-		const activity: string[] = [sectionTitle("ACTIVITY")];
-		if (this.data.progress) activity.push(formatProgress(this.data.progress, normalizedWidth));
-		activity.push(formatLifecycle(this.data.lifecycle));
+		const activity: string[] = [sectionTitle("ACTIVITY"), formatLifecycle(this.data.lifecycle)];
 		const outcomes = [
 			...(this.data.completedTools > 0 ? [`${this.data.completedTools} succeeded`] : []),
 			...(this.data.failedTools > 0 ? [`${this.data.failedTools} failed`] : []),
 		];
-		if (outcomes.length > 0) activity.push(theme.fg("dim", `  ${outcomes.join(" · ")}`));
+		if (outcomes.length > 0) activity.push(theme.fg("muted", `  ${outcomes.join(" · ")}`));
+		if (this.data.progress) activity.push(formatProgress(this.data.progress, normalizedWidth));
 		for (const toolName of this.data.activeTools.slice(0, 3)) {
 			activity.push(theme.fg("borderAccent", railLine(`  ● ${toolName}`, normalizedWidth)));
 		}
 		if (this.data.activeTools.length > 3) {
-			activity.push(theme.fg("dim", `  +${this.data.activeTools.length - 3} more active`));
+			activity.push(theme.fg("muted", `  +${this.data.activeTools.length - 3} more active`));
 		}
 		for (const event of this.data.recentTools.slice(-3)) activity.push(formatToolEvent(event, normalizedWidth));
 		if (this.data.recentTools.length > 3) {
-			activity.push(theme.fg("dim", `  +${this.data.recentTools.length - 3} more`));
+			activity.push(theme.fg("muted", `  +${this.data.recentTools.length - 3} more`));
 		}
 
 		if (contentLimit > lines.length) {
