@@ -2,7 +2,7 @@ name: All-For-One Release
 
 on:
   pull_request:
-    branches: [allforone]
+    branches: [main]
     paths:
       - '.github/workflows/allforone-release.yml'
       - '.github/workflows/allforone-verify-release.yml'
@@ -83,16 +83,16 @@ jobs:
           node scripts/allforone-release.mjs validate --tag "${release_tag}" --json
 
           if [[ "${EVENT_NAME}" != "pull_request" ]]; then
-            git fetch --no-tags origin allforone
+            git fetch --no-tags origin main
             git fetch --tags origin
             source_sha="$(git rev-list -n 1 "${release_tag}" --)"
             test "$(git rev-parse HEAD)" = "${source_sha}"
-            git merge-base --is-ancestor "${source_sha}" origin/allforone
+            git merge-base --is-ancestor "${source_sha}" origin/main
             node scripts/prepare-allforone-release.mjs "${version}" --check --json
           fi
 
           is_prerelease="$(
-            VERSION="${version}" node --input-type=module <<'NODE'
+          VERSION="${version}" node --input-type=module <<'NODE'
           import { isPrereleaseVersion } from './scripts/allforone-version.mjs';
           process.stdout.write(String(isPrereleaseVersion(process.env.VERSION)));
           NODE
