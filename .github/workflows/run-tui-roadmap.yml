@@ -54,7 +54,7 @@ jobs:
               flags=re.MULTILINE,
           )
           old_test = "run('npm', 'exec', '--', 'vitest', '--run', *tests)"
-          new_test = "run('node', 'packages/coding-agent/node_modules/vitest/dist/cli.js', '--run', *[test.removeprefix('packages/coding-agent/') for test in tests])"
+          new_test = "subprocess.run(['npm', 'run', 'test', '--', *[test.removeprefix('packages/coding-agent/') for test in tests]], cwd=ROOT / 'packages/coding-agent', check=True)"
           content, test_count = content.replace(old_test, new_test), content.count(old_test)
           old_install = "run('npm', 'ci', '--ignore-scripts')"
           new_install = old_install + "\nrun('npm', 'run', 'build')"
