@@ -12,8 +12,8 @@
 	],
 	"scripts": {
 		"clean": "npm run clean --workspaces",
-		"build": "npm run build --workspace packages/tui --workspace packages/ai --workspace packages/agent --workspace packages/coding-agent",
-		"build:orchestrator": "npm run build --workspace packages/orchestrator",
+		"build": "npm --prefix packages/tui run build && npm --prefix packages/ai run build && npm --prefix packages/agent run build && npm --prefix packages/coding-agent run build",
+		"build:orchestrator": "npm --prefix packages/orchestrator run build",
 		"build:all": "npm run build && npm run build:orchestrator",
 		"check": "npm run check:publication-policy && npm run check:startup-profile && biome check --error-on-warnings . && npm run check:pinned-deps && npm run check:ts-imports && npm run check:shrinkwrap && npm run check:install-lock:coding-agent && tsgo --noEmit && npm run check:browser-smoke",
 		"check:browser-smoke": "node scripts/check-browser-smoke.mjs",
