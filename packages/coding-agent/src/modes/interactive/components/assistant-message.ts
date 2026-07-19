@@ -20,25 +20,31 @@ const RESULT_LABEL = "RESULT";
 
 class PlanningBlockComponent implements Component {
 	private readonly content: Component;
+	private readonly inset: number;
 
-	constructor(content: Component) {
+	constructor(content: Component, inset = 0) {
 		this.content = content;
+		this.inset = Math.max(0, Math.floor(inset));
 	}
 
 	render(width: number): string[] {
 		const normalizedWidth = Number.isFinite(width) ? Math.max(0, Math.floor(width)) : 0;
 		if (normalizedWidth === 0) return [];
 
+		const inset = Math.min(this.inset, Math.max(0, normalizedWidth - 1));
+		const innerWidth = normalizedWidth - inset;
 		const styledPrefix = `${theme.bold(theme.fg("customMessageLabel", PLAN_LABEL))} `;
 		const prefixWidth = visibleWidth(styledPrefix);
-		if (prefixWidth >= normalizedWidth) return [truncateToWidth(styledPrefix, normalizedWidth, "")];
+		if (prefixWidth >= innerWidth) {
+			return [`${" ".repeat(inset)}${truncateToWidth(styledPrefix, innerWidth, "")}`];
+		}
 
-		const contentWidth = normalizedWidth - prefixWidth;
+		const contentWidth = innerWidth - prefixWidth;
 		const lines = this.content.render(contentWidth);
-		if (lines.length === 0) return [styledPrefix];
+		if (lines.length === 0) return [`${" ".repeat(inset)}${styledPrefix}`];
 		return lines.map((line, index) => {
 			const prefix = index === 0 ? styledPrefix : " ".repeat(prefixWidth);
-			return truncateToWidth(`${prefix}${line}`, normalizedWidth, "");
+			return `${" ".repeat(inset)}${truncateToWidth(`${prefix}${line}`, innerWidth, "")}`;
 		});
 	}
 
@@ -191,17 +197,7 @@ export class AssistantMessageComponent extends Container {
 							italic: true,
 						},
 					);
-					this.contentContainer.addChild(
-						new PlanningBlockComponent(
-							new InsetPanelComponent({
-								child: planningMarkdown,
-								borderColor: "borderMuted",
-								background: "customMessageBg",
-								outerInset: this.outputPad,
-								paddingX: 1,
-							}),
-						),
-					);
+					this.contentContainer.addChild(new PlanningBlockComponent(planningMarkdown, this.outputPad));
 				}
 				if (hasVisibleContentAfter) {
 					this.contentContainer.addChild(new Spacer(1));
