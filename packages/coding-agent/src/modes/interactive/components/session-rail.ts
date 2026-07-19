@@ -35,7 +35,6 @@ export interface SessionRailProgress {
 }
 
 export interface SessionRailData {
-	/** Retained for compatibility; branding is already visible elsewhere in the TUI. */
 	title: string;
 	/** Retained for compatibility; persistent shortcut help is intentionally not rendered. */
 	shortcutSummary?: string;
@@ -100,6 +99,10 @@ export function parseRailProgress(key: string, text: string): SessionRailProgres
 
 function sectionTitle(label: string): string {
 	return theme.bold(theme.fg("customMessageLabel", label));
+}
+
+function formatProductTitle(title: string, width: number): string {
+	return theme.bold(theme.fg("accent", railLine(title, width)));
 }
 
 function formatLifecycle(lifecycle: SessionRailLifecycle, activeTools: readonly string[], width: number): string {
@@ -245,7 +248,9 @@ export class SessionRailComponent implements Component {
 		const topPadding = availableHeight >= TOP_PADDING_MIN_HEIGHT ? 1 : 0;
 		const contentLimit = Math.max(0, availableHeight - topPadding);
 		const lines: string[] = [];
+		const title = sanitize(this.data.title);
 
+		if (title) lines.push(formatProductTitle(title, innerWidth));
 		appendWholeSection(lines, createNowSection(this.data, innerWidth), contentLimit);
 		if (this.data.agents.length > 0) {
 			appendWholeSection(

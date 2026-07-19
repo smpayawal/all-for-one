@@ -90,7 +90,7 @@ describe("rail progress and activity formatting", () => {
 		});
 
 		const output = stripAnsi(rail.render(40).join("\n"));
-		expect(output).not.toContain("TEST PRODUCT");
+		expect(output).toContain("TEST PRODUCT");
 		expect(output).not.toContain("ALL-FOR-ONE");
 		expect(output).not.toContain("PROGRESS");
 		expect(output).toContain("plan-mode 2/5");
@@ -123,7 +123,7 @@ describe("rail progress and activity formatting", () => {
 		const output = stripAnsi(rail.render(36).join("\n"));
 		expect(output).toContain("Idle");
 		expect(output).not.toContain("PROJECT");
-		expect(output).not.toContain("TEST PRODUCT");
+		expect(output).toContain("TEST PRODUCT");
 		expect(output).not.toContain("gpt-");
 	});
 
@@ -200,7 +200,7 @@ describe("viewport composition", () => {
 		shell.dispose();
 	});
 
-	test("keeps long transcript content intact and places the bottom group last", () => {
+	test("clamps a long transcript and keeps the bottom group visible", () => {
 		const terminal = new VirtualTerminal(127, 12);
 		const tui = new TUI(terminal);
 		const content = new Container();
@@ -215,8 +215,8 @@ describe("viewport composition", () => {
 		});
 
 		const lines = shell.render(127);
+		expect(lines).toHaveLength(12);
 		expect(lines.slice(-2).map((line) => stripAnsi(line).trimEnd())).toEqual(["EDITOR", "FOOTER"]);
-		expect(lines.length).toBeGreaterThan(12);
 		shell.dispose();
 	});
 

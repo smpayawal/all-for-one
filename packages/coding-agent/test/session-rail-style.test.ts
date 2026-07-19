@@ -37,7 +37,7 @@ describe("session rail visual hierarchy", () => {
 		const plainLines = lines.map(stripAnsi);
 		const output = plainLines.join("\n");
 		expect(output).toContain("NOW");
-		expect(output).not.toContain("All-For-One");
+		expect(output.match(/All-For-One/g)).toHaveLength(1);
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBe(40);
 			expect(line).toContain(theme.getBgAnsi("customMessageBg"));
