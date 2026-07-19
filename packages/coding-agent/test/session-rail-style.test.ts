@@ -22,8 +22,7 @@ describe("session rail visual hierarchy", () => {
 	test("renders the compact operational hierarchy with consistent width and indentation", () => {
 		const rail = new SessionRailComponent({
 			title: "All-For-One",
-			shortcutSummary:
-				"Esc — Interrupt · Ctrl+C / Ctrl+D — Clear / Exit · / — Command · ! — Bash · Ctrl+O — More",
+			shortcutSummary: "Esc — Interrupt · Ctrl+C / Ctrl+D — Clear / Exit · / — Command · ! — Bash · Ctrl+O — More",
 			agents: ["project/AGENTS.md"],
 			skills: ["systematic-debugging"],
 			progress: { label: "implementation", completed: 2, total: 5 },
