@@ -1,0 +1,88 @@
+name: Diagnose TUI focused regressions
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'perf/tui-responsiveness-roadmap' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: perf/tui-responsiveness-roadmap
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
+
+      - run: npm ci --ignore-scripts
+
+      - name: Apply pending repair script
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+          source = Path('.github/workflows/run-tui-roadmap.yml').read_text()
+          section = source.split('      - name: Repair implementation and align tests', 1)[1]
+          payload = section.split("          python - <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
+          script = dedent(payload)
+          Path('/tmp/repair.py').write_text(script)
+          exec(compile(script, '/tmp/repair.py', 'exec'), {'__name__': '__main__'})
+          PY
+
+      - name: Format and build
+        run: |
+          npm exec -- biome check --write \
+            packages/coding-agent/src/modes/interactive/interactive-mode.ts \
+            packages/coding-agent/test/assistant-message-foundation.test.ts \
+            packages/coding-agent/test/assistant-message.test.ts \
+            packages/coding-agent/test/resource-loader.test.ts \
+            packages/coding-agent/test/session-rail-enhancement.test.ts \
+            packages/coding-agent/test/session-rail-style.test.ts \
+            packages/coding-agent/test/transcript-turn-rendering.test.ts
+          npm run build
+
+      - name: Run focused tests
+        id: focused
+        continue-on-error: true
+        working-directory: packages/coding-agent
+        run: |
+          set -o pipefail
+          npm run test -- \
+            test/assistant-message-foundation.test.ts \
+            test/assistant-message.test.ts \
+            test/resource-loader.test.ts \
+            test/session-rail.test.ts \
+            test/session-rail-enhancement.test.ts \
+            test/session-rail-style.test.ts \
+            test/transcript-viewport.test.ts \
+            test/transcript-turn-rendering.test.ts \
+            test/suite/regressions/4167-thinking-toggle-pending-tool-render.test.ts \
+            2>&1 | tee /tmp/focused.log
+
+      - name: Upload diagnostics
+        if: steps.focused.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-focused-failure
+          path: |
+            /tmp/focused.log
+            /tmp/repair.py
+          if-no-files-found: error
+
+      - name: Fail on focused regressions
+        if: steps.focused.outcome == 'failure'
+        run: exit 1
