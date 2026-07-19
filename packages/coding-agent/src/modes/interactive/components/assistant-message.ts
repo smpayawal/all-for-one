@@ -89,6 +89,7 @@ export class AssistantMessageComponent extends Container {
 
 	override invalidate(): void {
 		super.invalidate();
+		this.markdownTheme = getMarkdownTheme();
 		if (this.lastMessage) {
 			this.updateContent(this.lastMessage);
 		}
@@ -156,7 +157,7 @@ export class AssistantMessageComponent extends Container {
 						new InsetPanelComponent({
 							child: markdown,
 							borderColor: "accent",
-							background: "customMessageBg",
+							background: "selectedBg",
 							outerInset: this.outputPad,
 							paddingX: 1,
 						}),
