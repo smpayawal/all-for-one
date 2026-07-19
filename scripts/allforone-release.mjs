@@ -3,11 +3,11 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { extractVersionChanges, isPrereleaseVersion } from "./prepare-allforone-release.mjs";
+import { isPrereleaseVersion, validateAllForOneVersion } from "./allforone-version.mjs";
+import { extractVersionChanges } from "./prepare-allforone-release.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = resolve(scriptDir, "..");
-const TAG_PATTERN = /^afo-v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 
 export const RELEASE_ASSETS = [
@@ -24,11 +24,15 @@ function readJson(path) {
 }
 
 export function parseAllForOneReleaseTag(tag) {
-	const match = TAG_PATTERN.exec(tag);
-	if (!match) {
+	if (!tag.startsWith("afo-v")) {
 		throw new Error(`Invalid All-For-One release tag: ${tag}. Expected afo-v<semver>.`);
 	}
-	return match[1];
+	const version = tag.slice("afo-v".length);
+	try {
+		return validateAllForOneVersion(version);
+	} catch {
+		throw new Error(`Invalid All-For-One release tag: ${tag}. Expected afo-v<semver>.`);
+	}
 }
 
 export function readAllForOneReleaseMetadata(repoRoot = defaultRepoRoot) {
@@ -41,7 +45,7 @@ export function readAllForOneReleaseMetadata(repoRoot = defaultRepoRoot) {
 
 	return {
 		product: "All-For-One",
-		version: rootPackage.version,
+		version: validateAllForOneVersion(rootPackage.version),
 		prerelease: isPrereleaseVersion(rootPackage.version),
 		piBaseline: codingAgentPackage.version,
 		commands: ["allforone", "afo", "pi"],
