@@ -19,7 +19,7 @@ afterAll(() => {
 });
 
 describe("session rail visual hierarchy", () => {
-	test("renders compact product branding and prioritizes live state before progress", () => {
+	test("renders inset product branding and prioritizes live state before progress", () => {
 		const rail = new SessionRailComponent({
 			title: "All-For-One",
 			agents: ["project/AGENTS.md"],
@@ -35,8 +35,9 @@ describe("session rail visual hierarchy", () => {
 
 		const lines = rail.render(40);
 		const output = stripAnsi(lines.join("\n"));
-		expect(stripAnsi(lines[0] ?? "")).toContain("◆ All-For-One ─");
-		expect(visibleWidth(lines[0] ?? "")).toBe(40);
+		expect(lines[0]?.trim()).toBe("");
+		expect(stripAnsi(lines[1] ?? "")).toContain(" ◆ All-For-One ─");
+		for (const line of lines) expect(visibleWidth(line)).toBe(40);
 		expect(output.indexOf("Working")).toBeLessThan(output.indexOf("3 succeeded"));
 		expect(output.indexOf("3 succeeded")).toBeLessThan(output.indexOf("implementation 2/5"));
 		expect(output).toContain("CONTEXT / AGENTS");
