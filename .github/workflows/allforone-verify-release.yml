@@ -2,7 +2,7 @@ name: Verify Published All-For-One Release
 
 on:
   pull_request:
-    branches: [allforone]
+    branches: [main]
     paths:
       - '.github/workflows/allforone-verify-release.yml'
       - 'scripts/allforone-release.mjs'
@@ -70,7 +70,7 @@ jobs:
       - name: Checkout trusted verification tooling
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: allforone
+          ref: main
           fetch-depth: 0
           persist-credentials: false
 
