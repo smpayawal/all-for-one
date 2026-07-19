@@ -18,9 +18,8 @@ describe("TUI scroll regression", () => {
 		const terminal = new VirtualTerminal(128, 12);
 		const tui = new TUI(terminal);
 		const transcript = new Container();
-		transcript.addChild(
-			new Text(Array.from({ length: 20 }, (_, index) => `message ${index + 1}`).join("\n"), 0, 0),
-		);
+		const transcriptText = Array.from({ length: 20 }, (_, index) => `message ${index + 1}`).join("\n");
+		transcript.addChild(new Text(transcriptText, 0, 0));
 		const shell = new InteractiveApplicationShell({
 			tui,
 			transcript,
