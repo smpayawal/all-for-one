@@ -111,7 +111,7 @@ describe("All-For-One transcript presentation", () => {
 		expect(lines[0]?.trim()).toBe("");
 		expect(plain[1]).toContain("│▾ Repository inspection");
 		expect(plain.some((line) => line.includes("✓ Read  README.md"))).toBe(true);
-		expect(plain.some((line) => line.includes("● Read  package.json"))).toBe(true);
+		expect(plain.some((line) => line.includes("◐ Read  package.json"))).toBe(true);
 		expect(plain.filter((line) => line.includes("native tool renderer"))).toHaveLength(2);
 		expect(lines.some((line) => line.includes(theme.getBgAnsi("selectedBg")) && stripAnsi(line).includes("Read"))).toBe(
 			true,
