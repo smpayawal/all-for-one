@@ -11,6 +11,7 @@ import { configureHttpDispatcher } from "./core/http-dispatcher.ts";
 
 process.title = PRODUCT.command;
 process.env.PI_CODING_AGENT = "true";
+process.env.PI_TUI_ALTERNATE_SCREEN ??= "1";
 process.emitWarning = (() => {}) as typeof process.emitWarning;
 
 for (const diagnostic of applyProductEnvAliases()) {

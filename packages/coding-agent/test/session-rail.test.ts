@@ -143,7 +143,9 @@ describe("rail progress and activity formatting", () => {
 		const rail = new SessionRailComponent(data);
 		const first = rail.render(36);
 		expect(rail.render(36)).toBe(first);
-		expect(stripAnsi(first.join("\n"))).not.toContain("escape interrupt");
+		const firstOutput = stripAnsi(first.join("\n"));
+		expect(firstOutput).toContain("SHORTCUTS");
+		expect(firstOutput).toContain("escape interrupt");
 
 		rail.setData({ ...data, lifecycle: { kind: "agent" } });
 		const updated = rail.render(36);
