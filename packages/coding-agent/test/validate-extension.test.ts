@@ -69,24 +69,25 @@ function commandHandler(harness: Harness): CommandHandler {
 	return command;
 }
 
-function createFakePythonExecutable(cwd: string): string {
-	const binDir = join(cwd, "test-bin");
+function createFakePythonExecutable(binDir: string): void {
 	mkdirSync(binDir, { recursive: true });
 	const executableName = process.platform === "win32" ? "python.cmd" : "python";
 	const executable = join(binDir, executableName);
 	const script = process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n";
 	writeFileSync(executable, script);
 	if (process.platform !== "win32") chmodSync(executable, 0o755);
-	return binDir;
 }
 
 describe("explicit validation extension", () => {
 	let cwd: string;
+	let binDir: string;
 
 	beforeEach(() => {
-		cwd = join(tmpdir(), `afo-validate-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const testId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+		cwd = join(tmpdir(), `afo-validate-${testId}`);
+		binDir = join(tmpdir(), `afo-validate-bin-${testId}`);
 		mkdirSync(cwd, { recursive: true });
-		const binDir = createFakePythonExecutable(cwd);
+		createFakePythonExecutable(binDir);
 		const inheritedPath = process.env.PATH;
 		vi.stubEnv("PATH", inheritedPath ? `${binDir}${delimiter}${inheritedPath}` : binDir);
 	});
@@ -94,6 +95,7 @@ describe("explicit validation extension", () => {
 	afterEach(() => {
 		vi.unstubAllEnvs();
 		rmSync(cwd, { recursive: true, force: true });
+		rmSync(binDir, { recursive: true, force: true });
 	});
 
 	it("registers a slash command without adding a model tool", () => {
