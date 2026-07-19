@@ -39,21 +39,22 @@ afterAll(() => {
 });
 
 describe("All-For-One transcript presentation", () => {
-	test("uses distinct role accents while keeping turn headers width bounded", () => {
-		const userHeader = new TranscriptTurnHeaderComponent("user", "user-1").render(40)[0] ?? "";
-		const assistantHeader = new TranscriptTurnHeaderComponent("assistant", "assistant-1").render(40)[0] ?? "";
+	test("uses distinct role accents, turn spacing, and width-bounded headers", () => {
+		const userLines = new TranscriptTurnHeaderComponent("user", "user-1").render(40);
+		const assistantLines = new TranscriptTurnHeaderComponent("assistant", "assistant-1").render(40);
 
-		expect(stripAnsi(userHeader)).toContain("YOU ─");
-		expect(stripAnsi(assistantHeader)).toContain("ALL-FOR-ONE ─");
-		expect(visibleWidth(userHeader)).toBe(40);
-		expect(visibleWidth(assistantHeader)).toBe(40);
+		expect(userLines[0]?.trim()).toBe("");
+		expect(assistantLines[0]?.trim()).toBe("");
+		expect(stripAnsi(userLines[1] ?? "")).toContain(" YOU ─");
+		expect(stripAnsi(assistantLines[1] ?? "")).toContain(" ALL-FOR-ONE ─");
+		for (const line of [...userLines, ...assistantLines]) expect(visibleWidth(line)).toBe(40);
 	});
 
-	test("renders user messages with a narrow role border without changing message content", () => {
+	test("renders user messages as inset cards without changing message content", () => {
 		const lines = new UserMessageComponent("Keep the runtime unchanged.").render(48);
 		const output = stripAnsi(lines.join("\n"));
 
-		expect(output).toContain("▎");
+		expect(output).toContain(" ▎");
 		expect(output).toContain("Keep the runtime unchanged.");
 		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(48);
 	});
@@ -77,15 +78,16 @@ describe("All-For-One transcript presentation", () => {
 		});
 
 		const lines = group.render(72);
-		const header = stripAnsi(lines[0] ?? "");
-		expect(header).toContain("│▸ File changes");
+		const header = stripAnsi(lines[1] ?? "");
+		expect(lines[0]?.trim()).toBe("");
+		expect(header).toContain(" │▸ File changes");
 		expect(header).toContain("/tmp/example.txt");
 		expect(header).toContain("✓ 2 actions");
-		expect(lines).toHaveLength(3);
+		expect(lines).toHaveLength(4);
 		for (const line of lines) expect(visibleWidth(line)).toBe(72);
 	});
 
-	test("keeps expanded native tool output inside the execution surface", () => {
+	test("keeps expanded native tool output inside the inset execution surface", () => {
 		const component = new FakeToolComponent() as unknown as ToolExecutionComponent;
 		const group = new ExecutionGroupComponent("turn-2", true);
 		group.addAction({
@@ -97,8 +99,9 @@ describe("All-For-One transcript presentation", () => {
 		});
 
 		const lines = group.render(48);
-		expect(stripAnsi(lines[0] ?? "")).toContain("│▾ Repository inspection");
-		expect(stripAnsi(lines[1] ?? "")).toContain("│ native tool renderer");
+		expect(lines[0]?.trim()).toBe("");
+		expect(stripAnsi(lines[1] ?? "")).toContain(" │▾ Repository inspection");
+		expect(stripAnsi(lines[2] ?? "")).toContain(" │ native tool renderer");
 		for (const line of lines) expect(visibleWidth(line)).toBe(48);
 	});
 
