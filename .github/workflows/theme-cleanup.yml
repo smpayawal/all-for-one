@@ -1,0 +1,34 @@
+name: Theme cleanup
+
+on:
+  push:
+    branches: [ui/enhancement]
+    paths:
+      - .github/workflows/theme-cleanup.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ui/enhancement
+        uses: actions/checkout@v4
+        with:
+          ref: ui/enhancement
+          fetch-depth: 0
+
+      - name: Inspect branch and cleanup references
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "HEAD=$(git rev-parse HEAD)"
+          echo "--- matching tracked text references ---"
+          git grep -n -i -E 'tokyonight|tokyo night|microsoft[ -]?foundry|foundry' -- . || true
+          echo "--- matching tracked paths ---"
+          git ls-files | grep -i -E 'tokyo|foundry' || true
+          echo "--- theme-related changed files versus pi ---"
+          git fetch --no-tags origin pi
+          git diff --name-status origin/pi...HEAD -- packages/coding-agent/src/modes/interactive/theme packages/coding-agent/theme packages/coding-agent/test packages/coding-agent/docs packages/coding-agent/package.json | grep -i -E 'theme|tokyo|foundry|skill' || true
