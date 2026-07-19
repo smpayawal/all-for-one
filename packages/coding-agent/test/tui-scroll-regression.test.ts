@@ -9,6 +9,22 @@ function stripAnsi(value: string): string {
 	return value.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
+class ResettingVirtualTerminal extends VirtualTerminal {
+	private screenResetPending = false;
+
+	override start(onInput: (data: string) => void, onResize: () => void): void {
+		super.start(onInput, onResize);
+		this.clearScreen();
+		this.screenResetPending = true;
+	}
+
+	consumeScreenReset(): boolean {
+		const pending = this.screenResetPending;
+		this.screenResetPending = false;
+		return pending;
+	}
+}
+
 describe("TUI scroll regression", () => {
 	beforeAll(() => {
 		initTheme("dark");
@@ -53,5 +69,47 @@ describe("TUI scroll regression", () => {
 		const output = stripAnsi(rail.render(36).join("\n"));
 		expect(output.match(/All-For-One/g)).toHaveLength(1);
 		expect(output.match(/NOW/g)).toHaveLength(1);
+	});
+
+	test("repaints the complete application after its terminal screen is reset", async () => {
+		const terminal = new ResettingVirtualTerminal(128, 12);
+		const tui = new TUI(terminal);
+		const rail = new SessionRailComponent({
+			title: "All-For-One",
+			shortcutSummary: "Esc — Interrupt · Ctrl+C / Ctrl+D — Clear / Exit · / — Command",
+			agents: ["AGENTS.md"],
+			skills: [],
+			lifecycle: { kind: "idle" },
+			activeTools: [],
+			recentTools: [],
+			completedTools: 0,
+			failedTools: 0,
+			getAvailableHeight: () => shell.getAvailableMainHeight(terminal.columns),
+		});
+		const shell = new InteractiveApplicationShell({
+			tui,
+			transcript: new Text("TRANSCRIPT", 0, 0),
+			rail,
+			editor: new Text("EDITOR", 0, 0),
+			footer: new Text("FOOTER", 0, 0),
+			getTerminalHeight: () => terminal.rows,
+		});
+		tui.addChild(shell);
+
+		tui.start();
+		await terminal.waitForRender();
+		tui.stop();
+		await terminal.flush();
+
+		tui.start();
+		await terminal.waitForRender();
+		const screen = stripAnsi(terminal.getViewport().join("\n"));
+		expect(screen.match(/All-For-One/g)).toHaveLength(1);
+		expect(screen).toContain("EDITOR");
+		expect(screen).toContain("FOOTER");
+		expect(screen.match(/SHORTCUTS/g)).toHaveLength(1);
+
+		shell.dispose();
+		tui.stop();
 	});
 });
