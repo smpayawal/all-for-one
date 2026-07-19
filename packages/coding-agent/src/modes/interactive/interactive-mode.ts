@@ -109,7 +109,7 @@ import { CustomMessageComponent } from "./components/custom-message.ts";
 import { DaxnutsComponent } from "./components/daxnuts.ts";
 import { DynamicBorder } from "./components/dynamic-border.ts";
 import { EarendilAnnouncementComponent } from "./components/earendil-announcement.ts";
-import { ExecutionGroupComponent, type ExecutionGroupAction } from "./components/execution-group.ts";
+import { type ExecutionGroupAction, ExecutionGroupComponent } from "./components/execution-group.ts";
 import { ExtensionEditorComponent } from "./components/extension-editor.ts";
 import { ExtensionInputComponent } from "./components/extension-input.ts";
 import { ExtensionSelectorComponent } from "./components/extension-selector.ts";
@@ -162,7 +162,7 @@ import {
 	stopThemeWatcher,
 	Theme,
 	type ThemeColor,
-	 theme,
+	theme,
 } from "./theme/theme.ts";
 import { InteractiveThemeController } from "./theme/theme-controller.ts";
 import { canHandleTranscriptNavigation, getTranscriptNavigationAction } from "./transcript-navigation.ts";
@@ -499,6 +499,13 @@ export class InteractiveMode {
 		this.transcriptViewport = new TranscriptViewport({
 			content: this.mainContentContainer,
 			getViewportHeight: () => this.applicationShell.getAvailableMainHeight(),
+			reuseContent: () =>
+				this.sessionRailLifecycle.kind === "idle" &&
+				this.sessionRailActiveTools.size === 0 &&
+				this.streamingComponent === undefined &&
+				this.bashComponent === undefined &&
+				!this.toolOutputExpanded &&
+				!this.hideThinkingBlock,
 		});
 		this.headerContainer = new Container();
 		this.loadedResourcesContainer = new Container();
@@ -3665,6 +3672,7 @@ export class InteractiveMode {
 		this.pendingTools.clear();
 		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
 		this.renderedToolComponents.clear();
+		this.toolExecutionGroups ??= new Map<string, ExecutionGroupComponent>();
 		this.toolExecutionGroups.clear();
 		this.liveTranscriptTurnRole = undefined;
 		this.liveTranscriptTurnKey = undefined;

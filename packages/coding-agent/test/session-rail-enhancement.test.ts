@@ -26,12 +26,14 @@ describe("session rail hierarchy", () => {
 
 		const lines = stripAnsi(rail.render(36).join("\n")).split("\n");
 		const output = lines.join("\n");
-		expect(output).toContain("ACTIVITY");
-		expect(output).toContain("CURRENT TURN");
-		expect(output).toContain("Running edit");
+		expect(output).toContain("NOW");
+		expect(output).toContain("Working · edit");
+		expect(output).toContain("2 completed");
 		expect(output).toContain("+1 more active");
-		expect(output).toContain("CONTEXT / AGENTS");
-		expect(output).toContain("SKILLS");
+		expect(output).toContain("ACTIVE INSTRUCTIONS");
+		expect(output).toContain("AGENTS.md");
+		expect(output).not.toContain("CURRENT TURN");
+		expect(output).not.toContain("SKILLS");
 		expect(lines).toHaveLength(24);
 	});
 
@@ -50,7 +52,7 @@ describe("session rail hierarchy", () => {
 		});
 
 		const output = stripAnsi(rail.render(36).join("\n"));
-		expect(output).toContain("ACTIVITY");
+		expect(output).toContain("NOW");
 		expect(output).toContain("validation 2/3");
 		expect(output).toContain("Retrying 2/3");
 		expect(output).not.toContain("SKILLS");

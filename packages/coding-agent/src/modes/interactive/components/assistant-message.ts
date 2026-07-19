@@ -1,5 +1,13 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { type Component, Container, Markdown, type MarkdownTheme, Spacer, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import {
+	type Component,
+	Container,
+	Markdown,
+	type MarkdownTheme,
+	Spacer,
+	Text,
+	truncateToWidth,
+} from "@earendil-works/pi-tui";
 import { getMarkdownTheme, type ThemeBg, type ThemeColor, theme } from "../theme/theme.ts";
 import { InsetPanelComponent } from "./inset-panel.ts";
 
@@ -49,9 +57,7 @@ class LabeledAssistantPanelComponent implements Component {
 		if (this.label) {
 			const inset = Math.min(this.inset, Math.max(0, normalizedWidth - 1));
 			const labelWidth = Math.max(1, normalizedWidth - inset);
-			lines.push(
-				`${" ".repeat(inset)}${truncateToWidth(theme.fg(this.labelColor, this.label), labelWidth, "")}`,
-			);
+			lines.push(`${" ".repeat(inset)}${truncateToWidth(theme.fg(this.labelColor, this.label), labelWidth, "")}`);
 		}
 		lines.push(...this.panel.render(normalizedWidth));
 		return lines;
@@ -202,27 +208,21 @@ export class AssistantMessageComponent extends Container {
 						new Text(theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel)), this.outputPad, 0),
 					);
 				} else {
-					const planningMarkdown = new Markdown(
-						thinkingBlocks.join("\n\n"),
-						0,
-						0,
-						this.markdownTheme,
-						{
-							color: (text: string) => theme.fg("thinkingText", text),
-							italic: true,
-						},
-					);
+					const planningMarkdown = new Markdown(thinkingBlocks.join("\n\n"), 0, 0, this.markdownTheme, {
+						color: (text: string) => theme.fg("thinkingText", text),
+						italic: true,
+					});
 					this.contentContainer.addChild(
 						this.outputPad === 0
 							? planningMarkdown
 							: new LabeledAssistantPanelComponent({
-								label: PLAN_LABEL,
-								labelColor: "muted",
-								child: planningMarkdown,
-								borderColor: "borderAccent",
-								background: "toolPendingBg",
-								inset: this.outputPad,
-							}),
+									label: PLAN_LABEL,
+									labelColor: "muted",
+									child: planningMarkdown,
+									borderColor: "borderAccent",
+									background: "toolPendingBg",
+									inset: this.outputPad,
+								}),
 					);
 				}
 				if (hasVisibleContentAfter) {

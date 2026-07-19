@@ -6,7 +6,7 @@ import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import type { SessionEntry } from "../../../src/core/session-manager.ts";
 import type { ToolExecutionComponent } from "../../../src/modes/interactive/components/tool-execution.ts";
 import { InteractiveMode } from "../../../src/modes/interactive/interactive-mode.ts";
-import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";
+import { getMarkdownTheme, initTheme } from "../../../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../../src/utils/ansi.ts";
 
 const TOOL_CALL_ID = "tool-4167";
@@ -75,7 +75,7 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		): ToolExecutionComponent;
 		renderSessionItems: RenderSessionItems;
 	};
-	return {
+	const fakeThis = {
 		pendingTools: new Map<string, ToolExecutionComponent>(),
 		chatContainer,
 		footer: { invalidate: vi.fn() },
@@ -88,16 +88,23 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		sessionManager: { getCwd: () => process.cwd(), getEntries: () => [] },
 		session: { retryAttempt: 0, modelRegistry: { find: () => undefined } },
 		toolOutputExpanded: false,
+		hideThinkingBlock: false,
+		hiddenThinkingLabel: "Thinking...",
+		outputPad: 1,
 		isInitialized: true,
 		updateEditorBorderColor: vi.fn(),
+		finishSessionRailTool: vi.fn(),
 		getRegisteredToolDefinition: (_toolName: string) => undefined,
 		appendTranscriptTurnHeader: prototype.appendTranscriptTurnHeader,
 		createToolExecutionComponent: prototype.createToolExecutionComponent,
 		renderSessionItems: prototype.renderSessionItems,
+		getMarkdownThemeWithSettings: () => getMarkdownTheme(),
 		addMessageToChat(message: AgentMessage) {
 			chatContainer.addChild(new Text(message.role, 0, 0));
 		},
 	};
+	Object.setPrototypeOf(fakeThis, InteractiveMode.prototype);
+	return fakeThis as unknown as RenderSessionContextThis;
 }
 
 function createAssistantToolCallMessage(): AssistantMessage {

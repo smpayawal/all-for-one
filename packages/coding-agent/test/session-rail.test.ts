@@ -9,7 +9,7 @@ import {
 	SESSION_RAIL_MIN_WIDTH,
 	SessionRailComponent,
 } from "../src/modes/interactive/components/session-rail.ts";
-import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 function stripAnsi(value: string): string {
 	return value.replace(/\u001b\[[0-9;]*m/g, "");
@@ -47,7 +47,7 @@ describe("session rail layout", () => {
 		});
 
 		const wideLine = shell.render(128)[0] ?? "";
-		expect(visibleWidth(wideLine)).toBe(128 - SESSION_RAIL_MIN_WIDTH);
+		expect(visibleWidth(wideLine)).toBe(128);
 		expect(stripAnsi(wideLine)).toContain("│");
 
 		const narrowLine = shell.render(127)[0] ?? "";
@@ -90,21 +90,21 @@ describe("rail progress and activity formatting", () => {
 		});
 
 		const output = stripAnsi(rail.render(40).join("\n"));
-		expect(output).toContain("TEST PRODUCT");
+		expect(output).not.toContain("TEST PRODUCT");
 		expect(output).not.toContain("ALL-FOR-ONE");
 		expect(output).not.toContain("PROGRESS");
 		expect(output).toContain("plan-mode 2/5");
-		expect(output).toContain("ACTIVITY");
+		expect(output).toContain("NOW");
 		expect(output).toContain("edit");
-		expect(output).toContain("read");
-		expect(output).toContain("× write");
+		expect(output).toContain("+1 more active");
+		expect(output).not.toContain("× write");
 		expect(output).toContain("✓ find");
 		expect(output).toContain("✓ ls");
 		expect(output).not.toContain("✓ bash");
 		expect(output).toContain("+1 more");
 		expect(output).not.toContain("PROJECT");
-		expect(output).toContain("CONTEXT / AGENTS");
-		expect(output).toContain("SKILLS");
+		expect(output).toContain("ACTIVE INSTRUCTIONS");
+		expect(output).not.toContain("SKILLS");
 	});
 
 	test("handles absent optional values without inventing metadata", () => {
@@ -123,36 +123,32 @@ describe("rail progress and activity formatting", () => {
 		const output = stripAnsi(rail.render(36).join("\n"));
 		expect(output).toContain("Idle");
 		expect(output).not.toContain("PROJECT");
-		expect(output).toContain("—");
+		expect(output).not.toContain("TEST PRODUCT");
 		expect(output).not.toContain("gpt-");
 	});
 
-	test("renders the configured shortcut summary in the rail", () => {
-		const rail = new SessionRailComponent({
+	test("caches stable rail output until its data changes", () => {
+		const data = {
 			title: "TEST PRODUCT",
-			shortcutSummary: "escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
-			agents: [],
-			skills: [],
-			lifecycle: { kind: "idle" },
+			shortcutSummary: "escape interrupt",
+			agents: ["AGENTS.md"],
+			skills: ["unused"],
+			lifecycle: { kind: "idle" } as const,
 			activeTools: [],
 			recentTools: [],
 			completedTools: 0,
 			failedTools: 0,
 			getAvailableHeight: () => 20,
-		});
+		};
+		const rail = new SessionRailComponent(data);
+		const first = rail.render(36);
+		expect(rail.render(36)).toBe(first);
+		expect(stripAnsi(first.join("\n"))).not.toContain("escape interrupt");
 
-		const lines = stripAnsi(rail.render(36).join("\n")).split("\n");
-		const output = lines.join("\n");
-		expect(output).toContain("escape interrupt");
-		const rendered = rail.render(36).join("\n");
-		expect(rendered).toContain(theme.bold(theme.fg("accent", "escape")));
-		expect(rendered).toContain(theme.fg("dim", " interrupt"));
-		expect(rendered).toContain(theme.bold(theme.fg("accent", "ctrl+o")));
-		expect(lines.slice(-3).map((line) => line.trimEnd())).toEqual([
-			"  escape interrupt · ctrl+c/ctrl+d",
-			"  clear/exit · / commands · ! bash ·",
-			"  ctrl+o more",
-		]);
+		rail.setData({ ...data, lifecycle: { kind: "agent" } });
+		const updated = rail.render(36);
+		expect(updated).not.toBe(first);
+		expect(stripAnsi(updated.join("\n"))).toContain("Preparing response");
 	});
 
 	test("preserves progress and activity when the rail is height constrained", () => {
@@ -172,7 +168,7 @@ describe("rail progress and activity formatting", () => {
 		const lines = stripAnsi(rail.render(36).join("\n")).split("\n");
 		expect(lines).toHaveLength(8);
 		expect(lines.join("\n")).not.toContain("PROGRESS");
-		expect(lines.join("\n")).toContain("ACTIVITY");
+		expect(lines.join("\n")).toContain("NOW");
 		expect(lines.join("\n")).toContain("Retrying 2/3");
 	});
 });
@@ -200,7 +196,7 @@ describe("viewport composition", () => {
 		expect(lines).toHaveLength(12);
 		expect(stripAnsi(lines[10] ?? "").trimEnd()).toBe("EDITOR");
 		expect(stripAnsi(lines[11] ?? "").trimEnd()).toBe("FOOTER");
-		expect(visibleWidth(lines[9] ?? "")).toBe(128 - SESSION_RAIL_MIN_WIDTH);
+		expect(visibleWidth(lines[9] ?? "")).toBe(128);
 		shell.dispose();
 	});
 
@@ -254,14 +250,14 @@ describe("viewport composition", () => {
 		await terminal.waitForRender();
 
 		let screen = terminal.getViewport();
-		expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(true);
+		expect(screen.some((line) => line.includes("NOW"))).toBe(true);
 		expect(screen[10]?.trimEnd()).toBe("EDITOR");
 		expect(screen[11]?.trimEnd()).toBe("FOOTER");
 
 		terminal.resize(127, 12);
 		await terminal.waitForRender();
 		screen = terminal.getViewport();
-		expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(false);
+		expect(screen.some((line) => line.includes("NOW"))).toBe(false);
 		expect(screen[10]?.trimEnd()).toBe("EDITOR");
 		expect(screen[11]?.trimEnd()).toBe("FOOTER");
 		shell.dispose();

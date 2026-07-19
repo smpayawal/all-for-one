@@ -1,11 +1,8 @@
-import { fileURLToPath } from "node:url";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
-import { initTheme, loadThemeFromPath, setRegisteredThemes, theme } from "../src/modes/interactive/theme/theme.ts";
-
-const TOKYO_NIGHT_PATH = fileURLToPath(new URL("../theme/tokyonight.json", import.meta.url));
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
@@ -36,16 +33,11 @@ function createMessage(content: AssistantMessage["content"]): AssistantMessage {
 }
 
 beforeAll(() => {
-	setRegisteredThemes([loadThemeFromPath(TOKYO_NIGHT_PATH)]);
 	initTheme("dark");
 });
 
 afterEach(() => {
 	initTheme("dark");
-});
-
-afterAll(() => {
-	setRegisteredThemes([]);
 });
 
 describe("assistant message foundation", () => {

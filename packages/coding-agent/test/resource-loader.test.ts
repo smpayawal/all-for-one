@@ -78,7 +78,7 @@ Skill content here.`,
 			]);
 		});
 
-		it("should load bundled package themes from the package manifest", async () => {
+		it("should not invent bundled themes when the package manifest has none", async () => {
 			const loader = new DefaultResourceLoader({ cwd, agentDir });
 			await loader.reload();
 
@@ -87,7 +87,7 @@ Skill content here.`,
 				.themes.map((theme) => theme.name)
 				.filter((name): name is string => name !== undefined)
 				.sort();
-			expect(names).toEqual(["tokyonight"]);
+			expect(names).toEqual([]);
 		});
 
 		it("should ignore extra markdown files in auto-discovered skill dirs", async () => {
