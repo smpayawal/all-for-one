@@ -40,7 +40,9 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Apply repairs
-        run: python scripts/finalize-tui-roadmap.py
+        run: |
+          python scripts/finalize-tui-roadmap.py
+          python scripts/finalize-tui-regression.py
 
       - name: Format changed files
         run: |
@@ -98,6 +100,7 @@ jobs:
           git checkout origin/main -- .github/workflows/ci.yml
           rm -f \
             scripts/finalize-tui-roadmap.py \
+            scripts/finalize-tui-regression.py \
             .github/workflows/apply-tui-roadmap.yml \
             .github/workflows/run-tui-roadmap.yml \
             .github/workflows/diagnose-tui-focused.yml \
