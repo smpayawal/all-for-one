@@ -62,6 +62,14 @@ describe("rail progress and activity formatting", () => {
 		initTheme("dark");
 	});
 
+	test("accepts only valid extension progress ratios", () => {
+		expect(parseRailProgress("plan-mode", "📋 2/5")).toEqual({ label: "plan-mode", completed: 2, total: 5 });
+		expect(parseRailProgress("plan", "done 5/5")).toEqual({ label: "plan", completed: 5, total: 5 });
+		expect(parseRailProgress("plan", "6/5")).toBeUndefined();
+		expect(parseRailProgress("plan", "0/0")).toBeUndefined();
+		expect(parseRailProgress("status", "working")).toBeUndefined();
+	});
+
 	test("prioritizes progress and active tools, then bounds recent history", () => {
 		const rail = new SessionRailComponent({
 			title: "TEST PRODUCT",
