@@ -8,12 +8,14 @@ import { parseTranscriptMouseWheel, TranscriptViewport } from "../src/modes/inte
 
 class MutableTranscript implements Component {
 	lines: string[];
+	renderCount = 0;
 
 	constructor(lines: string[]) {
 		this.lines = lines;
 	}
 
 	render(_width: number): string[] {
+		this.renderCount += 1;
 		return [...this.lines];
 	}
 
@@ -43,6 +45,24 @@ describe("transcript viewport", () => {
 		viewport.end();
 		expect(viewport.render(40)).toEqual(["row 17", "row 18", "row 19", "row 20", "row 21"]);
 		expect(viewport.getState()).toMatchObject({ followLatest: true, unseenUpdates: 0, scrollTop: 16 });
+	});
+
+	test("reuses stable transcript lines for editor-only renders and invalidates explicitly", () => {
+		const content = new MutableTranscript(["stable transcript"]);
+		const viewport = new TranscriptViewport({
+			content,
+			getViewportHeight: () => 3,
+			reuseContent: () => true,
+		});
+
+		expect(viewport.render(40)).toEqual(["stable transcript", "", ""]);
+		expect(viewport.render(40)).toEqual(["stable transcript", "", ""]);
+		expect(content.renderCount).toBe(1);
+
+		content.lines.push("new line");
+		viewport.markContentChanged();
+		expect(viewport.render(40)).toEqual(["stable transcript", "new line", ""]);
+		expect(content.renderCount).toBe(2);
 	});
 
 	test("keeps short and empty transcripts bounded without duplicate content", () => {

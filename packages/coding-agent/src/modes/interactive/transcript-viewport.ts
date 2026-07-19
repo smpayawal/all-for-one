@@ -7,7 +7,7 @@ import {
 	type TranscriptViewportAction,
 	type TranscriptViewportState,
 } from "./transcript-viewport-state.ts";
-import { measureTuiRender } from "./tui-render-profiler.ts";
+import { measureTuiRender, recordTuiRenderProfile } from "./tui-render-profiler.ts";
 
 export interface TranscriptMouseWheelEvent {
 	direction: "up" | "down";
@@ -60,6 +60,8 @@ export function parseTranscriptMouseWheel(data: string): TranscriptMouseWheelEve
 export interface TranscriptViewportOptions {
 	content: Component;
 	getViewportHeight: () => number;
+	/** Reuse the last rendered transcript when the owner knows the content is immutable. */
+	reuseContent?: () => boolean;
 }
 
 /**
@@ -70,25 +72,50 @@ export interface TranscriptViewportOptions {
 export class TranscriptViewport implements Component {
 	private readonly content: Component;
 	private readonly getViewportHeight: () => number;
+	private readonly reuseContent: () => boolean;
 	private state: TranscriptViewportState = createTranscriptViewportState();
-	private previousLines: string[] | undefined;
-	private previousWidth = 0;
+	private cachedLines: string[] | undefined;
+	private cachedWidth = 0;
+	private contentDirty = true;
+	private lastReuseContent = false;
 
 	constructor(options: TranscriptViewportOptions) {
 		this.content = options.content;
 		this.getViewportHeight = options.getViewportHeight;
+		this.reuseContent = options.reuseContent ?? (() => false);
 	}
 
 	render(width: number): string[] {
 		const transcriptWidth = normalizeDimension(width);
 		const viewportHeight = normalizeDimension(this.getViewportHeight());
-		const lines = measureTuiRender(
-			"transcript.content",
-			() => this.content.render(transcriptWidth),
-			(rendered) => ({ width: transcriptWidth, lines: rendered.length, cacheHit: false }),
-		);
-		const widthChanged = this.previousLines !== undefined && this.previousWidth !== transcriptWidth;
-		const contentChanged = this.previousLines !== undefined && !sameLines(this.previousLines, lines);
+		const widthChanged = this.cachedLines !== undefined && this.cachedWidth !== transcriptWidth;
+		const reuseContent = this.reuseContent();
+		const reuseBecameActive = reuseContent && !this.lastReuseContent;
+		const cacheHit =
+			this.cachedLines !== undefined && !this.contentDirty && !widthChanged && reuseContent && !reuseBecameActive;
+
+		let lines: string[];
+		let contentChanged = false;
+		if (cacheHit) {
+			lines = this.cachedLines as string[];
+			recordTuiRenderProfile("transcript.content", 0, {
+				width: transcriptWidth,
+				lines: lines.length,
+				cacheHit: true,
+			});
+		} else {
+			const previousLines = this.cachedLines;
+			lines = measureTuiRender(
+				"transcript.content",
+				() => this.content.render(transcriptWidth),
+				(rendered) => ({ width: transcriptWidth, lines: rendered.length, cacheHit: false }),
+			);
+			contentChanged = previousLines !== undefined && !sameLines(previousLines, lines);
+			this.cachedLines = lines;
+			this.cachedWidth = transcriptWidth;
+			this.contentDirty = false;
+		}
+		this.lastReuseContent = reuseContent;
 
 		this.state = reduceTranscriptViewportState(this.state, {
 			type: "sync",
@@ -109,8 +136,6 @@ export class TranscriptViewport implements Component {
 		}
 		while (visibleLines.length < viewportHeight) visibleLines.push("");
 
-		this.previousLines = lines;
-		this.previousWidth = transcriptWidth;
 		return visibleLines.slice(0, viewportHeight);
 	}
 
@@ -156,19 +181,27 @@ export class TranscriptViewport implements Component {
 
 	reset(): void {
 		this.state = reduceTranscriptViewportState(this.state, { type: "reset" });
-		this.previousLines = undefined;
-		this.previousWidth = 0;
+		this.clearCache();
+	}
+
+	markContentChanged(): void {
+		this.contentDirty = true;
 	}
 
 	markContentReplaced(): void {
-		this.previousLines = undefined;
-		this.previousWidth = 0;
+		this.clearCache();
 	}
 
 	invalidate(): void {
 		this.content.invalidate();
-		this.previousLines = undefined;
-		this.previousWidth = 0;
+		this.clearCache();
+	}
+
+	private clearCache(): void {
+		this.cachedLines = undefined;
+		this.cachedWidth = 0;
+		this.contentDirty = true;
+		this.lastReuseContent = false;
 	}
 
 	private apply(action: TranscriptViewportAction): boolean {
