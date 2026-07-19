@@ -85,6 +85,23 @@ describe("All-For-One transcript presentation", () => {
 		for (const line of lines) expect(visibleWidth(line)).toBe(72);
 	});
 
+	test("keeps expanded native tool output inside the execution surface", () => {
+		const component = new FakeToolComponent() as unknown as ToolExecutionComponent;
+		const group = new ExecutionGroupComponent("turn-2", true);
+		group.addAction({
+			id: "read-1",
+			toolName: "read",
+			args: { path: "README.md" },
+			status: "running",
+			component,
+		});
+
+		const lines = group.render(48);
+		expect(stripAnsi(lines[0] ?? "")).toContain("│▾ Repository inspection");
+		expect(stripAnsi(lines[1] ?? "")).toContain("│ native tool renderer");
+		for (const line of lines) expect(visibleWidth(line)).toBe(48);
+	});
+
 	test("only promotes a target to the group header when every targeted action agrees", () => {
 		expect(
 			getExecutionGroupTarget([
