@@ -149,9 +149,7 @@ export class AssistantMessageComponent extends Container {
 					this.contentContainer.addChild(markdown);
 				} else {
 					if (!hasToolCalls && !resultLabelRendered) {
-						this.contentContainer.addChild(
-							new Text(theme.bold(theme.fg("customMessageLabel", RESULT_LABEL)), this.outputPad, 0),
-						);
+						this.contentContainer.addChild(new Text(theme.fg("muted", RESULT_LABEL), this.outputPad, 0));
 						resultLabelRendered = true;
 					}
 					this.contentContainer.addChild(
