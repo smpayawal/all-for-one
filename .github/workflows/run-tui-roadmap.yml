@@ -46,15 +46,18 @@ jobs:
           import re
           script = Path('/tmp/apply-tui-roadmap.py')
           content = script.read_text()
-          content, count = re.subn(
+          content, root_count = re.subn(
               r'^ROOT\s*=.*$',
               'ROOT = __import__("pathlib").Path.cwd()',
               content,
               count=1,
               flags=re.MULTILINE,
           )
-          if count != 1:
-              raise SystemExit('Unable to replace implementation script ROOT')
+          old_test = "run('npm', 'exec', '--', 'vitest', '--run', *tests)"
+          new_test = "run('node', 'packages/coding-agent/node_modules/vitest/dist/cli.js', '--run', *[test.removeprefix('packages/coding-agent/') for test in tests])"
+          content, test_count = content.replace(old_test, new_test), content.count(old_test)
+          if root_count != 1 or test_count != 1:
+              raise SystemExit(f'Unable to patch implementation script: root={root_count}, tests={test_count}')
           script.write_text(content)
           PY
           python -m py_compile /tmp/apply-tui-roadmap.py
