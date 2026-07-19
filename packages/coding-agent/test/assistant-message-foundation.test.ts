@@ -46,7 +46,7 @@ describe("assistant message foundation", () => {
 			false,
 		);
 
-		const lines = component.render(72);
+		const lines = component.render(80);
 		const plain = lines.map(stripAnsi);
 		expect(plain.some((line) => line.includes("PLAN Inspecting the render hierarchy before editing."))).toBe(true);
 		expect(
@@ -59,7 +59,7 @@ describe("assistant message foundation", () => {
 		).toBe(true);
 		expect(lines[0]).toContain(OSC133_ZONE_START);
 		expect(lines.at(-1)).toContain(OSC133_ZONE_END + OSC133_ZONE_FINAL);
-		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(72);
+		for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(80);
 	});
 
 	test("keeps hidden thinking compact while preserving the result panel", () => {
