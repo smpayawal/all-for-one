@@ -1,18 +1,29 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
-import { ProcessTerminal } from "../src/terminal.ts";
+import { afterEach, describe, it } from "node:test";
+import { ProcessTerminal } from "../src/application-terminal.ts";
+
+const originalAlternateScreen = process.env.PI_TUI_ALTERNATE_SCREEN;
+
+afterEach(() => {
+	if (originalAlternateScreen === undefined) {
+		delete process.env.PI_TUI_ALTERNATE_SCREEN;
+	} else {
+		process.env.PI_TUI_ALTERNATE_SCREEN = originalAlternateScreen;
+	}
+});
 
 describe("ProcessTerminal alternate screen mode", () => {
 	it("enters and exits the alternate screen exactly once when enabled", () => {
 		const writes: string[] = [];
 		const previousWrite = process.stdout.write;
+		process.env.PI_TUI_ALTERNATE_SCREEN = "1";
 		process.stdout.write = ((chunk: string | Uint8Array) => {
 			writes.push(String(chunk));
 			return true;
 		}) as typeof process.stdout.write;
 
 		try {
-			const terminal = new ProcessTerminal({ alternateScreen: true });
+			const terminal = new ProcessTerminal();
 			terminal.enterAlternateScreen();
 			terminal.enterAlternateScreen();
 			terminal.exitAlternateScreen();
@@ -24,9 +35,10 @@ describe("ProcessTerminal alternate screen mode", () => {
 		}
 	});
 
-	it("preserves inline terminal behavior by default", () => {
+	it("preserves inline terminal behavior when the product opt-in is absent", () => {
 		const writes: string[] = [];
 		const previousWrite = process.stdout.write;
+		delete process.env.PI_TUI_ALTERNATE_SCREEN;
 		process.stdout.write = ((chunk: string | Uint8Array) => {
 			writes.push(String(chunk));
 			return true;
