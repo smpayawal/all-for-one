@@ -55,59 +55,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
+      - name: Build packages
+        run: npm run build
+
       - name: Repository helper tests
         run: >-
           node --test
           scripts/check-clean-worktree.test.mjs
           scripts/profile-startup-baseline.test.mjs
-
-      - name: Build TUI package
-        run: npm --prefix packages/tui run build
-
-      - name: Generate AI model catalog
-        run: cd packages/ai && node scripts/generate-models.ts
-
-      - name: Ensure Kimi coding compatibility
-        run: cd packages/ai && node scripts/ensure-kimi-coding-compat.ts
-
-      - name: Compile AI package
-        id: compile_ai
-        continue-on-error: true
-        run: |
-          set +e
-          cd packages/ai
-          npm exec -- tsgo -p tsconfig.build.json > ../../ai-compile.log 2>&1
-          status=$?
-          cat ../../ai-compile.log
-          exit ${status}
-
-      - name: Upload AI compile diagnostics
-        if: steps.compile_ai.outcome == 'failure'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: ai-compile-diagnostics-${{ github.run_attempt }}
-          path: ai-compile.log
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Require successful AI compilation
-        if: steps.compile_ai.outcome == 'failure'
-        run: exit 1
-
-      - name: Copy AI package data
-        run: |
-          cd packages/ai
-          npm exec -- shx rm -rf dist/providers/data
-          npm exec -- shx cp -r src/providers/data dist/providers/data
-
-      - name: Build agent package
-        run: npm --prefix packages/agent run build
-
-      - name: Build coding-agent package
-        run: npm --prefix packages/coding-agent run build
-
-      - name: Build orchestrator package
-        run: npm --prefix packages/orchestrator run build
 
       - name: Session-efficiency report tests
         run: npm exec -- tsx --test scripts/session-efficiency-report.test.ts
