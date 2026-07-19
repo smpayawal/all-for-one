@@ -4,8 +4,8 @@ import { ProcessTerminal } from "../src/application-terminal.ts";
 
 const originalAlternateScreen = process.env.PI_TUI_ALTERNATE_SCREEN;
 
-const APPLICATION_SCREEN_ENTER_SEQUENCE = "\x1b[?1049h\x1b[?7l";
-const APPLICATION_SCREEN_EXIT_SEQUENCE = "\x1b[?7h\x1b[?1049l";
+const APPLICATION_SCREEN_ENTER_SEQUENCE = "\x1b[?1049h\x1b[?1000h\x1b[?1006h";
+const APPLICATION_SCREEN_EXIT_SEQUENCE = "\x1b[?1006l\x1b[?1000l\x1b[?1049l";
 
 afterEach(() => {
 	if (originalAlternateScreen === undefined) {
@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe("ProcessTerminal alternate screen mode", () => {
-	it("owns the application screen and disables terminal autowrap while active", () => {
+	it("owns the application screen and mouse reporting for its full lifetime", () => {
 		const writes: string[] = [];
 		const previousWrite = process.stdout.write;
 		process.env.PI_TUI_ALTERNATE_SCREEN = "1";
