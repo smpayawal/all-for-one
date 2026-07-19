@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { isPrereleaseVersion } from "./allforone-version.mjs";
 import { parseAllForOneReleaseTag, RELEASE_ASSETS } from "./allforone-release.mjs";
 
+const COMMIT_PATTERN = /^[0-9a-f]{40}$/i;
 const CHECKSUMMED_FILES = [...RELEASE_ASSETS, "release-manifest.json", "RELEASE_NOTES.md"];
 const EXPECTED_FILES = [...CHECKSUMMED_FILES, "SHA256SUMS"];
 
@@ -34,9 +35,10 @@ export function parseChecksumFile(content) {
 	return entries;
 }
 
-export function verifyReleaseDirectory({ directory, tag }) {
+export function verifyReleaseDirectory({ directory, tag, commit }) {
 	const releaseDirectory = resolve(directory);
 	const version = parseAllForOneReleaseTag(tag);
+	if (!COMMIT_PATTERN.test(commit)) throw new Error(`Invalid release commit: ${commit}`);
 
 	for (const name of EXPECTED_FILES) {
 		if (!existsSync(join(releaseDirectory, name))) {
@@ -50,6 +52,9 @@ export function verifyReleaseDirectory({ directory, tag }) {
 	if (manifest.tag !== tag) throw new Error(`Release manifest tag ${manifest.tag} does not match ${tag}.`);
 	if (manifest.version !== version) {
 		throw new Error(`Release manifest version ${manifest.version} does not match ${version}.`);
+	}
+	if (manifest.commit !== commit) {
+		throw new Error(`Release manifest commit ${manifest.commit} does not match ${commit}.`);
 	}
 	if (manifest.prerelease !== isPrereleaseVersion(version)) {
 		throw new Error(`Release manifest prerelease flag does not match ${version}.`);
@@ -78,7 +83,7 @@ export function verifyReleaseDirectory({ directory, tag }) {
 		version,
 		prerelease: manifest.prerelease,
 		piBaseline: manifest.piBaseline,
-		commit: manifest.commit,
+		commit,
 		verifiedFiles: checksums.size,
 	};
 }
@@ -87,7 +92,7 @@ function parseArgs(argv) {
 	const options = { json: false };
 	for (let index = 0; index < argv.length; index++) {
 		const arg = argv[index];
-		if (arg === "--dir" || arg === "--tag") {
+		if (arg === "--dir" || arg === "--tag" || arg === "--commit") {
 			const value = argv[++index];
 			if (!value) throw new Error(`${arg} requires a value.`);
 			options[arg.slice(2)] = value;
@@ -107,7 +112,9 @@ function parseArgs(argv) {
 }
 
 function printUsage() {
-	console.log("Usage: node scripts/verify-allforone-release-assets.mjs --dir <release-assets> --tag <afo-vX.Y.Z> [--json]");
+	console.log(
+		"Usage: node scripts/verify-allforone-release-assets.mjs --dir <release-assets> --tag <afo-vX.Y.Z> --commit <sha> [--json]",
+	);
 }
 
 export function runCli(argv = process.argv.slice(2)) {
@@ -118,7 +125,8 @@ export function runCli(argv = process.argv.slice(2)) {
 	}
 	if (!options.dir) throw new Error("--dir is required.");
 	if (!options.tag) throw new Error("--tag is required.");
-	const result = verifyReleaseDirectory({ directory: options.dir, tag: options.tag });
+	if (!options.commit) throw new Error("--commit is required.");
+	const result = verifyReleaseDirectory({ directory: options.dir, tag: options.tag, commit: options.commit });
 	console.log(options.json ? JSON.stringify(result, null, 2) : `Verified ${result.tag} published release assets.`);
 }
 
