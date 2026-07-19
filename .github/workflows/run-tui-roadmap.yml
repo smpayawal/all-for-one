@@ -46,9 +46,6 @@ jobs:
       - name: Code quality
         run: npm run check
 
-      - name: Full test suite
-        run: npm test
-
       - name: Verify diff integrity
         run: git diff --check
 
@@ -65,3 +62,22 @@ jobs:
           git diff --cached --check
           git commit -m "style: satisfy repository formatting checks"
           git push origin HEAD:perf/tui-responsiveness-roadmap
+
+      - name: Full test suite
+        id: full_tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/full-test.log
+
+      - name: Upload full-test failure log
+        if: steps.full_tests.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tui-roadmap-full-test-failure
+          path: /tmp/full-test.log
+          if-no-files-found: error
+
+      - name: Fail when full tests failed
+        if: steps.full_tests.outcome == 'failure'
+        run: exit 1
