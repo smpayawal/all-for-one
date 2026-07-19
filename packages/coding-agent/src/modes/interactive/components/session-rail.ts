@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { type ThemeColor, theme } from "../theme/theme.ts";
+import { measureTuiRender, recordTuiRenderProfile } from "../tui-render-profiler.ts";
 import { fillBackgroundLine } from "./background-fill.ts";
 
 export {
@@ -34,9 +35,12 @@ export interface SessionRailProgress {
 }
 
 export interface SessionRailData {
+	/** Retained for compatibility; branding is already visible elsewhere in the TUI. */
 	title: string;
+	/** Retained for compatibility; persistent shortcut help is intentionally not rendered. */
 	shortcutSummary?: string;
 	agents: readonly string[];
+	/** Available skills remain discoverable through commands and are not shown persistently. */
 	skills: readonly string[];
 	progress?: SessionRailProgress;
 	lifecycle: SessionRailLifecycle;
@@ -73,40 +77,6 @@ function padRailLine(line: string, width: number, innerWidth: number): string {
 	return `${" ".repeat(HORIZONTAL_PADDING)}${clipped}${" ".repeat(rightPadding)}`;
 }
 
-function wrapRailText(value: string, width: number): string[] {
-	const contentWidth = Math.max(1, width);
-	const words = sanitize(value).split(/\s+/).filter(Boolean);
-	const lines: string[] = [];
-	let current = "";
-
-	for (const word of words) {
-		const candidate = current ? `${current} ${word}` : word;
-		if (current && visibleWidth(candidate) > contentWidth) {
-			lines.push(current);
-			current = word;
-		} else {
-			current = candidate;
-		}
-	}
-
-	if (current) lines.push(current);
-	return lines.length > 0 ? lines : ["—"];
-}
-
-function styleShortcutLine(line: string): string {
-	const segments = line.split(" · ");
-	const styledSegments = segments.map((segment) => {
-		const separator = segment.indexOf(" ");
-		if (separator === -1) return theme.bold(theme.fg("accent", segment));
-
-		const shortcut = segment.slice(0, separator);
-		const description = segment.slice(separator);
-		return theme.bold(theme.fg("accent", shortcut)) + theme.fg("dim", description);
-	});
-
-	return theme.fg("dim", "  ") + styledSegments.join(theme.fg("dim", " · "));
-}
-
 /** Extract an extension-provided completed/total status without trusting arbitrary status text. */
 export function parseRailProgress(key: string, text: string): SessionRailProgress | undefined {
 	const match = sanitize(text).match(/(?:^|\s)(\d+)\s*\/\s*(\d+)(?:\s|$)/);
@@ -132,31 +102,19 @@ function sectionTitle(label: string): string {
 	return theme.bold(theme.fg("customMessageLabel", label));
 }
 
-function formatBrandLine(title: string, width: number): string {
-	const mark = "◆";
-	const plainTitle = `${mark} ${title}`;
-	const ruleWidth = Math.max(0, width - visibleWidth(plainTitle) - 1);
-	const rule = ruleWidth > 0 ? ` ${theme.fg("border", "─".repeat(ruleWidth))}` : "";
-	const styled = `${theme.fg("warning", mark)} ${theme.bold(theme.fg("accent", title))}${rule}`;
-	const truncated = truncateToWidth(styled, width, "");
-	return truncated + " ".repeat(Math.max(0, width - visibleWidth(truncated)));
-}
-
-function formatLifecycle(lifecycle: SessionRailLifecycle, width: number): string {
+function formatLifecycle(lifecycle: SessionRailLifecycle, activeTools: readonly string[], width: number): string {
 	let value: string;
-	switch (lifecycle.kind) {
-		case "idle":
-			value = theme.fg("muted", "Idle");
-			break;
-		case "agent":
-			value = theme.fg("borderAccent", "Working");
-			break;
-		case "retry":
-			value = theme.fg("warning", `Retrying ${lifecycle.attempt}/${lifecycle.maxAttempts}`);
-			break;
-		case "compaction":
-			value = theme.fg("warning", "Compacting");
-			break;
+	if (lifecycle.kind === "retry") {
+		value = theme.fg("warning", `Retrying ${lifecycle.attempt}/${lifecycle.maxAttempts}`);
+	} else if (lifecycle.kind === "compaction") {
+		value = theme.fg("warning", "Compacting context");
+	} else if (activeTools.length > 0) {
+		const active = railLine(activeTools[0] ?? "tool", Math.max(1, width - 12));
+		value = theme.fg("borderAccent", `Working · ${active}`);
+	} else if (lifecycle.kind === "agent") {
+		value = theme.fg("borderAccent", "Preparing response");
+	} else {
+		value = theme.fg("muted", "Idle");
 	}
 	return indentSectionBody(value, width);
 }
@@ -188,31 +146,16 @@ function formatResourceList(resources: readonly string[]): string[] {
 	return [...visibleResources, ...(remaining > 0 ? [`+${remaining} more`] : [])];
 }
 
-function createSection(label: string, values: readonly string[], width: number, valueColor: ThemeColor = "muted"): string[] {
+function createSection(
+	label: string,
+	values: readonly string[],
+	width: number,
+	valueColor: ThemeColor = "muted",
+): string[] {
 	return [
 		sectionTitle(label),
 		...values.map((value) => indentSectionBody(theme.fg(valueColor, railLine(value, width)), width)),
 	];
-}
-
-function createCurrentTurnSection(data: SessionRailData, width: number): string[] {
-	const values: string[] = [];
-	if (data.activeTools.length > 0) {
-		values.push(`Running ${data.activeTools[0]}`);
-		if (data.activeTools.length > 1) values.push(`+${data.activeTools.length - 1} more active`);
-	} else if (data.lifecycle.kind === "retry") {
-		values.push(`Retry attempt ${data.lifecycle.attempt}/${data.lifecycle.maxAttempts}`);
-	} else if (data.lifecycle.kind === "compaction") {
-		values.push("Compacting context");
-	} else if (data.lifecycle.kind === "agent") {
-		values.push(data.progress?.label ? `Working on ${data.progress.label}` : "Preparing response");
-	} else {
-		values.push("Waiting for input");
-	}
-	let valueColor: ThemeColor = "borderAccent";
-	if (data.lifecycle.kind === "idle") valueColor = "muted";
-	if (data.lifecycle.kind === "retry" || data.lifecycle.kind === "compaction") valueColor = "warning";
-	return createSection("CURRENT TURN", values, width, valueColor);
 }
 
 function appendWholeSection(target: string[], section: readonly string[], limit: number): boolean {
@@ -223,8 +166,30 @@ function appendWholeSection(target: string[], section: readonly string[], limit:
 	return true;
 }
 
+function createNowSection(data: SessionRailData, width: number): string[] {
+	const lines = [sectionTitle("NOW"), formatLifecycle(data.lifecycle, data.activeTools, width)];
+	const outcomes = [
+		...(data.completedTools > 0 ? [`${data.completedTools} completed`] : []),
+		...(data.failedTools > 0 ? [`${data.failedTools} failed`] : []),
+	];
+	if (outcomes.length > 0) {
+		lines.push(indentSectionBody(theme.fg("muted", outcomes.join(" · ")), width));
+	}
+	if (data.progress) lines.push(formatProgress(data.progress, width));
+	if (data.activeTools.length > 1) {
+		lines.push(indentSectionBody(theme.fg("muted", `+${data.activeTools.length - 1} more active`), width));
+	}
+	for (const event of data.recentTools.slice(-2)) lines.push(formatToolEvent(event, width));
+	return lines;
+}
+
 export class SessionRailComponent implements Component {
 	private data: SessionRailData;
+	private revision = 0;
+	private cachedRevision = -1;
+	private cachedWidth = -1;
+	private cachedHeight = -1;
+	private cachedLines: string[] = [];
 
 	constructor(data: SessionRailData) {
 		this.data = data;
@@ -232,86 +197,73 @@ export class SessionRailComponent implements Component {
 
 	setData(data: SessionRailData): void {
 		this.data = data;
+		this.revision += 1;
 	}
 
 	render(width: number): string[] {
 		const normalizedWidth = Number.isFinite(width) ? Math.max(1, Math.floor(width)) : 1;
 		const availableHeight = Math.max(0, Math.floor(this.data.getAvailableHeight()));
+		if (
+			this.cachedRevision === this.revision &&
+			this.cachedWidth === normalizedWidth &&
+			this.cachedHeight === availableHeight
+		) {
+			recordTuiRenderProfile("session-rail", 0, {
+				width: normalizedWidth,
+				height: availableHeight,
+				lines: this.cachedLines.length,
+				cacheHit: true,
+			});
+			return this.cachedLines;
+		}
+
+		const rendered = measureTuiRender(
+			"session-rail",
+			() => this.renderUncached(normalizedWidth, availableHeight),
+			(lines) => ({
+				width: normalizedWidth,
+				height: availableHeight,
+				lines: lines.length,
+				cacheHit: false,
+			}),
+		);
+		this.cachedRevision = this.revision;
+		this.cachedWidth = normalizedWidth;
+		this.cachedHeight = availableHeight;
+		this.cachedLines = rendered;
+		return rendered;
+	}
+
+	invalidate(): void {
+		this.cachedRevision = -1;
+	}
+
+	private renderUncached(normalizedWidth: number, availableHeight: number): string[] {
 		if (availableHeight === 0) return [];
 
 		const innerWidth = Math.max(1, normalizedWidth - HORIZONTAL_PADDING * 2);
 		const topPadding = availableHeight >= TOP_PADDING_MIN_HEIGHT ? 1 : 0;
-		const contentHeight = Math.max(0, availableHeight - topPadding);
-		const shortcutLines =
-			this.data.shortcutSummary && contentHeight >= 11
-				? wrapRailText(this.data.shortcutSummary, innerWidth).map(styleShortcutLine)
-				: [];
-		const helpHeight = shortcutLines.length > 0 ? shortcutLines.length + 1 : 0;
-		const contentLimit = Math.max(0, contentHeight - helpHeight);
+		const contentLimit = Math.max(0, availableHeight - topPadding);
 		const lines: string[] = [];
 
-		const title = sanitize(this.data.title);
-		lines.push(formatBrandLine(title, innerWidth));
-
-		const activity: string[] = [sectionTitle("ACTIVITY"), formatLifecycle(this.data.lifecycle, innerWidth)];
-		const outcomes = [
-			...(this.data.completedTools > 0 ? [`${this.data.completedTools} succeeded`] : []),
-			...(this.data.failedTools > 0 ? [`${this.data.failedTools} failed`] : []),
-		];
-		if (outcomes.length > 0) {
-			activity.push(indentSectionBody(theme.fg("muted", outcomes.join(" · ")), innerWidth));
-		}
-		if (this.data.progress) activity.push(formatProgress(this.data.progress, innerWidth));
-		for (const toolName of this.data.activeTools.slice(0, 3)) {
-			activity.push(indentSectionBody(theme.fg("borderAccent", railLine(`● ${toolName}`, innerWidth)), innerWidth));
-		}
-		if (this.data.activeTools.length > 3) {
-			activity.push(
-				indentSectionBody(theme.fg("muted", `+${this.data.activeTools.length - 3} more active`), innerWidth),
+		appendWholeSection(lines, createNowSection(this.data, innerWidth), contentLimit);
+		if (this.data.agents.length > 0) {
+			appendWholeSection(
+				lines,
+				createSection("ACTIVE INSTRUCTIONS", formatResourceList(this.data.agents), innerWidth),
+				contentLimit,
 			);
 		}
-		for (const event of this.data.recentTools.slice(-3)) activity.push(formatToolEvent(event, innerWidth));
-		if (this.data.recentTools.length > 3) {
-			activity.push(indentSectionBody(theme.fg("muted", `+${this.data.recentTools.length - 3} more`), innerWidth));
-		}
-
-		if (contentLimit > lines.length) {
-			lines.push("");
-			lines.push(...activity.slice(0, Math.max(0, contentLimit - lines.length)));
-		}
-		appendWholeSection(lines, createCurrentTurnSection(this.data, innerWidth), contentLimit);
-		appendWholeSection(
-			lines,
-			createSection(
-				"CONTEXT / AGENTS",
-				this.data.agents.length > 0 ? formatResourceList(this.data.agents) : ["—"],
-				innerWidth,
-			),
-			contentLimit,
-		);
-		appendWholeSection(
-			lines,
-			createSection(
-				"SKILLS",
-				this.data.skills.length > 0 ? formatResourceList(this.data.skills) : ["—"],
-				innerWidth,
-			),
-			contentLimit,
-		);
 
 		const visibleContent = lines.slice(0, contentLimit);
 		const padding = Array.from({ length: Math.max(0, contentLimit - visibleContent.length) }, () => "");
 		const renderedBody = [...visibleContent, ...padding]
 			.slice(0, contentLimit)
 			.map((line) => padRailLine(line, normalizedWidth, innerWidth));
-		const renderedHelp = shortcutLines.length > 0 ? [" ".repeat(normalizedWidth), ...shortcutLines] : [];
 		const rendered = [
 			...Array.from({ length: topPadding }, () => " ".repeat(normalizedWidth)),
 			...renderedBody,
-			...renderedHelp,
 		].slice(0, availableHeight);
 		return rendered.map((line) => fillBackgroundLine(line, normalizedWidth, "customMessageBg"));
 	}
-
-	invalidate(): void {}
 }
