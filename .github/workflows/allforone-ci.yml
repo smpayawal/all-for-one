@@ -55,14 +55,26 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Build packages
-        run: npm run build
-
       - name: Repository helper tests
         run: >-
           node --test
           scripts/check-clean-worktree.test.mjs
           scripts/profile-startup-baseline.test.mjs
+
+      - name: Build TUI package
+        run: npm --prefix packages/tui run build
+
+      - name: Build AI package
+        run: npm --prefix packages/ai run build
+
+      - name: Build agent package
+        run: npm --prefix packages/agent run build
+
+      - name: Build coding-agent package
+        run: npm --prefix packages/coding-agent run build
+
+      - name: Build orchestrator package
+        run: npm --prefix packages/orchestrator run build
 
       - name: Session-efficiency report tests
         run: npm exec -- tsx --test scripts/session-efficiency-report.test.ts
