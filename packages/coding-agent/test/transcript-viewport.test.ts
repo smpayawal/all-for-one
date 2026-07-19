@@ -121,14 +121,21 @@ describe("transcript viewport", () => {
 		try {
 			await terminal.waitForRender();
 			let screen = terminal.getViewport();
-			expect(screen.slice(0, 6)).toEqual(["row 15", "row 16", "row 17", "row 18", "row 19", "row 20"]);
+			expect(screen.slice(0, 6).map((line) => line.trimEnd())).toEqual([
+				"row 15",
+				"row 16",
+				"row 17",
+				"row 18",
+				"row 19",
+				"row 20",
+			]);
 			expect(screen.slice(-2).map((line) => line.trimEnd())).toEqual(["EDITOR", "FOOTER"]);
 
 			viewport.pageUp();
 			tui.requestRender();
 			await terminal.waitForRender();
 			screen = terminal.getViewport();
-			expect(screen[0]).toBe("row 11");
+			expect(screen[0]?.trimEnd()).toBe("row 11");
 
 			content.lines.push("row 21");
 			tui.requestRender();

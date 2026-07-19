@@ -7,6 +7,7 @@ import {
 	type TranscriptViewportAction,
 	type TranscriptViewportState,
 } from "./transcript-viewport-state.ts";
+import { measureTuiRender } from "./tui-render-profiler.ts";
 
 export interface TranscriptMouseWheelEvent {
 	direction: "up" | "down";
@@ -81,7 +82,11 @@ export class TranscriptViewport implements Component {
 	render(width: number): string[] {
 		const transcriptWidth = normalizeDimension(width);
 		const viewportHeight = normalizeDimension(this.getViewportHeight());
-		const lines = this.content.render(transcriptWidth);
+		const lines = measureTuiRender(
+			"transcript.content",
+			() => this.content.render(transcriptWidth),
+			(rendered) => ({ width: transcriptWidth, lines: rendered.length, cacheHit: false }),
+		);
 		const widthChanged = this.previousLines !== undefined && this.previousWidth !== transcriptWidth;
 		const contentChanged = this.previousLines !== undefined && !sameLines(this.previousLines, lines);
 
