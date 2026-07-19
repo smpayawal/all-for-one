@@ -22,7 +22,8 @@ describe("session rail visual hierarchy", () => {
 	test("renders the compact operational hierarchy with consistent width and indentation", () => {
 		const rail = new SessionRailComponent({
 			title: "All-For-One",
-			shortcutSummary: "esc interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more",
+			shortcutSummary:
+				"Esc — Interrupt · Ctrl+C / Ctrl+D — Clear / Exit · / — Command · ! — Bash · Ctrl+O — More",
 			agents: ["project/AGENTS.md"],
 			skills: ["systematic-debugging"],
 			progress: { label: "implementation", completed: 2, total: 5 },
@@ -53,10 +54,12 @@ describe("session rail visual hierarchy", () => {
 		expect(output).not.toContain("systematic-debugging");
 		expect(output).not.toContain("SKILLS");
 		expect(output).toContain("SHORTCUTS");
-		expect(output).toContain("/ commands");
-		expect(output).toContain("! bash");
-		expect(output).toContain("ctrl+o more");
+		expect(output).toContain("Esc — Interrupt");
+		expect(output).toContain("Ctrl+C / Ctrl+D — Clear / Exit");
+		expect(output).toContain("/ — Command");
+		expect(output).toContain("! — Bash");
+		expect(output).toContain("Ctrl+O — More");
 		expect(output.indexOf("SHORTCUTS")).toBeGreaterThan(output.indexOf("ACTIVE INSTRUCTIONS"));
-		expect(meaningfulLines.at(-1)).toContain("ctrl+o more");
+		expect(meaningfulLines.at(-1)).toContain("Ctrl+O — More");
 	});
 });
