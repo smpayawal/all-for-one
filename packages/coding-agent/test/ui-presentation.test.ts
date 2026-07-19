@@ -130,6 +130,33 @@ describe("All-For-One transcript presentation", () => {
 		for (const line of lines) expect(visibleWidth(line)).toBe(64);
 	});
 
+	test("places the status marker inside the native tool background", () => {
+		const nativeBackground = theme.getBgAnsi("toolSuccessBg");
+		const component = new FakeToolComponent([
+			theme.bg("toolSuccessBg", "write /tmp/example.txt"),
+			"written content",
+		]) as unknown as ToolExecutionComponent;
+		const group = new ExecutionGroupComponent("turn-background", true);
+		group.addAction({
+			id: "write-background",
+			toolName: "write",
+			args: { path: "/tmp/example.txt" },
+			status: "success",
+			component,
+		});
+
+		const lines = group.render(56);
+		const actionLine = lines.find((line) => stripAnsi(line).includes("✓ write /tmp/example.txt"));
+		expect(actionLine).toBeDefined();
+		const backgroundIndex = actionLine?.indexOf(nativeBackground) ?? -1;
+		const markerIndex = actionLine?.indexOf("✓") ?? -1;
+		const resetIndex = actionLine?.indexOf("\x1b[49m", markerIndex) ?? -1;
+		expect(backgroundIndex).toBeGreaterThanOrEqual(0);
+		expect(markerIndex).toBeGreaterThan(backgroundIndex);
+		expect(resetIndex).toBeGreaterThan(markerIndex);
+		for (const line of lines) expect(visibleWidth(line)).toBe(56);
+	});
+
 	test("retains structured action summaries when a group is collapsed", () => {
 		const component = new FakeToolComponent(["read README.md", "README contents"]) as unknown as ToolExecutionComponent;
 		const group = new ExecutionGroupComponent("turn-3", false);
