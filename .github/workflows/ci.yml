@@ -58,8 +58,11 @@ jobs:
         run: npm run build
 
       - name: Focused tests
+        id: focused
+        continue-on-error: true
         working-directory: packages/coding-agent
         run: |
+          set -o pipefail
           npm run test -- \
             test/assistant-message-foundation.test.ts \
             test/assistant-message.test.ts \
@@ -69,7 +72,20 @@ jobs:
             test/session-rail-style.test.ts \
             test/transcript-viewport.test.ts \
             test/transcript-turn-rendering.test.ts \
-            test/suite/regressions/4167-thinking-toggle-pending-tool-render.test.ts
+            test/suite/regressions/4167-thinking-toggle-pending-tool-render.test.ts \
+            2>&1 | tee /tmp/focused.log
+
+      - name: Upload focused failure
+        if: steps.focused.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-tui-focused-failure
+          path: /tmp/focused.log
+          if-no-files-found: error
+
+      - name: Stop on focused failure
+        if: steps.focused.outcome == 'failure'
+        run: exit 1
 
       - name: Code quality
         run: npm run check
