@@ -1,0 +1,60 @@
+name: UI Enhancement Validation
+
+on:
+  push:
+    branches: [ui/enhancement]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-enhancement-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install platform tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build
+        run: npm run build
+
+      - name: Check
+        run: npm run check
+
+      - name: Focused UI tests
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
+          test/assistant-message-foundation.test.ts
+          test/ui-presentation.test.ts
+          test/bundled-themes.test.ts
+          test/background-fill.test.ts
+          test/app-shell.test.ts
+          test/session-rail-style.test.ts
+          test/session-rail.test.ts
+
+      - name: Restore generated catalogs
+        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
+
+      - name: Verify clean worktree
+        run: node scripts/check-clean-worktree.mjs
