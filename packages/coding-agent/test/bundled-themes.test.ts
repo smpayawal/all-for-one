@@ -84,11 +84,19 @@ describe("bundled All-For-One themes", () => {
 			const colors = getResolvedThemeColors(themeName);
 			const workspace = colors.customMessageBg;
 			const result = colors.selectedBg;
+			const semanticSurfaces = [
+				colors.userMessageBg,
+				result,
+				colors.toolPendingBg,
+				colors.toolSuccessBg,
+				colors.toolErrorBg,
+			];
+
 			expect(contrast(colors.text, workspace)).toBeGreaterThanOrEqual(4.5);
 			expect(contrast(colors.text, result)).toBeGreaterThanOrEqual(4.5);
 			expect(contrast(colors.muted, workspace)).toBeGreaterThanOrEqual(3);
 			expect(result).not.toBe(workspace);
-			expect(new Set([colors.userMessageBg, result, colors.toolPendingBg, colors.toolSuccessBg, colors.toolErrorBg]).size).toBeGreaterThanOrEqual(4);
+			expect(new Set(semanticSurfaces).size).toBeGreaterThanOrEqual(4);
 		},
 	);
 });
