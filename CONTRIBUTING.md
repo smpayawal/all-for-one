@@ -18,7 +18,21 @@ All-For-One is an independent downstream project based on Pi. Keep changes small
 - Do not add All-For-One features to `main`.
 - Do not merge `allforone` into `main` or rewrite its published history.
 
-Upstream synchronization branches use the form `sync/pi-*`. These pull requests must be merged with a merge commit. Do not squash or rebase them because `main` must remain an ancestor of `allforone`.
+Upstream synchronization branches use the form `sync/pi-*`. These pull requests must be merged with a merge commit. Do not squash or rebase them because `main` must remain an ancestor of `allforone`. After review and successful checks, use the `merge-sync` action in the Upstream Pi Sync workflow with the pull request number.
+
+## Downstream ownership
+
+Keep behavior in the narrowest correct Pi layer. The All-For-One product namespace is not a general destination for downstream code.
+
+| Area | Ownership |
+| --- | --- |
+| `packages/coding-agent/src/allforone/` | Product identity, command presentation, and compatibility aliases only. |
+| `packages/agent/` | Provider-independent agent loop and runtime behavior shared by every mode. |
+| `packages/coding-agent/src/core/` | Sessions, compaction, memory, scoped context, validation, tools, and coding-agent policy. |
+| `packages/coding-agent/src/extensions/` | Optional repository mapping, validation, and other extension-owned behavior. |
+| `packages/coding-agent/src/modes/interactive/` | TUI-only presentation such as the session rail and brand header. |
+
+Do not move a feature solely to make it look more All-For-One-specific. Extract a downstream module only when it creates a narrow interface, preserves Pi behavior, and measurably reduces ownership or upstream merge conflicts.
 
 ## Validation
 
