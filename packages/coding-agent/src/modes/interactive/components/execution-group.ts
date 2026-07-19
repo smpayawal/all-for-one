@@ -135,7 +135,10 @@ export class ExecutionGroupComponent implements Component {
 		const lines = [this.renderHeader(groupWidth, summary.status, summary)];
 
 		if (this.expanded) {
-			for (const action of this.actionList) lines.push(...this.renderExpandedAction(action, groupWidth));
+			for (let index = 0; index < this.actionList.length; index++) {
+				if (index > 0) lines.push(this.renderActionSeparator(groupWidth));
+				lines.push(...this.renderExpandedAction(this.actionList[index]!, groupWidth));
+			}
 		} else {
 			for (const action of this.actionList) lines.push(this.renderCollapsedAction(action, groupWidth));
 		}
@@ -174,7 +177,7 @@ export class ExecutionGroupComponent implements Component {
 		}
 
 		const filled = padToWidth(truncateToWidth(headerContent, innerWidth, ""), innerWidth);
-		return `${border}${theme.bg("selectedBg", filled)}`;
+		return `${border}${theme.bg("toolPendingBg", filled)}`;
 	}
 
 	private renderExpandedAction(action: ExecutionGroupAction, width: number): string[] {
@@ -182,10 +185,23 @@ export class ExecutionGroupComponent implements Component {
 		if (width === 1) return [border];
 
 		const bodyWidth = width - 1;
-		const contentWidth = Math.max(0, bodyWidth - 1);
+		const actionHeaderWidth = Math.max(0, bodyWidth - 2);
+		const actionHeader = formatToolActionSummary(action, actionHeaderWidth);
+		const headerLine = `${border}${fillBackgroundLine(` ${actionHeader}`, bodyWidth, "selectedBg")}`;
+
+		const contentWidth = Math.max(0, bodyWidth - 2);
 		const rendered = action.component.render(contentWidth);
-		if (rendered.length === 0) return [`${border}${fillBackgroundLine("", bodyWidth, "toolPendingBg")}`];
-		return rendered.map((line) => `${border}${fillBackgroundLine(` ${line}`, bodyWidth, "toolPendingBg")}`);
+		const bodyLines =
+			rendered.length === 0
+				? [`${border}${fillBackgroundLine("", bodyWidth, "customMessageBg")}`]
+				: rendered.map((line) => `${border}${fillBackgroundLine(` ${line}`, bodyWidth, "customMessageBg")}`);
+		return [headerLine, ...bodyLines];
+	}
+
+	private renderActionSeparator(width: number): string {
+		const border = theme.fg("borderAccent", "│");
+		if (width === 1) return border;
+		return `${border}${fillBackgroundLine("", width - 1, "customMessageBg")}`;
 	}
 
 	private renderCollapsedAction(action: ExecutionGroupAction, width: number): string {
@@ -193,7 +209,7 @@ export class ExecutionGroupComponent implements Component {
 		if (width === 1) return border;
 		const contentWidth = Math.max(0, width - 2);
 		const summary = formatToolActionSummary(action, contentWidth);
-		return `${border}${fillBackgroundLine(` ${summary}`, width - 1, "toolPendingBg")}`;
+		return `${border}${fillBackgroundLine(` ${summary}`, width - 1, "customMessageBg")}`;
 	}
 }
 
