@@ -1,6 +1,6 @@
 # Releasing All-For-One
 
-All-For-One releases are published through GitHub Releases from the `allforone` branch. Internal Pi-compatible workspace packages remain private and are not published to npm.
+All-For-One releases are published through GitHub Releases from the `main` branch. Internal Pi-compatible workspace packages remain private and are not published to npm.
 
 ## Prepare release metadata
 
@@ -29,22 +29,16 @@ npm run release:afo:prepare -- 0.1.0-rc.1 --check --json
 
 Before creating a release tag:
 
-1. Confirm the prepared release commit is on `allforone`.
-2. Confirm `main` is an ancestor of the release commit:
-
-   ```bash
-   node scripts/check-upstream-relationship.mjs --main origin/main --current HEAD --json
-   ```
-
-3. Confirm the All-For-One version in `package.json` matches `packages/coding-agent/src/allforone/product.ts`.
-4. Confirm `CHANGELOG-AFO.md` contains the matching dated version section.
-5. Verify the prepared release state:
+1. Confirm the prepared release commit is on `main`.
+2. Confirm the All-For-One version in `package.json` matches `packages/coding-agent/src/allforone/product.ts`.
+3. Confirm `CHANGELOG-AFO.md` contains the matching dated version section.
+4. Verify the prepared release state:
 
    ```bash
    npm run release:afo:prepare -- X.Y.Z --check --json
    ```
 
-6. Run the complete validation set:
+5. Run the complete validation set:
 
    ```bash
    npm ci --ignore-scripts
@@ -53,8 +47,9 @@ Before creating a release tag:
    ./test.sh
    ```
 
-7. Build the standalone archives and run the available local smoke tests from outside the repository.
-8. Review the final diff and confirm no Pi package version, package name, configuration path, session format, SDK surface, or RPC contract changed unintentionally.
+6. Build the standalone archives and run the available local smoke tests from outside the repository.
+7. Review the final diff and confirm no Pi package version, package name, configuration path, session format, SDK surface, or RPC contract changed unintentionally.
+8. Record any native Pi commits adopted since the previous release. The latest `pi` branch is not required to be an ancestor of `main`; upstream changes are adopted selectively.
 
 All product versions and `afo-v*` tags must use strict semantic versioning. Numeric major, minor, patch, and prerelease identifiers must not contain leading zeroes.
 
@@ -98,7 +93,7 @@ git push origin afo-vX.Y.Z
 
 Pushing an All-For-One tag starts `.github/workflows/allforone-release.yml`. The workflow validates the tag and prepared changelog state, rebuilds the standalone archives, generates release notes and a manifest, produces SHA-256 checksums, runs native archive smoke tests, publishes a GitHub Release, and then verifies the public release payload through the reusable verification workflow.
 
-Temporary pull-request workflows must not create tags or publish releases. Release preparation may happen on a focused branch, but tag creation and publication must use the reviewed permanent release path.
+Temporary pull-request workflows must not create tags or publish releases. Release preparation may happen on a focused branch, but tag creation and publication must use a reviewed commit contained in `main`.
 
 Do not move, replace, or reuse a published tag. Public releases are immutable. When a release needs correction, prepare a new version.
 
@@ -122,16 +117,12 @@ node scripts/verify-allforone-release-assets.mjs --dir release-assets --tag afo-
 
 A release is not considered verified until the public assets, rather than workspace build output, have been downloaded and executed. Record any architecture that remains best-effort.
 
-## Upstream synchronization before a release
+## Native Pi review before a release
 
-Use the `Upstream Pi Sync` workflow to inspect drift. Updating `main` and preparing a `sync/pi-*` pull request are separate, explicit actions.
+`pi` tracks the native Pi reference. Use the upstream-reference workflow to compare it with upstream Pi and update it only by fast-forward.
 
-A `sync/pi-*` pull request must be merged with a merge commit. Never squash or rebase it because the native Pi `main` commit must remain an ancestor of `allforone`.
-
-After review and successful checks, run the workflow with action `merge-sync` and provide the pull request number. The workflow verifies the exact sync head, waits for checks, merges with `--merge`, and revalidates `main` ancestry on the resulting `allforone` branch.
-
-After the merge, run the upstream relationship check again before releasing.
+Do not merge the complete `pi` branch into `main` as a routine release step. Review upstream changes by category, create a focused `adopt/pi-<short-sha>-<topic>` branch from `main`, and port only the selected changes. Record the source Pi commit in the pull request.
 
 ## Prohibited downstream release paths
 
-Do not use the inherited Pi package publication or release commands on `allforone`. All-For-One distribution is GitHub Releases only, and the `@earendil-works/pi-*` workspace packages must remain private.
+Do not use the inherited Pi package publication or release commands on `main` or product branches. All-For-One distribution is GitHub Releases only, and the `@earendil-works/pi-*` workspace packages must remain private.
