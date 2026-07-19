@@ -503,7 +503,9 @@ export class InteractiveMode {
 				this.sessionRailLifecycle.kind === "idle" &&
 				this.sessionRailActiveTools.size === 0 &&
 				this.streamingComponent === undefined &&
-				this.bashComponent === undefined,
+				this.bashComponent === undefined &&
+				!this.toolOutputExpanded &&
+				!this.hideThinkingBlock,
 		});
 		this.headerContainer = new Container();
 		this.loadedResourcesContainer = new Container();
@@ -3670,6 +3672,7 @@ export class InteractiveMode {
 		this.pendingTools.clear();
 		this.renderedToolComponents = ensureRenderedToolComponents(this.renderedToolComponents);
 		this.renderedToolComponents.clear();
+		this.toolExecutionGroups ??= new Map<string, ExecutionGroupComponent>();
 		this.toolExecutionGroups.clear();
 		this.liveTranscriptTurnRole = undefined;
 		this.liveTranscriptTurnKey = undefined;

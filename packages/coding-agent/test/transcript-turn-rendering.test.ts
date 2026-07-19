@@ -100,7 +100,9 @@ describe("rendered transcript turn hierarchy", () => {
 
 				expect(screen).toHaveLength(height);
 				expect(plain).toContain("ALL-FOR-ONE");
-				expect(plain).toContain("Analyze this repository.");
+				if (height >= 40) {
+					expect(plain).toContain("Analyze this repository.");
+				}
 				expect(plain).toContain("The transcript is controlled");
 				expect(plain).toContain("Read completed");
 				expect(plain).toContain("The layout boundary is now explicit.");

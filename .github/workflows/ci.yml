@@ -2,117 +2,62 @@ name: CI
 
 on:
   push:
-    branches: [perf/tui-responsiveness-roadmap]
+    branches: [main]
   pull_request:
     branches: [main]
 
-permissions:
-  contents: write
-
 concurrency:
-  group: tui-finalize-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  finalize-tui-roadmap:
-    if: github.ref_name == 'perf/tui-responsiveness-roadmap' || github.head_ref == 'perf/tui-responsiveness-roadmap'
+  build-check-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: perf/tui-responsiveness-roadmap
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
-          sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
+          sudo ln -s $(which fdfind) /usr/local/bin/fd
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Apply repairs
-        run: |
-          python scripts/finalize-tui-roadmap.py
-          python scripts/finalize-tui-regression.py
-
-      - name: Format changed files
-        run: |
-          npm exec -- biome check --write \
-            packages/coding-agent/src/modes/interactive/interactive-mode.ts \
-            packages/coding-agent/test/assistant-message-foundation.test.ts \
-            packages/coding-agent/test/assistant-message.test.ts \
-            packages/coding-agent/test/resource-loader.test.ts \
-            packages/coding-agent/test/session-rail-enhancement.test.ts \
-            packages/coding-agent/test/session-rail-style.test.ts \
-            packages/coding-agent/test/transcript-turn-rendering.test.ts \
-            packages/coding-agent/test/suite/regressions/4167-thinking-toggle-pending-tool-render.test.ts
-
       - name: Build
         run: npm run build
 
-      - name: Focused tests
-        id: focused
-        continue-on-error: true
-        working-directory: packages/coding-agent
-        run: |
-          set -o pipefail
-          npm run test -- \
-            test/assistant-message-foundation.test.ts \
-            test/assistant-message.test.ts \
-            test/resource-loader.test.ts \
-            test/session-rail.test.ts \
-            test/session-rail-enhancement.test.ts \
-            test/session-rail-style.test.ts \
-            test/transcript-viewport.test.ts \
-            test/transcript-turn-rendering.test.ts \
-            test/suite/regressions/4167-thinking-toggle-pending-tool-render.test.ts \
-            2>&1 | tee /tmp/focused.log
+      - name: Check publication policy
+        run: npm run check:publication-policy
 
-      - name: Upload focused failure
-        if: steps.focused.outcome == 'failure'
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-tui-focused-failure
-          path: /tmp/focused.log
-          if-no-files-found: error
+      - name: Check formatting and linting
+        run: npm exec -- biome check --error-on-warnings .
 
-      - name: Stop on focused failure
-        if: steps.focused.outcome == 'failure'
-        run: exit 1
+      - name: Check pinned dependencies
+        run: npm run check:pinned-deps
 
-      - name: Code quality
-        run: npm run check
+      - name: Check TypeScript imports
+        run: npm run check:ts-imports
 
-      - name: Full test suite
+      - name: Check coding-agent shrinkwrap
+        run: npm run check:shrinkwrap
+
+      - name: Check coding-agent install lock
+        run: npm run check:install-lock:coding-agent
+
+      - name: Check TypeScript
+        run: npm exec -- tsgo --noEmit
+
+      - name: Check browser smoke configuration
+        run: npm run check:browser-smoke
+
+      - name: Test
         run: npm test
-
-      - name: Restore CI and remove temporary automation
-        run: |
-          git checkout origin/main -- .github/workflows/ci.yml
-          rm -f \
-            scripts/finalize-tui-roadmap.py \
-            scripts/finalize-tui-regression.py \
-            .github/workflows/apply-tui-roadmap.yml \
-            .github/workflows/run-tui-roadmap.yml \
-            .github/workflows/diagnose-tui-focused.yml \
-            .github/workflows/finalize-tui-fixes.yml \
-            .github/tui-finalize-trigger
-
-      - name: Commit verified implementation
-        run: |
-          git diff --check
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git diff --cached --check
-          git commit -m "test: align TUI roadmap regressions and finalize validation"
-          git push origin HEAD:perf/tui-responsiveness-roadmap
