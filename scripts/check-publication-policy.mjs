@@ -39,6 +39,17 @@ if (rootPackage.scripts?.["release:afo:prepare"] !== "node scripts/prepare-allfo
 	throw new Error("All-For-One release preparation must use scripts/prepare-allforone-release.mjs.");
 }
 
+const prepareReleaseScript = readFileSync(join(root, "scripts/prepare-allforone-release.mjs"), "utf8");
+const releaseScript = readFileSync(join(root, "scripts/allforone-release.mjs"), "utf8");
+for (const [name, source] of [
+	["release preparation", prepareReleaseScript],
+	["release metadata", releaseScript],
+]) {
+	if (!source.includes('from "./allforone-version.mjs"')) {
+		throw new Error(`All-For-One ${name} must use the shared strict version parser.`);
+	}
+}
+
 const releaseWorkflow = readFileSync(join(root, ".github/workflows/allforone-release.yml"), "utf8");
 for (const forbidden of ["npm publish", "NPM_TOKEN", "scripts/publish.mjs", "scripts/release.mjs"]) {
 	if (releaseWorkflow.includes(forbidden)) {
@@ -55,21 +66,39 @@ for (const required of [
 	}
 }
 
+const verifyWorkflow = readFileSync(join(root, ".github/workflows/allforone-verify-release.yml"), "utf8");
+for (const required of [
+	"workflow_call:",
+	"workflow_dispatch:",
+	"Public release smoke (${{ matrix.name }})",
+	"gh release download",
+	"scripts/verify-allforone-release-assets.mjs",
+	"scripts/smoke-allforone-archive.mjs",
+]) {
+	if (!verifyWorkflow.includes(required)) {
+		throw new Error(`Published release verification workflow is missing: ${required}`);
+	}
+}
+
 const agents = readFileSync(join(root, "AGENTS.md"), "utf8");
 for (const required of [
 	"## All-For-One release and synchronization",
 	"All-For-One releases use `afo-v*` tags and GitHub Releases only.",
 	"Pull requests from `sync/pi-*` must be merged with a merge commit.",
+	"## All-For-One ownership boundaries",
 	"## Upstream Pi release reference",
 ]) {
 	if (!agents.includes(required)) {
-		throw new Error(`AGENTS.md is missing downstream release guidance: ${required}`);
+		throw new Error(`AGENTS.md is missing downstream release or ownership guidance: ${required}`);
 	}
 }
 
 const contributing = readFileSync(join(root, "CONTRIBUTING.md"), "utf8");
 if (!contributing.includes("Do not squash or rebase them because `main` must remain an ancestor of `allforone`.")) {
 	throw new Error("CONTRIBUTING.md must document merge-commit-only handling for sync/pi-* pull requests.");
+}
+if (!contributing.includes("merge-sync")) {
+	throw new Error("CONTRIBUTING.md must direct sync/pi-* pull requests through the controlled merge-sync action.");
 }
 
 const releasing = readFileSync(join(root, "RELEASING.md"), "utf8");
@@ -78,6 +107,9 @@ for (const required of [
 	"A `sync/pi-*` pull request must be merged with a merge commit.",
 	"npm run release:afo:prepare -- 0.1.0-rc.1",
 	"explicitly prevents them from becoming the latest stable release",
+	"Verify Published All-For-One Release",
+	"Temporary pull-request workflows must not create tags or publish releases.",
+	"merge-sync",
 ]) {
 	if (!releasing.includes(required)) {
 		throw new Error(`RELEASING.md is missing required downstream policy: ${required}`);
@@ -93,12 +125,15 @@ const syncWorkflow = readFileSync(join(root, ".github/workflows/upstream-pi-sync
 for (const required of [
 	"Required merge method: create a merge commit",
 	"**Do not squash or rebase this pull request.**",
+	"- merge-sync",
+	"gh pr checks \"${PR_NUMBER}\" --watch --fail-fast",
+	"gh pr merge \"${PR_NUMBER}\" --merge --match-head-commit \"${SYNC_SHA}\"",
 ]) {
 	if (!syncWorkflow.includes(required)) {
-		throw new Error(`Upstream synchronization workflow is missing merge guidance: ${required}`);
+		throw new Error(`Upstream synchronization workflow is missing controlled merge enforcement: ${required}`);
 	}
 }
 
 console.log(
-	"All-For-One publication policy is valid: GitHub releases only, Pi-compatible npm packages private, downstream release and prerelease guidance enforced.",
+	"All-For-One publication policy is valid: strict release versions, public asset verification, controlled sync merges, GitHub releases only, and Pi-compatible npm packages private.",
 );
