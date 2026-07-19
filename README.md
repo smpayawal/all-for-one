@@ -4,15 +4,14 @@
 
 # All-For-One
 
-*An independently maintained terminal coding harness based on [Pi](https://github.com/earendil-works/pi).*
+All-For-One is my personal customization of [Pi](https://github.com/earendil-works/pi). I use it as a terminal coding harness for my own development workflow.
 
-All-For-One is the coding agent I use day to day. It keeps Pi's adaptive single-agent foundation while adding a focused set of workflow, interface, validation, and release changes.
+It keeps Pi's adaptive single-agent foundation and compatibility while adding a small set of interface, context, tool, and validation changes that are useful to me. It is not intended as a community project or a replacement for Pi.
 
-Existing `.pi` configuration and the original `pi` command continue to work.
-
-## What changed
+## Customizations
 
 - `allforone` as the main command, with `afo` as a shorter alias.
+- The Pi-compatible `pi` command and `.pi` configuration.
 - A session rail for activity, tools, loaded context, and skills.
 - Tool profiles for normal editing, patch-based work, or full access.
 - Project instructions, local project memory, and built-in coding skills.
@@ -37,40 +36,11 @@ The Pi-compatible source launcher is also available:
 ./pi-test.sh
 ```
 
-Provider setup, models, themes, extensions, and general configuration continue to follow the [Pi documentation](https://pi.dev/docs/latest).
-
-## Releases
-
-Standalone releases use GitHub Releases and include builds for macOS, Linux, and Windows. Each archive provides `allforone`, `afo`, and the compatible `pi` launcher.
-
-Automatic All-For-One self-update is not available yet. Download new versions from the repository's GitHub Releases page.
-
-Publication is gated by native archive smoke tests for macOS arm64, Linux x64, and Windows x64. See [RELEASING.md](RELEASING.md) for the release process and current platform coverage.
-
-## Development
-
-`main` is the All-For-One product branch. `pi` is the native Pi reference used for upstream review and selective adoption.
-
-Create focused product branches from `main`. Do not add All-For-One changes to `pi`, and do not merge the complete `pi` branch into `main` by default.
-
-```bash
-npm install --ignore-scripts
-npm run build
-npm run check
-./test.sh
-```
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance and [AGENTS.md](AGENTS.md) for repository-specific development notes.
-
-## Security
-
-All-For-One runs with the permissions of the user who starts it. Use a container, virtual machine, or another sandbox when stronger isolation is required.
-
-See [SECURITY.md](SECURITY.md) and Pi's [containerization guide](packages/coding-agent/docs/containerization.md).
+Provider setup, models, themes, extensions, and general configuration follow the [Pi documentation](https://pi.dev/docs/latest).
 
 ## Credits
 
-All-For-One is built from [Pi](https://github.com/earendil-works/pi) by Mario Zechner and its contributors.
+All-For-One is based on [Pi](https://github.com/earendil-works/pi) by Mario Zechner and its contributors.
 
 ## License
 
