@@ -5,7 +5,6 @@ import {
 	detectTerminalBackgroundTheme,
 	getThemeByName,
 	getThemeForRgbColor,
-	normalizeThemeSetting,
 	parseAutoThemeSetting,
 	resolveThemeSetting,
 } from "../src/modes/interactive/theme/theme.ts";
@@ -125,15 +124,10 @@ describe("theme detection from RGB", () => {
 
 describe("theme setting helpers", () => {
 	it("parses and resolves automatic theme settings", () => {
-		expect(parseAutoThemeSetting("AFO Midnight/dark")).toEqual({
-			lightTheme: "AFO Midnight",
-			darkTheme: "dark",
-		});
+		expect(parseAutoThemeSetting("light/dark")).toEqual({ lightTheme: "light", darkTheme: "dark" });
 		expect(resolveThemeSetting("dark", "light")).toBe("dark");
-		expect(resolveThemeSetting("AFO Midnight/dark", "light")).toBe("AFO Midnight");
-		expect(resolveThemeSetting("AFO Midnight/dark", "dark")).toBe("dark");
-		expect(normalizeThemeSetting("light")).toBe("dark");
-		expect(normalizeThemeSetting("light/dark")).toBe("dark/dark");
+		expect(resolveThemeSetting("light/dark", "light")).toBe("light");
+		expect(resolveThemeSetting("light/dark", "dark")).toBe("dark");
 		expect(resolveThemeSetting("light/dark/extra", "dark")).toBeUndefined();
 	});
 });

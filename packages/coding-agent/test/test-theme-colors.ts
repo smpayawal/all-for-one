@@ -131,7 +131,7 @@ function cmdContrast(targetContrast: number): void {
 
 	console.log(`\n=== Colors adjusted to ${targetContrast}:1 contrast ===\n`);
 
-	console.log("For light backgrounds (vs white):");
+	console.log("For LIGHT theme (vs white):");
 	for (const [name, hex] of Object.entries(baseColors)) {
 		const adjusted = adjustColorToContrast(hex, targetContrast, true);
 		const rgb = hexToRgb(adjusted);
@@ -236,11 +236,11 @@ if (cmd === "contrast") {
 	cmdContrast(parseFloat(arg) || 4.5);
 } else if (cmd === "test") {
 	cmdTest(arg);
-} else if (cmd === "dark") {
+} else if (cmd === "light" || cmd === "dark") {
 	cmdTheme(cmd);
 } else {
 	console.log("Usage:");
-	console.log("  npx tsx test-theme-colors.ts dark           Test built-in theme");
+	console.log("  npx tsx test-theme-colors.ts light|dark     Test built-in theme");
 	console.log("  npx tsx test-theme-colors.ts contrast 4.5   Compute colors at ratio");
 	console.log("  npx tsx test-theme-colors.ts test file.json Test any JSON file");
 }

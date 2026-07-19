@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, test } from "vitest";
 import {
@@ -6,97 +6,79 @@ import {
 	getResolvedThemeColors,
 	getThemeByName,
 	initTheme,
-	loadThemeFromPath,
 	resolveThemeSetting,
-	setRegisteredThemes,
+	setTheme,
 } from "../src/modes/interactive/theme/theme.ts";
 
-const TOKYO_NIGHT_PATH = fileURLToPath(new URL("../theme/tokyonight.json", import.meta.url));
+const DARK_PATH = fileURLToPath(new URL("../src/modes/interactive/theme/dark.json", import.meta.url));
+const LIGHT_PATH = fileURLToPath(new URL("../src/modes/interactive/theme/light.json", import.meta.url));
 const PACKAGE_JSON_PATH = fileURLToPath(new URL("../package.json", import.meta.url));
-
-const PACKAGED_THEME_PATHS = [TOKYO_NIGHT_PATH];
-
-const EXPECTED_PACKAGED_THEME_NAMES = ["tokyonight"];
-
-function channelToLinear(channel: number): number {
-	const value = channel / 255;
-	return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-}
-
-function luminance(hex: string): number {
-	const normalized = hex.replace("#", "");
-	const r = Number.parseInt(normalized.slice(0, 2), 16);
-	const g = Number.parseInt(normalized.slice(2, 4), 16);
-	const b = Number.parseInt(normalized.slice(4, 6), 16);
-	return 0.2126 * channelToLinear(r) + 0.7152 * channelToLinear(g) + 0.0722 * channelToLinear(b);
-}
-
-function contrast(foreground: string, background: string): number {
-	const lighter = Math.max(luminance(foreground), luminance(background));
-	const darker = Math.min(luminance(foreground), luminance(background));
-	return (lighter + 0.05) / (darker + 0.05);
-}
-
-function registerPackagedThemes(): void {
-	setRegisteredThemes(PACKAGED_THEME_PATHS.map((themePath) => loadThemeFromPath(themePath)));
-}
+const REMOVED_PACKAGE_THEME_DIRECTORY = fileURLToPath(new URL("../theme", import.meta.url));
 
 afterAll(() => {
-	setRegisteredThemes([]);
 	initTheme("dark");
 });
 
-describe("bundled All-For-One themes", () => {
-	test("loads and registers every packaged theme resource", () => {
-		const themes = PACKAGED_THEME_PATHS.map((themePath) => loadThemeFromPath(themePath));
-		setRegisteredThemes(themes);
+describe("native Pi themes", () => {
+	test("ships the original dark and light palettes", () => {
+		const dark = JSON.parse(readFileSync(DARK_PATH, "utf8")) as {
+			name: string;
+			vars: Record<string, string>;
+			export: Record<string, string>;
+		};
+		const light = JSON.parse(readFileSync(LIGHT_PATH, "utf8")) as {
+			name: string;
+			vars: Record<string, string>;
+			export: Record<string, string>;
+		};
 
-		expect(themes.map((theme) => theme.name)).toEqual(EXPECTED_PACKAGED_THEME_NAMES);
-		expect(getAvailableThemes()).toEqual(expect.arrayContaining(["dark", ...EXPECTED_PACKAGED_THEME_NAMES]));
-		expect(getAvailableThemes()).not.toContain("light");
+		expect(dark).toMatchObject({
+			name: "dark",
+			vars: {
+				cyan: "#00d7ff",
+				blue: "#5f87ff",
+				text: "#d4d4d4",
+				accent: "#8abeb7",
+				userMsgBg: "#343541",
+			},
+			export: { pageBg: "#18181e", cardBg: "#1e1e24", infoBg: "#3c3728" },
+		});
+		expect(light).toMatchObject({
+			name: "light",
+			vars: {
+				teal: "#5a8080",
+				blue: "#547da7",
+				text: "#1f2328",
+				userMsgBg: "#e8e8e8",
+			},
+			export: { pageBg: "#f8f8f8", cardBg: "#ffffff", infoBg: "#fffae6" },
+		});
 	});
 
-	test("declares the theme resource directory in package metadata", () => {
+	test("lists and switches between both native themes", () => {
+		expect(getAvailableThemes()).toEqual(expect.arrayContaining(["dark", "light"]));
+		expect(getThemeByName("dark")).toBeDefined();
+		expect(getThemeByName("light")).toBeDefined();
+
+		expect(setTheme("light").success).toBe(true);
+		expect(getResolvedThemeColors("light")).toMatchObject({ text: "#1f2328", userMessageBg: "#e8e8e8" });
+		expect(setTheme("dark").success).toBe(true);
+		expect(getResolvedThemeColors("dark")).toMatchObject({ text: "#d4d4d4", userMessageBg: "#343541" });
+	});
+
+	test("uses native automatic light and dark selection", () => {
+		expect(resolveThemeSetting("light/dark", "light")).toBe("light");
+		expect(resolveThemeSetting("light/dark", "dark")).toBe("dark");
+	});
+
+	test("does not package a separate downstream theme directory", () => {
 		const packageJson = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf8")) as {
 			pi?: { themes?: string[] };
 			files?: string[];
 		};
 
-		expect(packageJson.pi?.themes).toContain("theme");
-		expect(packageJson.files).toContain("theme");
+		expect(packageJson.pi?.themes).toBeUndefined();
+		expect(packageJson.files).not.toContain("theme");
+		expect(existsSync(REMOVED_PACKAGE_THEME_DIRECTORY)).toBe(false);
 	});
-
-	test("removes the Light palette and resolves Automatic to remaining themes", () => {
-		registerPackagedThemes();
-		expect(getAvailableThemes()).not.toContain("light");
-		expect(getThemeByName("light")).toBeUndefined();
-		expect(resolveThemeSetting("tokyonight/dark", "light")).toBe("tokyonight");
-		expect(resolveThemeSetting("tokyonight/dark", "dark")).toBe("dark");
-		expect(resolveThemeSetting("light/dark", "light")).toBe("dark");
-		expect(resolveThemeSetting("light/tokyonight", "dark")).toBe("tokyonight");
-		expect(resolveThemeSetting("light/GitHub Dark", "light")).toBe("dark");
-	});
-
-	test.each(["dark", "tokyonight"])(
-		"keeps %s workspace, result, and tool surfaces readable and distinct",
-		(themeName) => {
-			registerPackagedThemes();
-			const colors = getResolvedThemeColors(themeName);
-			const workspace = colors.customMessageBg;
-			const result = colors.selectedBg;
-			const semanticSurfaces = [
-				colors.userMessageBg,
-				result,
-				colors.toolPendingBg,
-				colors.toolSuccessBg,
-				colors.toolErrorBg,
-			];
-
-			expect(contrast(colors.text, workspace)).toBeGreaterThanOrEqual(4.5);
-			expect(contrast(colors.text, result)).toBeGreaterThanOrEqual(4.5);
-			expect(contrast(colors.muted, workspace)).toBeGreaterThanOrEqual(3);
-			expect(result).not.toBe(workspace);
-			expect(new Set(semanticSurfaces).size).toBeGreaterThanOrEqual(4);
-		},
-	);
 });
