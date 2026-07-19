@@ -204,9 +204,7 @@ describe("viewport composition", () => {
 		const terminal = new VirtualTerminal(127, 12);
 		const tui = new TUI(terminal);
 		const content = new Container();
-		content.addChild(
-			new Text(Array.from({ length: 20 }, (_, index) => `message ${index + 1}`).join("\n"), 0, 0),
-		);
+		content.addChild(new Text(Array.from({ length: 20 }, (_, index) => `message ${index + 1}`).join("\n"), 0, 0));
 		const shell = new InteractiveApplicationShell({
 			tui,
 			transcript: content,
