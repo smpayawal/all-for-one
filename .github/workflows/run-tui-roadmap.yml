@@ -31,7 +31,7 @@ jobs:
           sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
           sudo ln -sf "$(which fdfind)" /usr/local/bin/fd
 
-      - name: Extract remaining implementation phases
+      - name: Extract final implementation phase
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -63,63 +63,31 @@ jobs:
           content = content.replace(old_install, old_install + "\nrun('npm', 'run', 'build')")
 
           phase0_start = content.index('# Phase 0:')
-          phase2_start = content.index('# Phase 2:')
-          content = content[:phase0_start] + '# Phases 0 and 1 completed and validated.\n\n' + content[phase2_start:]
+          phase3_start = content.index('# Phase 3:')
+          content = content[:phase0_start] + '# Phases 0 through 2 completed and validated.\n\n' + content[phase3_start:]
 
-          lifecycle_pattern = re.compile(
-              r'    function formatLifecycle\(lifecycle: SessionRailLifecycle, activeTools: readonly string\[\], width: number\): string \{.*?\n    \}',
-              re.S,
-          )
-          lifecycle_replacement = "\n".join([
-              '    function formatLifecycle(lifecycle: SessionRailLifecycle, activeTools: readonly string[], width: number): string {',
-              '        let value: string;',
-              '        if (lifecycle.kind === "retry") {',
-              '            value = theme.fg("warning", `Retrying ${lifecycle.attempt}/${lifecycle.maxAttempts}`);',
-              '        } else if (lifecycle.kind === "compaction") {',
-              '            value = theme.fg("warning", "Compacting context");',
-              '        } else if (activeTools.length > 0) {',
-              '            const active = railLine(activeTools[0] ?? "tool", Math.max(1, width - 12));',
-              '            value = theme.fg("borderAccent", `Working · ${active}`);',
-              '        } else if (lifecycle.kind === "agent") {',
-              '            value = theme.fg("borderAccent", "Preparing response");',
-              '        } else {',
-              '            value = theme.fg("muted", "Idle");',
-              '        }',
-              '        return indentSectionBody(value, width);',
-              '    }',
-          ])
-          content, lifecycle_count = lifecycle_pattern.subn(lifecycle_replacement, content, count=1)
-
-          if root_count != 1 or test_count != 1 or install_count != 1 or lifecycle_count != 1:
+          if root_count != 1 or test_count != 1 or install_count != 1:
               raise SystemExit(
-                  f'Unable to patch implementation script: root={root_count}, tests={test_count}, install={install_count}, lifecycle={lifecycle_count}'
+                  f'Unable to patch implementation script: root={root_count}, tests={test_count}, install={install_count}'
               )
           script.write_text(content)
           PY
           python -m py_compile /tmp/apply-tui-roadmap.py
 
-      - name: Align rail tests with the simplified hierarchy
+      - name: Restore wide-rail visibility assertion
         run: |
           python - <<'PY'
           from pathlib import Path
           path = Path('packages/coding-agent/test/session-rail.test.ts')
           content = path.read_text()
-          replacements = {
-              'import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";': 'import { initTheme } from "../src/modes/interactive/theme/theme.ts";',
-              'expect(output).toContain("read");': 'expect(output).toContain("+1 more active");',
-              'expect(output).toContain("× write");': 'expect(output).not.toContain("× write");',
-              'expect(output).toContain("—");': 'expect(output).not.toContain("TEST PRODUCT");',
-              'expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(true);': 'expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(false);',
-          }
-          for old, new in replacements.items():
-              if old in content:
-                  content = content.replace(old, new, 1)
-              elif new not in content:
-                  raise SystemExit(f'Missing expected rail assertion: {old}')
-          path.write_text(content)
+          expected = 'expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(false);'
+          replacement = 'expect(screen.some((line) => line.includes("TEST PRODUCT"))).toBe(true);'
+          if expected not in content:
+              raise SystemExit('Missing wide-rail visibility assertion')
+          path.write_text(content.replace(expected, replacement, 1))
           PY
 
-      - name: Apply and validate remaining phases
+      - name: Apply and validate final phase
         id: apply
         continue-on-error: true
         run: |
@@ -130,7 +98,7 @@ jobs:
         if: steps.apply.outcome == 'failure'
         run: |
           mkdir -p /tmp/tui-roadmap-failure
-          tail -n 700 /tmp/tui-roadmap.log > /tmp/tui-roadmap-failure/output.log
+          tail -n 900 /tmp/tui-roadmap.log > /tmp/tui-roadmap-failure/output.log
           cp /tmp/apply-tui-roadmap.py /tmp/tui-roadmap-failure/apply-tui-roadmap.py
           git diff --binary > /tmp/tui-roadmap-failure/changes.patch
           git status --short > /tmp/tui-roadmap-failure/status.txt
