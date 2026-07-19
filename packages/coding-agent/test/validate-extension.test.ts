@@ -1,6 +1,6 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext } from "../src/core/extensions/types.ts";
 import { discoverValidationCommands } from "../src/core/validation-commands.ts";
@@ -69,15 +69,27 @@ function commandHandler(harness: Harness): CommandHandler {
 	return command;
 }
 
+function createFakePythonExecutable(cwd: string): string {
+	const binDir = join(cwd, "test-bin");
+	mkdirSync(binDir, { recursive: true });
+	const executable = join(binDir, process.platform === "win32" ? "python.cmd" : "python");
+	writeFileSync(executable, process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n");
+	if (process.platform !== "win32") chmodSync(executable, 0o755);
+	return binDir;
+}
+
 describe("explicit validation extension", () => {
 	let cwd: string;
 
 	beforeEach(() => {
 		cwd = join(tmpdir(), `afo-validate-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		mkdirSync(cwd, { recursive: true });
+		const binDir = createFakePythonExecutable(cwd);
+		vi.stubEnv("PATH", [binDir, process.env.PATH].filter(Boolean).join(delimiter));
 	});
 
 	afterEach(() => {
+		vi.unstubAllEnvs();
 		rmSync(cwd, { recursive: true, force: true });
 	});
 
