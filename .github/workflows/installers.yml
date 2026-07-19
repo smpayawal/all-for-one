@@ -23,29 +23,6 @@ permissions:
   contents: read
 
 jobs:
-  release-metadata:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Resolve published release
-        run: |
-          set -euo pipefail
-          releases="$(curl -fsSL 'https://api.github.com/repos/smpayawal/all-for-one/releases?per_page=20')"
-          tag="$(printf '%s\n' "$releases" | sed -n 's/^[[:space:]]*"tag_name":[[:space:]]*"\(afo-v[^"]*\)".*/\1/p' | head -n 1)"
-          test -n "$tag"
-          printf '%s\n' "$tag" > release-tag.txt
-          curl -fsSL "https://github.com/smpayawal/all-for-one/releases/download/${tag}/SHA256SUMS" -o SHA256SUMS
-
-      - name: Upload release metadata
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: homebrew-release-metadata
-          path: |
-            release-tag.txt
-            SHA256SUMS
-          if-no-files-found: error
-          retention-days: 1
-
   unix:
     strategy:
       fail-fast: false
@@ -83,26 +60,12 @@ jobs:
           AFO_OFFLINE: '1'
           PI_OFFLINE: '1'
         run: |
-          set +e
-          {
-            brew tap smpayawal/all-for-one "$GITHUB_WORKSPACE"
-            brew install --formula smpayawal/all-for-one/all-for-one
-            allforone --version
-            afo --help >/dev/null
-            brew test smpayawal/all-for-one/all-for-one
-          } > homebrew.log 2>&1
-          status=$?
-          cat homebrew.log
-          exit "$status"
-
-      - name: Upload Homebrew log
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: homebrew-smoke-log
-          path: homebrew.log
-          if-no-files-found: error
-          retention-days: 1
+          set -euo pipefail
+          brew tap smpayawal/all-for-one "$GITHUB_WORKSPACE"
+          brew install --formula smpayawal/all-for-one/all-for-one
+          allforone --version
+          afo --help >/dev/null
+          brew test smpayawal/all-for-one/all-for-one
 
   windows:
     runs-on: windows-latest
