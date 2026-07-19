@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { type ThemeColor, theme } from "../theme/theme.ts";
+import { fillBackgroundLine } from "./background-fill.ts";
 
 export {
 	getSessionRailLayout,
@@ -304,11 +305,12 @@ export class SessionRailComponent implements Component {
 			.slice(0, contentLimit)
 			.map((line) => padRailLine(line, normalizedWidth, innerWidth));
 		const renderedHelp = shortcutLines.length > 0 ? [" ".repeat(normalizedWidth), ...shortcutLines] : [];
-		return [
+		const rendered = [
 			...Array.from({ length: topPadding }, () => " ".repeat(normalizedWidth)),
 			...renderedBody,
 			...renderedHelp,
 		].slice(0, availableHeight);
+		return rendered.map((line) => fillBackgroundLine(line, normalizedWidth, "customMessageBg"));
 	}
 
 	invalidate(): void {}
