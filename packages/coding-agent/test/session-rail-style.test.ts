@@ -19,7 +19,7 @@ afterAll(() => {
 });
 
 describe("session rail visual hierarchy", () => {
-	test("renders inset product branding and prioritizes live state before progress", () => {
+	test("renders inset product branding and indents section values beneath headings", () => {
 		const rail = new SessionRailComponent({
 			title: "All-For-One",
 			agents: ["project/AGENTS.md"],
@@ -34,15 +34,17 @@ describe("session rail visual hierarchy", () => {
 		});
 
 		const lines = rail.render(40);
-		const output = stripAnsi(lines.join("\n"));
+		const plainLines = lines.map(stripAnsi);
+		const output = plainLines.join("\n");
 		expect(lines[0]?.trim()).toBe("");
-		expect(stripAnsi(lines[1] ?? "")).toContain(" ◆ All-For-One ─");
+		expect(plainLines[1]).toContain(" ◆ All-For-One ─");
 		for (const line of lines) expect(visibleWidth(line)).toBe(40);
 		expect(output.indexOf("Working")).toBeLessThan(output.indexOf("3 succeeded"));
 		expect(output.indexOf("3 succeeded")).toBeLessThan(output.indexOf("implementation 2/5"));
+		expect(plainLines.find((line) => line.includes("Working"))).toMatch(/^ {3}Working/);
+		expect(plainLines.find((line) => line.includes("AGENTS.md"))).toMatch(/^ {3}AGENTS\.md/);
+		expect(plainLines.find((line) => line.includes("systematic-debugging"))).toMatch(/^ {3}systematic-debugging/);
 		expect(output).toContain("CONTEXT / AGENTS");
-		expect(output).toContain("AGENTS.md");
 		expect(output).toContain("SKILLS");
-		expect(output).toContain("systematic-debugging");
 	});
 });
