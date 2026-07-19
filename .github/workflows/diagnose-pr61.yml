@@ -42,6 +42,7 @@ jobs:
           rm .github/workflows/diagnose-pr61.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .artifacts/biome-pr61.json .github/workflows/diagnose-pr61.yml
+          git add -f .artifacts/biome-pr61.json
+          git add .github/workflows/diagnose-pr61.yml
           git commit -m "chore: capture PR 61 Biome diagnostics"
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
