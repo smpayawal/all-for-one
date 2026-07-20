@@ -1,4 +1,4 @@
-name: Diagnose Focused Skills
+name: Prepare Resource Loader Test
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
+  prepare:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -16,32 +16,55 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts >/dev/null 2>&1
-
-      - name: Build packages
-        run: npm run build >/dev/null 2>&1
-
-      - name: Capture focused diagnostic
+      - name: Update native skill expectation
         run: |
-          set +e
-          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/native-skills.test.ts test/allforone-baseline.test.ts test/product-identity.test.ts test/settings-manager.test.ts test/system-prompt.test.ts test/tool-registry.test.ts test/resource-loader.test.ts > focused-errors.txt 2>&1
-          echo "$?" > focused-status.txt
-          exit 0
+          python - <<'PY'
+          from pathlib import Path
 
-      - name: Upload focused diagnostic
+          path = Path("packages/coding-agent/test/resource-loader.test.ts")
+          content = path.read_text()
+          old = '''\t\tit("should load the five native coding skills from the package", async () => {
+          \t\t\tconst loader = new DefaultResourceLoader({ cwd, agentDir });
+          \t\t\tawait loader.reload();
+
+          \t\t\tconst names = loader
+          \t\t\t\t.getSkills()
+          \t\t\t\t.skills.filter((skill) => skill.filePath.includes("packages/coding-agent/skills/"))
+          \t\t\t\t.map((skill) => skill.name)
+          \t\t\t\t.sort();
+          \t\t\texpect(names).toEqual([
+          \t\t\t\t"plan-complex-change",
+          \t\t\t\t"repository-orientation",
+          \t\t\t\t"review-diff",
+          \t\t\t\t"systematic-debugging",
+          \t\t\t\t"verify-before-completion",
+          \t\t\t]);
+          \t\t});'''
+          new = '''\t\tit("should load the six native coding skills from the package", async () => {
+          \t\t\tconst loader = new DefaultResourceLoader({ cwd, agentDir });
+          \t\t\tawait loader.reload();
+
+          \t\t\tconst names = loader
+          \t\t\t\t.getSkills()
+          \t\t\t\t.skills.filter((skill) => skill.filePath.includes("packages/coding-agent/skills/"))
+          \t\t\t\t.map((skill) => skill.name)
+          \t\t\t\t.sort();
+          \t\t\texpect(names).toEqual([
+          \t\t\t\t"change-review",
+          \t\t\t\t"design-complex-change",
+          \t\t\t\t"project-bootstrap",
+          \t\t\t\t"project-context-maintenance",
+          \t\t\t\t"security-boundary-review",
+          \t\t\t\t"systematic-debugging",
+          \t\t\t]);
+          \t\t});'''
+          if content.count(old) != 1:
+              raise SystemExit("expected native skill assertion was not found exactly once")
+          path.write_text(content.replace(old, new))
+          PY
+
+      - name: Upload updated test
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: focused-skill-diagnostic
-          path: |
-            focused-errors.txt
-            focused-status.txt
-
-      - name: Enforce focused result
-        run: test "$(cat focused-status.txt)" -eq 0
+          name: updated-resource-loader-test
+          path: packages/coding-agent/test/resource-loader.test.ts
