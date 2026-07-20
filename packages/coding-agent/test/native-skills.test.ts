@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
-import {
-	DEFAULT_SKILL_METADATA_MAX_CHARS,
-	formatSkillsForPromptWithDiagnostics,
-} from "../src/core/skills.ts";
+import { DEFAULT_SKILL_METADATA_MAX_CHARS, formatSkillsForPromptWithDiagnostics } from "../src/core/skills.ts";
 
 const expectedAdaptiveSkills = [
 	"change-review",
