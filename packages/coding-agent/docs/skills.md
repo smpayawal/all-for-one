@@ -10,6 +10,8 @@ Pi implements the [Agent Skills standard](https://agentskills.io/specification),
 
 - [Locations](#locations)
 - [How Skills Work](#how-skills-work)
+- [Bundled first-party skills](#bundled-first-party-skills)
+- [Project context lifecycle](#project-context-lifecycle)
 - [Skill Commands](#skill-commands)
 - [Skill Structure](#skill-structure)
 - [Frontmatter](#frontmatter)
@@ -72,15 +74,36 @@ This is progressive disclosure: only descriptions are always in context, full in
 
 ## Bundled first-party skills
 
-The coding-agent package ships five dependency-free skills under its native skills directory:
+The coding-agent package ships six dependency-free skills under its native skills directory:
 
-- repository-orientation: manual-only bounded repository and instruction mapping before unfamiliar changes
-- systematic-debugging: reproduction, earliest-wrong-boundary tracing, and focused regression verification
-- verify-before-completion: manual-only proportionate checks and evidence-bounded reporting
-- plan-complex-change: manual-only planning for architecture or cross-package work
-- review-diff: manual-only final review for scope, regressions, and missing evidence
+- `systematic-debugging`: adaptive reproduction, earliest-wrong-boundary tracing, root-cause correction, and focused regression verification
+- `design-complex-change`: adaptive architecture and compatibility analysis for cross-package, lifecycle, migration, or public-contract changes
+- `change-review`: adaptive pull request, branch, commit, or meaningful-diff review with actionable findings only
+- `security-boundary-review`: adaptive trust-boundary analysis for process execution, filesystem access, permissions, secrets, packages, network access, and prompt or tool injection
+- `project-context-maintenance`: adaptive, conservative updates when verified durable project guidance is missing, stale, contradictory, or misplaced
+- `project-bootstrap`: manual-only repository onboarding that studies the project, asks the owner for important missing context, and creates or refreshes concise agent instructions
 
-Only `systematic-debugging` is eligible for model invocation through metadata because it provides a distinct root-cause workflow. The other four skills remain available through explicit skill commands without adding their metadata to the permanent model prompt. The package manifest registers this directory, and the runtime loads it as a low-precedence native resource. The no-skills option disables the bundled set.
+The first five skills are model-visible. Their descriptions are intentionally narrow so ordinary localized work can proceed without loading a skill. `project-bootstrap` sets `disable-model-invocation: true`, so it remains available through `/skill:project-bootstrap` without adding metadata to the model prompt.
+
+Use the narrowest matching primary skill. A security review may accompany a complex design when it covers a separate trust boundary. Project-context maintenance should run only after current work establishes durable knowledge; it frequently should make no documentation change.
+
+The package manifest registers the native skills directory, and the runtime loads it as a low-precedence package resource. Project and user skills can override bundled skills through the existing source-precedence rules. The no-skills option disables the bundled set.
+
+## Project context lifecycle
+
+Use the manual bootstrap skill when a repository is new, inherited, poorly documented, or substantially out of date:
+
+```bash
+/skill:project-bootstrap          # establish initial context
+/skill:project-bootstrap audit    # report gaps without writing
+/skill:project-bootstrap refresh  # update existing context selectively
+```
+
+Bootstrap creates the smallest useful context system. A concise root `AGENTS.md` should route future agents to deeper documents only when those documents are needed. Nested `AGENTS.md` files are appropriate only for subprojects with materially different commands, architecture, testing, security, compatibility, or ownership rules.
+
+`project-context-maintenance` keeps that context accurate during later work. It writes only durable, verified, non-obvious, stable information with a clear scope. It must not persist secrets, temporary debugging details, speculative plans, session summaries, or facts already obvious from source code.
+
+All-For-One automatically loads supported agent instruction files. Supporting architecture, domain, or development documents should be linked from the applicable `AGENTS.md` with a clear rule explaining when to read them; they should not be copied into permanent instructions merely to make them visible.
 
 ## Skill Commands
 
