@@ -28,5 +28,20 @@ jobs:
       - name: Build packages
         run: npm run build >/dev/null 2>&1
 
-      - name: TypeScript diagnostic
-        run: npm exec -- tsgo --noEmit
+      - name: Capture TypeScript diagnostic
+        run: |
+          set +e
+          npm exec -- tsgo --noEmit > ts-errors.txt 2>&1
+          echo "$?" > ts-status.txt
+          exit 0
+
+      - name: Upload TypeScript diagnostic
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: typescript-diagnostic
+          path: |
+            ts-errors.txt
+            ts-status.txt
+
+      - name: Enforce TypeScript result
+        run: test "$(cat ts-status.txt)" -eq 0
