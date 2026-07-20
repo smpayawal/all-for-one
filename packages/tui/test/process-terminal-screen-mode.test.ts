@@ -4,6 +4,9 @@ import { ProcessTerminal } from "../src/application-terminal.ts";
 
 const originalAlternateScreen = process.env.PI_TUI_ALTERNATE_SCREEN;
 
+const APPLICATION_SCREEN_ENTER_SEQUENCE = "\x1b[?1049h\x1b[?1000h\x1b[?1006h";
+const APPLICATION_SCREEN_EXIT_SEQUENCE = "\x1b[?1006l\x1b[?1000l\x1b[?1049l";
+
 afterEach(() => {
 	if (originalAlternateScreen === undefined) {
 		delete process.env.PI_TUI_ALTERNATE_SCREEN;
@@ -13,7 +16,7 @@ afterEach(() => {
 });
 
 describe("ProcessTerminal alternate screen mode", () => {
-	it("enters and exits the alternate screen idempotently when enabled", () => {
+	it("owns the application screen and mouse reporting for its full lifetime", () => {
 		const writes: string[] = [];
 		const previousWrite = process.stdout.write;
 		process.env.PI_TUI_ALTERNATE_SCREEN = "1";
@@ -34,7 +37,12 @@ describe("ProcessTerminal alternate screen mode", () => {
 			assert.equal(terminal.consumeScreenReset(), true);
 			terminal.exitAlternateScreen();
 
-			assert.deepEqual(writes, ["\x1b[?1049h", "\x1b[?1049l", "\x1b[?1049h", "\x1b[?1049l"]);
+			assert.deepEqual(writes, [
+				APPLICATION_SCREEN_ENTER_SEQUENCE,
+				APPLICATION_SCREEN_EXIT_SEQUENCE,
+				APPLICATION_SCREEN_ENTER_SEQUENCE,
+				APPLICATION_SCREEN_EXIT_SEQUENCE,
+			]);
 		} finally {
 			process.stdout.write = previousWrite;
 		}
