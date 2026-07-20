@@ -3791,6 +3791,9 @@ export class InteractiveMode {
 	}
 
 	renderInitialMessages(): void {
+		// TUI.start() can render the empty shell before restored entries are attached.
+		// Treat this as a transcript replacement so idle-render caching cannot retain that frame.
+		this.transcriptViewport?.markContentReplaced();
 		const entries = this.sessionManager.buildContextEntries();
 		this.renderSessionEntries(entries, {
 			updateFooter: true,

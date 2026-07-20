@@ -26,6 +26,10 @@ function getString(record: Record<string, unknown> | undefined, ...keys: string[
 	return undefined;
 }
 
+function normalizeTargetForDisplay(target: string): string {
+	return target.replace(/\s+/g, " ").trim();
+}
+
 /** Return only structured fields already used by native tool call renderers. */
 export function getToolActionTarget(toolName: string, args: unknown): string | undefined {
 	const record = asRecord(args);
@@ -47,7 +51,7 @@ export function getExecutionGroupTarget(actions: readonly ToolActionSummaryData[
 		.filter((target): target is string => target !== undefined);
 	if (targets.length === 0) return undefined;
 	const first = targets[0];
-	return targets.every((target) => target === first) ? first : undefined;
+	return targets.every((target) => target === first) ? normalizeTargetForDisplay(first) : undefined;
 }
 
 export function formatToolActionName(toolName: string): string {
@@ -92,7 +96,8 @@ export function formatToolActionSummary(action: ToolActionSummaryData, width: nu
 		return padToWidth(truncateToWidth(styledPrefix, normalizedWidth, ""), normalizedWidth);
 	}
 
-	const target = getToolActionTarget(action.toolName, action.args);
+	const rawTarget = getToolActionTarget(action.toolName, action.args);
+	const target = rawTarget ? normalizeTargetForDisplay(rawTarget) : undefined;
 	if (!target) return padToWidth(styledPrefix, normalizedWidth);
 
 	const separator = "  ";

@@ -179,6 +179,23 @@ describe("All-For-One transcript presentation", () => {
 		expect(output).not.toContain("README contents");
 	});
 
+	test("keeps multiline tool targets on one physical terminal row", () => {
+		const component = new FakeToolComponent() as unknown as ToolExecutionComponent;
+		const group = new ExecutionGroupComponent("turn-multiline", true);
+		group.addAction({
+			id: "bash-multiline",
+			toolName: "bash",
+			args: { command: 'for s in $(tmux list-sessions); do\n  tmux send-keys -t "$s" Escape\ndone' },
+			status: "success",
+			component,
+		});
+
+		const lines = group.render(72);
+
+		expect(lines.every((line) => !line.includes("\n") && !line.includes("\r"))).toBe(true);
+		for (const line of lines) expect(visibleWidth(line)).toBe(72);
+	});
+
 	test("only promotes a target to the group header when every targeted action agrees", () => {
 		expect(
 			getExecutionGroupTarget([
