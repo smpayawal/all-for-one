@@ -17,7 +17,7 @@ Write project context only when the information is all of the following:
 4. **Stable** — not a temporary incident, branch detail, experiment, or unapproved plan.
 5. **Correctly scoped** — there is a clear root, package, or supporting-document destination.
 
-If any condition fails, make no persistent change.
+If any condition fails, make no persistent change. Leave project files unchanged and state the no-op decision briefly.
 
 ## Update workflow
 
