@@ -60,7 +60,7 @@ Skill content here.`,
 			expect(skills.some((s) => s.name === "test-skill")).toBe(true);
 		});
 
-		it("should load the five native coding skills from the package", async () => {
+		it("should load the six native coding skills from the package", async () => {
 			const loader = new DefaultResourceLoader({ cwd, agentDir });
 			await loader.reload();
 
@@ -70,11 +70,12 @@ Skill content here.`,
 				.map((skill) => skill.name)
 				.sort();
 			expect(names).toEqual([
-				"plan-complex-change",
-				"repository-orientation",
-				"review-diff",
+				"change-review",
+				"design-complex-change",
+				"project-bootstrap",
+				"project-context-maintenance",
+				"security-boundary-review",
 				"systematic-debugging",
-				"verify-before-completion",
 			]);
 		});
 
