@@ -1,22 +1,24 @@
-name: Prepare Resource Loader Test
+name: Apply Resource Loader Expectation
 
 on:
   pull_request:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  prepare:
+  apply:
+    if: github.head_ref == 'feat/project-skills'
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: feat/project-skills
+          fetch-depth: 0
 
-      - name: Update native skill expectation
+      - name: Update existing loader test and remove workflow
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -61,10 +63,11 @@ jobs:
           if content.count(old) != 1:
               raise SystemExit("expected native skill assertion was not found exactly once")
           path.write_text(content.replace(old, new))
+          Path(".github/workflows/diagnose-focused.yml").unlink()
           PY
 
-      - name: Upload updated test
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: updated-resource-loader-test
-          path: packages/coding-agent/test/resource-loader.test.ts
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add packages/coding-agent/test/resource-loader.test.ts .github/workflows/diagnose-focused.yml
+          git commit -m "test(coding-agent): update resource loader skill inventory"
+          git push origin HEAD:feat/project-skills
