@@ -11,6 +11,20 @@ const packageRoot = join(__dirname, "..");
 const PROVIDER_ID = "kimi-coding";
 
 export const KIMI_CODING_COMPATIBILITY_MODELS = {
+	k2p7: {
+		id: "k2p7",
+		name: "Kimi K2.7 Code",
+		api: "anthropic-messages",
+		provider: PROVIDER_ID,
+		baseUrl: "https://api.kimi.com/coding",
+		headers: { "User-Agent": "KimiCLI/1.5" },
+		compat: { forceAdaptiveThinking: true },
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0 },
+		contextWindow: 262144,
+		maxTokens: 32768,
+	},
 	"kimi-for-coding": {
 		id: "kimi-for-coding",
 		name: "Kimi For Coding",
