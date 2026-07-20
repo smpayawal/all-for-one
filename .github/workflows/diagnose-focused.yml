@@ -1,0 +1,47 @@
+name: Diagnose Focused Skills
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts >/dev/null 2>&1
+
+      - name: Build packages
+        run: npm run build >/dev/null 2>&1
+
+      - name: Capture focused diagnostic
+        run: |
+          set +e
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run test/native-skills.test.ts test/allforone-baseline.test.ts test/product-identity.test.ts test/settings-manager.test.ts test/system-prompt.test.ts test/tool-registry.test.ts test/resource-loader.test.ts > focused-errors.txt 2>&1
+          echo "$?" > focused-status.txt
+          exit 0
+
+      - name: Upload focused diagnostic
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: focused-skill-diagnostic
+          path: |
+            focused-errors.txt
+            focused-status.txt
+
+      - name: Enforce focused result
+        run: test "$(cat focused-status.txt)" -eq 0
