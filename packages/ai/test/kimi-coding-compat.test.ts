@@ -25,6 +25,7 @@ describe("Kimi Coding catalog compatibility", () => {
 		const result = ensureKimiCodingCompatibilityModels(current);
 
 		expect(result.k3).toBe(current.k3);
+		expect(result.k2p7).toEqual(KIMI_CODING_COMPATIBILITY_MODELS.k2p7);
 		expect(result["kimi-for-coding"]).toEqual(KIMI_CODING_COMPATIBILITY_MODELS["kimi-for-coding"]);
 		expect(result["kimi-k2-thinking"]).toEqual(KIMI_CODING_COMPATIBILITY_MODELS["kimi-k2-thinking"]);
 	});
