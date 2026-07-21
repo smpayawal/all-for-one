@@ -240,19 +240,9 @@ function rgbTo256(r: number, g: number, b: number): number {
 	const grayIndex = 232 + grayIdx;
 	const grayDist = colorDistance(r, g, b, grayValue, grayValue, grayValue);
 
-	// Check if color has noticeable saturation (hue matters)
-	// If max-min spread is significant, prefer cube to preserve tint
-	const maxC = Math.max(r, g, b);
-	const minC = Math.min(r, g, b);
-	const spread = maxC - minC;
-
-	// Only consider grayscale if color is nearly neutral (spread < 10)
-	// AND grayscale is actually closer
-	if (spread < 10 && grayDist < cubeDist) {
-		return grayIndex;
-	}
-
-	return cubeIndex;
+	// Use whichever ANSI candidate is perceptually closer. Slightly tinted
+	// dark colors must not be forced into a saturated color-cube entry.
+	return grayDist < cubeDist ? grayIndex : cubeIndex;
 }
 
 function hexTo256(hex: string): number {
