@@ -47,6 +47,7 @@ export function findSessionRailSkillName(
 	return undefined;
 }
 
+/** Tracks skills loaded in one session while keeping in-flight reads scoped to the current turn. */
 export class SessionRailSkillUsageTracker {
 	private readonly usedSkillNames = new Set<string>();
 	private readonly pendingSkillReads = new Map<string, string>();
