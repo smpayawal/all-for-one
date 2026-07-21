@@ -114,6 +114,10 @@ jobs:
           path: /tmp/side-rail-focused-tests.txt
           if-no-files-found: ignore
 
+      - name: Build repository
+        if: steps.gate.outputs.run == 'true' && success()
+        run: npm run build
+
       - name: Run coding-agent tests
         if: steps.gate.outputs.run == 'true' && success()
         run: npm --prefix packages/coding-agent test
