@@ -39,7 +39,7 @@ export interface SessionRailData {
 	/** Compact command help anchored at the bottom of the rail when space permits. */
 	shortcutSummary?: string;
 	agents: readonly string[];
-	/** Available skills remain discoverable through commands and are not shown persistently. */
+	/** Skills successfully loaded during the current session. */
 	skills: readonly string[];
 	progress?: SessionRailProgress;
 	lifecycle: SessionRailLifecycle;
@@ -277,6 +277,13 @@ export class SessionRailComponent implements Component {
 
 		if (title && topContentLimit > 0) lines.push(formatProductTitle(title, innerWidth));
 		appendWholeSection(lines, createNowSection(this.data, innerWidth), topContentLimit);
+		if (this.data.skills.length > 0) {
+			appendWholeSection(
+				lines,
+				createSection("SKILLS USED", formatResourceList(this.data.skills), innerWidth),
+				topContentLimit,
+			);
+		}
 		if (this.data.agents.length > 0) {
 			appendWholeSection(
 				lines,

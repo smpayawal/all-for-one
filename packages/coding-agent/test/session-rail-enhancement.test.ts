@@ -33,7 +33,8 @@ describe("session rail hierarchy", () => {
 		expect(output).toContain("ACTIVE INSTRUCTIONS");
 		expect(output).toContain("AGENTS.md");
 		expect(output).not.toContain("CURRENT TURN");
-		expect(output).not.toContain("SKILLS");
+		expect(output).toContain("SKILLS USED");
+		expect(output).toContain("systematic-debugging");
 		expect(lines).toHaveLength(24);
 	});
 

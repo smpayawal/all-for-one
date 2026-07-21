@@ -1,10 +1,4 @@
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-TEST_PATH = ROOT / "packages/coding-agent/test/session-rail-skill-state.test.ts"
-
-TEST_PATH.write_text(
-    r'''import * as path from "node:path";
+import * as path from "node:path";
 import { beforeAll, describe, expect, test } from "vitest";
 import { SessionRailComponent } from "../src/modes/interactive/components/session-rail.ts";
 import {
@@ -46,9 +40,9 @@ describe("session rail skill state", () => {
 		const skillPath = path.join(cwd, ".pi", "skills", "systematic-debugging", "SKILL.md");
 		const skills = [{ name: "systematic-debugging", filePath: skillPath }];
 
-		expect(
-			findSessionRailSkillName("read", { path: path.relative(cwd, skillPath) }, cwd, skills),
-		).toBe("systematic-debugging");
+		expect(findSessionRailSkillName("read", { path: path.relative(cwd, skillPath) }, cwd, skills)).toBe(
+			"systematic-debugging",
+		);
 		expect(findSessionRailSkillName("read", { path: "README.md" }, cwd, skills)).toBeUndefined();
 		expect(
 			findSessionRailSkillName(
@@ -99,6 +93,3 @@ describe("session rail skill state", () => {
 		});
 	});
 });
-''',
-    encoding="utf-8",
-)
