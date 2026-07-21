@@ -6,6 +6,7 @@ import {
 	getResolvedThemeColors,
 	getThemeByName,
 	initTheme,
+	loadThemeFromPath,
 	normalizeThemeSetting,
 	resolveThemeSetting,
 	setTheme,
@@ -40,6 +41,13 @@ describe("native Pi themes", () => {
 			export: { pageBg: "#18181e", cardBg: "#1e1e24", infoBg: "#3c3728" },
 		});
 		expect(existsSync(LIGHT_PATH)).toBe(false);
+	});
+
+	test("uses perceptually close grayscale fallbacks for near-neutral dark backgrounds", () => {
+		const fallbackTheme = loadThemeFromPath(DARK_PATH, "256color");
+
+		expect(fallbackTheme.getBgAnsi("customMessageBg")).toBe("\x1b[48;5;235m");
+		expect(fallbackTheme.getBgAnsi("selectedBg")).toBe("\x1b[48;5;237m");
 	});
 
 	test("lists and switches the native dark theme", () => {
