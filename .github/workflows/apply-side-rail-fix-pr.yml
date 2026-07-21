@@ -48,7 +48,7 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: |
           set +e
-          npx vitest --run packages/coding-agent/test/session-rail-skill-state.test.ts > /tmp/side-rail-red.txt 2>&1
+          npm --prefix packages/coding-agent test -- test/session-rail-skill-state.test.ts > /tmp/side-rail-red.txt 2>&1
           status=$?
           set -e
           cat /tmp/side-rail-red.txt
@@ -94,11 +94,11 @@ jobs:
         if: steps.gate.outputs.run == 'true' && success()
         run: |
           set +e
-          npx vitest --run \
-            packages/coding-agent/test/session-rail-skill-state.test.ts \
-            packages/coding-agent/test/session-rail.test.ts \
-            packages/coding-agent/test/session-rail-enhancement.test.ts \
-            packages/coding-agent/test/session-rail-style.test.ts \
+          npm --prefix packages/coding-agent test -- \
+            test/session-rail-skill-state.test.ts \
+            test/session-rail.test.ts \
+            test/session-rail-enhancement.test.ts \
+            test/session-rail-style.test.ts \
             > /tmp/side-rail-focused-tests.txt 2>&1
           status=$?
           set -e
