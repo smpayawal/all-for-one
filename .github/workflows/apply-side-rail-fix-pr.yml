@@ -77,7 +77,7 @@ jobs:
         with:
           name: side-rail-apply-error
           path: /tmp/side-rail-apply-error.txt
-          if-no-files-found: error
+          if-no-files-found: ignore
 
       - name: Format changed files
         if: steps.gate.outputs.run == 'true' && success()
@@ -93,11 +93,25 @@ jobs:
       - name: Run focused Side Rail tests
         if: steps.gate.outputs.run == 'true' && success()
         run: |
+          set +e
           npx vitest --run \
             packages/coding-agent/test/session-rail-skill-state.test.ts \
             packages/coding-agent/test/session-rail.test.ts \
             packages/coding-agent/test/session-rail-enhancement.test.ts \
-            packages/coding-agent/test/session-rail-style.test.ts
+            packages/coding-agent/test/session-rail-style.test.ts \
+            > /tmp/side-rail-focused-tests.txt 2>&1
+          status=$?
+          set -e
+          cat /tmp/side-rail-focused-tests.txt
+          exit "$status"
+
+      - name: Upload focused test diagnostics
+        if: failure() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: side-rail-focused-tests
+          path: /tmp/side-rail-focused-tests.txt
+          if-no-files-found: ignore
 
       - name: Run coding-agent tests
         if: steps.gate.outputs.run == 'true' && success()
