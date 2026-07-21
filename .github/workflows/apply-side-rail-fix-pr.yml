@@ -5,7 +5,6 @@ on:
     branches:
       - main
     types:
-      - opened
       - synchronize
 
 permissions:
@@ -22,88 +21,90 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.19.0
-          cache: npm
-
-      - name: Check whether the prepared change is still pending
+      - name: Check whether the direct patch is ready
         id: gate
         run: |
           last_message=$(git log -1 --pretty=%s)
-          if [ -f .github/workflows/apply-side-rail-fix.yml ] && [ "$last_message" != "chore: save side rail validation failure" ]; then
+          if [ -f .github/apply-side-rail-fix.py ] && [ "$last_message" = "chore: run direct side rail fix" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.run == 'true'
+        with:
+          node-version: 22.19.0
+          cache: npm
+
       - name: Install dependencies
         if: steps.gate.outputs.run == 'true'
         run: npm ci
 
-      - name: Execute the prepared test-first change
+      - name: Write regression tests
+        if: steps.gate.outputs.run == 'true'
+        run: python .github/apply-side-rail-fix.py write-tests
+
+      - name: Verify the regression tests fail before the fix
         if: steps.gate.outputs.run == 'true'
         run: |
-          python <<'PY'
-          from pathlib import Path
-
-          source = Path('.github/workflows/apply-side-rail-fix.yml').read_text(encoding='utf-8').splitlines()
-          blocks: list[str] = []
-          index = 0
-          while index < len(source):
-              if source[index] != '        run: |':
-                  index += 1
-                  continue
-              index += 1
-              block: list[str] = []
-              while index < len(source):
-                  line = source[index]
-                  if line and not line.startswith('          '):
-                      break
-                  block.append(line[10:] if line.startswith('          ') else '')
-                  index += 1
-              blocks.append('\n'.join(block))
-          if not blocks:
-              raise SystemExit('No run blocks found in prepared workflow')
-
-          script = '\n\n'.join(blocks) + '\n'
-          marker = "'explicit skill tracking'"
-          marker_index = script.index(marker)
-          block_start = script.rfind('interactive = replace_once(', 0, marker_index)
-          block_end = script.find('interactive = replace_once(', marker_index + len(marker))
-          if block_start < 0 or block_end < 0:
-              raise SystemExit('Could not locate explicit skill tracking patch block')
-          replacement = '''interactive = replace_once(
-              interactive,
-              '\\t\\t\\t\\tthis.liveExecutionGroup = undefined;\\n\\t\\t\\t\\tthis.ensureLiveTranscriptTurn("user");',
-              '\\t\\t\\t\\tthis.liveExecutionGroup = undefined;\\n\\t\\t\\t\\tthis.recordSessionRailSkillMessage(event.message);\\n\\t\\t\\t\\tthis.ensureLiveTranscriptTurn("user");',
-              'explicit skill tracking',
-          )
-
-          '''
-          script = script[:block_start] + replacement + script[block_end:]
-          Path('/tmp/apply-side-rail-fix.sh').write_text(script, encoding='utf-8')
-          PY
           set +e
-          bash /tmp/apply-side-rail-fix.sh > .github/side-rail-validation.txt 2>&1
+          npx vitest --run packages/coding-agent/test/session-rail-skill-state.test.ts > /tmp/side-rail-red.txt 2>&1
           status=$?
           set -e
-          cat .github/side-rail-validation.txt
-          if [ "$status" -ne 0 ]; then
-            git config user.name "All-For-One Automation"
-            git config user.email "actions@users.noreply.github.com"
-            git add .github/side-rail-validation.txt
-            git commit -m "chore: save side rail validation failure"
-            git push origin HEAD:${{ github.head_ref }}
-            exit "$status"
+          cat /tmp/side-rail-red.txt
+          if [ "$status" -eq 0 ]; then
+            echo "Regression tests unexpectedly passed before the implementation."
+            exit 1
           fi
+          if grep -E "Cannot find package|Failed to load url|Transform failed|SyntaxError" /tmp/side-rail-red.txt; then
+            echo "Regression tests failed because of an infrastructure or syntax problem."
+            exit 1
+          fi
+          grep -q "SKILLS USED" /tmp/side-rail-red.txt
 
-      - name: Remove temporary validation files
+      - name: Apply the focused implementation
+        if: steps.gate.outputs.run == 'true'
+        run: python .github/apply-side-rail-fix.py apply
+
+      - name: Format changed files
         if: steps.gate.outputs.run == 'true'
         run: |
-          rm -f .github/workflows/apply-side-rail-fix-pr.yml .github/side-rail-validation.txt
+          npx biome check --write \
+            packages/coding-agent/src/modes/interactive/interactive-mode.ts \
+            packages/coding-agent/src/modes/interactive/components/session-rail.ts \
+            packages/coding-agent/test/session-rail-skill-state.test.ts \
+            packages/coding-agent/test/session-rail.test.ts \
+            packages/coding-agent/test/session-rail-enhancement.test.ts \
+            packages/coding-agent/test/session-rail-style.test.ts
+
+      - name: Run focused Side Rail tests
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          npx vitest --run \
+            packages/coding-agent/test/session-rail-skill-state.test.ts \
+            packages/coding-agent/test/session-rail.test.ts \
+            packages/coding-agent/test/session-rail-enhancement.test.ts \
+            packages/coding-agent/test/session-rail-style.test.ts
+
+      - name: Run coding-agent tests
+        if: steps.gate.outputs.run == 'true'
+        run: npm --prefix packages/coding-agent test
+
+      - name: Run repository checks
+        if: steps.gate.outputs.run == 'true'
+        run: npm run check
+
+      - name: Commit the validated fix
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          rm -f \
+            .github/apply-side-rail-fix.py \
+            .github/side-rail-validation.txt \
+            .github/workflows/apply-side-rail-fix.yml \
+            .github/workflows/apply-side-rail-fix-pr.yml
           git config user.name "All-For-One Automation"
           git config user.email "actions@users.noreply.github.com"
-          git add -A -- .github/workflows/apply-side-rail-fix-pr.yml .github/side-rail-validation.txt
-          git commit -m "chore remove temporary validation workflow"
+          git add -A
+          git commit -m "fix side rail skill state"
           git push origin HEAD:${{ github.head_ref }}
