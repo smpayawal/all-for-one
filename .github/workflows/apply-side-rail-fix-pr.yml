@@ -24,7 +24,7 @@ jobs:
       - name: Check whether the isolated patch is ready
         id: gate
         run: |
-          if [ -f .github/apply-side-rail-fix-v3.py ] && [ -f .github/write-side-rail-tests-v3.py ]; then
+          if [ -f .github/apply-side-rail-fix-v4.py ] && [ -f .github/write-side-rail-tests-v3.py ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -65,7 +65,7 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         run: |
           set +e
-          python .github/apply-side-rail-fix-v3.py > /tmp/side-rail-apply-error.txt 2>&1
+          python .github/apply-side-rail-fix-v4.py > /tmp/side-rail-apply-error.txt 2>&1
           status=$?
           set -e
           cat /tmp/side-rail-apply-error.txt
@@ -147,6 +147,7 @@ jobs:
             .github/apply-side-rail-fix.py \
             .github/apply-side-rail-fix-v2.py \
             .github/apply-side-rail-fix-v3.py \
+            .github/apply-side-rail-fix-v4.py \
             .github/write-side-rail-tests-v3.py \
             .github/side-rail-apply-error.txt \
             .github/side-rail-validation.txt \
