@@ -37,6 +37,10 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: npm ci
+
       - name: Execute the prepared test-first change
         if: steps.gate.outputs.run == 'true'
         run: |
@@ -61,7 +65,24 @@ jobs:
               blocks.append('\n'.join(block))
           if not blocks:
               raise SystemExit('No run blocks found in prepared workflow')
-          Path('/tmp/apply-side-rail-fix.sh').write_text('\n\n'.join(blocks) + '\n', encoding='utf-8')
+
+          script = '\n\n'.join(blocks) + '\n'
+          marker = "'explicit skill tracking'"
+          marker_index = script.index(marker)
+          block_start = script.rfind('interactive = replace_once(', 0, marker_index)
+          block_end = script.find('interactive = replace_once(', marker_index + len(marker))
+          if block_start < 0 or block_end < 0:
+              raise SystemExit('Could not locate explicit skill tracking patch block')
+          replacement = '''interactive = replace_once(
+              interactive,
+              '\\t\\t\\t\\tthis.liveExecutionGroup = undefined;\\n\\t\\t\\t\\tthis.ensureLiveTranscriptTurn("user");',
+              '\\t\\t\\t\\tthis.liveExecutionGroup = undefined;\\n\\t\\t\\t\\tthis.recordSessionRailSkillMessage(event.message);\\n\\t\\t\\t\\tthis.ensureLiveTranscriptTurn("user");',
+              'explicit skill tracking',
+          )
+
+          '''
+          script = script[:block_start] + replacement + script[block_end:]
+          Path('/tmp/apply-side-rail-fix.sh').write_text(script, encoding='utf-8')
           PY
           set +e
           bash /tmp/apply-side-rail-fix.sh > .github/side-rail-validation.txt 2>&1
