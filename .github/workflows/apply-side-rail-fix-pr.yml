@@ -120,7 +120,21 @@ jobs:
 
       - name: Run coding-agent tests
         if: steps.gate.outputs.run == 'true' && success()
-        run: npm --prefix packages/coding-agent test
+        run: |
+          set +e
+          npm --prefix packages/coding-agent test > /tmp/coding-agent-tests.txt 2>&1
+          status=$?
+          set -e
+          cat /tmp/coding-agent-tests.txt
+          exit "$status"
+
+      - name: Upload coding-agent diagnostics
+        if: failure() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coding-agent-tests
+          path: /tmp/coding-agent-tests.txt
+          if-no-files-found: ignore
 
       - name: Run repository checks
         if: steps.gate.outputs.run == 'true' && success()
