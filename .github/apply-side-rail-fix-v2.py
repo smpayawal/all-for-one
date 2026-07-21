@@ -64,11 +64,9 @@ helper_methods = r'''	private normalizeSessionRailPath(filePath: string): string
 		return undefined;
 	}
 
-	private recordSessionRailSkillMessage(message: Message): void {
-		if (message.role !== "user") return;
-		const skillBlock = parseSkillBlock(this.getUserMessageText(message));
-		if (!skillBlock || this.sessionRailUsedSkills.has(skillBlock.name)) return;
-		this.sessionRailUsedSkills.add(skillBlock.name);
+	private recordSessionRailSkillName(skillName: string): void {
+		if (this.sessionRailUsedSkills.has(skillName)) return;
+		this.sessionRailUsedSkills.add(skillName);
 		this.updateSessionRail();
 	}
 
@@ -139,11 +137,11 @@ interactive = replace_once(
 )
 interactive = replace_once(
     interactive,
-    '\t\t\t\tthis.liveExecutionGroup = undefined;\n\t\t\t\tthis.ensureLiveTranscriptTurn("user");',
-    '\t\t\t\tthis.liveExecutionGroup = undefined;\n'
-    '\t\t\t\tthis.recordSessionRailSkillMessage(event.message);\n'
-    '\t\t\t\tthis.ensureLiveTranscriptTurn("user");',
-    "explicit skill message tracking",
+    "\t\t\t\t\tif (skillBlock) {\n\t\t\t\t\t\t// Render skill block (collapsible)",
+    "\t\t\t\t\tif (skillBlock) {\n"
+    "\t\t\t\t\t\tthis.recordSessionRailSkillName(skillBlock.name);\n"
+    "\t\t\t\t\t\t// Render skill block (collapsible)",
+    "parsed skill message tracking",
 )
 interactive = replace_once(
     interactive,
@@ -207,3 +205,27 @@ for relative_path, (old, new) in updates.items():
     path = ROOT / relative_path
     content = path.read_text(encoding="utf-8")
     path.write_text(replace_once(content, old, new, relative_path), encoding="utf-8")
+
+regression_path = ROOT / "packages/coding-agent/test/session-rail-skill-state.test.ts"
+regression = regression_path.read_text(encoding="utf-8")
+regression = replace_once(
+    regression,
+    'import type { Message } from "@earendil-works/pi-ai/compat";\n',
+    "",
+    "unused Message import",
+)
+explicit_start = '\ttest("records an explicitly expanded skill message", () => {'
+explicit_end = '\n\ttest("does not record failed or unrelated reads", () => {'
+start = regression.index(explicit_start)
+end = regression.index(explicit_end, start)
+replacement = '''\ttest("records an explicitly expanded skill name", () => {
+\t\tconst { mode } = createModeFixture();
+\t\tconst runtime = mode as any;
+
+\t\truntime.recordSessionRailSkillName("systematic-debugging");
+
+\t\texpect(Array.from(runtime.sessionRailUsedSkills)).toEqual(["systematic-debugging"]);
+\t});
+'''
+regression = regression[:start] + replacement + regression[end:]
+regression_path.write_text(regression, encoding="utf-8")
