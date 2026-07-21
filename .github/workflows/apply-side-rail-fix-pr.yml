@@ -6,6 +6,7 @@ on:
       - main
     types:
       - opened
+      - synchronize
 
 permissions:
   contents: write
@@ -26,12 +27,45 @@ jobs:
           node-version: 22.19.0
           cache: npm
 
-      - name: Execute the prepared test-first change
+      - name: Check whether the prepared change is still pending
+        id: gate
         run: |
-          ruby -ryaml -e 'workflow = YAML.load_file(".github/workflows/apply-side-rail-fix.yml"); puts workflow.fetch("jobs").fetch("apply-fix").fetch("steps").filter_map { |step| step["run"] }.join("\n")' > /tmp/apply-side-rail-fix.sh
+          if [ -f .github/workflows/apply-side-rail-fix.yml ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Execute the prepared test-first change
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          source = Path('.github/workflows/apply-side-rail-fix.yml').read_text(encoding='utf-8').splitlines()
+          blocks: list[str] = []
+          index = 0
+          while index < len(source):
+              if source[index] != '        run: |':
+                  index += 1
+                  continue
+              index += 1
+              block: list[str] = []
+              while index < len(source):
+                  line = source[index]
+                  if line and not line.startswith('          '):
+                      break
+                  block.append(line[10:] if line.startswith('          ') else '')
+                  index += 1
+              blocks.append('\n'.join(block))
+          if not blocks:
+              raise SystemExit('No run blocks found in prepared workflow')
+          Path('/tmp/apply-side-rail-fix.sh').write_text('\n\n'.join(blocks) + '\n', encoding='utf-8')
+          PY
           bash /tmp/apply-side-rail-fix.sh
 
       - name: Remove the temporary PR trigger
+        if: steps.gate.outputs.run == 'true'
         run: |
           rm .github/workflows/apply-side-rail-fix-pr.yml
           git config user.name "All-For-One Automation"
