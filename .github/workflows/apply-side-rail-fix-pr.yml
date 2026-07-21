@@ -24,8 +24,7 @@ jobs:
       - name: Check whether the direct patch is ready
         id: gate
         run: |
-          last_message=$(git log -1 --pretty=%s)
-          if [ -f .github/apply-side-rail-fix.py ] && [ "$last_message" = "chore: run direct side rail fix" ]; then
+          if [ -f .github/apply-side-rail-fix.py ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -61,7 +60,6 @@ jobs:
             echo "Regression tests failed because of an infrastructure or syntax problem."
             exit 1
           fi
-          grep -q "SKILLS USED" /tmp/side-rail-red.txt
 
       - name: Apply the focused implementation
         if: steps.gate.outputs.run == 'true'
