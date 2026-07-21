@@ -1,0 +1,5 @@
+{
+  "result": "success",
+  "platforms": ["ubuntu-latest", "macos-latest", "windows-latest"],
+  "checks": ["build", "bundled-themes regression", "Biome changed-files check"]
+}
