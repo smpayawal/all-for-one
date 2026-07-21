@@ -21,11 +21,10 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Check whether the direct patch is ready
+      - name: Check whether the scoped patch is ready
         id: gate
         run: |
-          last_message=$(git log -1 --pretty=%s)
-          if [ -f .github/apply-side-rail-fix.py ] && [ "$last_message" != "chore: save side rail apply failure" ]; then
+          if [ -f .github/apply-side-rail-fix-v2.py ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -64,20 +63,7 @@ jobs:
 
       - name: Apply the focused implementation
         if: steps.gate.outputs.run == 'true'
-        run: |
-          set +e
-          python .github/apply-side-rail-fix.py apply > .github/side-rail-apply-error.txt 2>&1
-          status=$?
-          set -e
-          cat .github/side-rail-apply-error.txt
-          if [ "$status" -ne 0 ]; then
-            git config user.name "All-For-One Automation"
-            git config user.email "actions@users.noreply.github.com"
-            git add .github/side-rail-apply-error.txt
-            git commit -m "chore: save side rail apply failure"
-            git push origin HEAD:${{ github.head_ref }}
-            exit "$status"
-          fi
+        run: python .github/apply-side-rail-fix-v2.py
 
       - name: Format changed files
         if: steps.gate.outputs.run == 'true'
@@ -112,6 +98,7 @@ jobs:
         run: |
           rm -f \
             .github/apply-side-rail-fix.py \
+            .github/apply-side-rail-fix-v2.py \
             .github/side-rail-apply-error.txt \
             .github/side-rail-validation.txt \
             .github/workflows/apply-side-rail-fix.yml \
