@@ -30,7 +30,8 @@ jobs:
       - name: Check whether the prepared change is still pending
         id: gate
         run: |
-          if [ -f .github/workflows/apply-side-rail-fix.yml ]; then
+          last_message=$(git log -1 --pretty=%s)
+          if [ -f .github/workflows/apply-side-rail-fix.yml ] && [ "$last_message" != "chore: save side rail validation failure" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -62,14 +63,26 @@ jobs:
               raise SystemExit('No run blocks found in prepared workflow')
           Path('/tmp/apply-side-rail-fix.sh').write_text('\n\n'.join(blocks) + '\n', encoding='utf-8')
           PY
-          bash /tmp/apply-side-rail-fix.sh
+          set +e
+          bash /tmp/apply-side-rail-fix.sh > .github/side-rail-validation.log 2>&1
+          status=$?
+          set -e
+          cat .github/side-rail-validation.log
+          if [ "$status" -ne 0 ]; then
+            git config user.name "All-For-One Automation"
+            git config user.email "actions@users.noreply.github.com"
+            git add .github/side-rail-validation.log
+            git commit -m "chore: save side rail validation failure"
+            git push origin HEAD:${{ github.head_ref }}
+            exit "$status"
+          fi
 
-      - name: Remove the temporary PR trigger
+      - name: Remove temporary validation files
         if: steps.gate.outputs.run == 'true'
         run: |
-          rm .github/workflows/apply-side-rail-fix-pr.yml
+          rm -f .github/workflows/apply-side-rail-fix-pr.yml .github/side-rail-validation.log
           git config user.name "All-For-One Automation"
           git config user.email "actions@users.noreply.github.com"
-          git add .github/workflows/apply-side-rail-fix-pr.yml
+          git add .github/workflows/apply-side-rail-fix-pr.yml .github/side-rail-validation.log
           git commit -m "chore remove temporary validation workflow"
           git push origin HEAD:${{ github.head_ref }}
