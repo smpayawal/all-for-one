@@ -63,10 +63,24 @@ jobs:
 
       - name: Apply the focused implementation
         if: steps.gate.outputs.run == 'true'
-        run: python .github/apply-side-rail-fix-v2.py
+        run: |
+          set +e
+          python .github/apply-side-rail-fix-v2.py > /tmp/side-rail-apply-error.txt 2>&1
+          status=$?
+          set -e
+          cat /tmp/side-rail-apply-error.txt
+          exit "$status"
+
+      - name: Upload patch diagnostics
+        if: failure() && steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: side-rail-apply-error
+          path: /tmp/side-rail-apply-error.txt
+          if-no-files-found: error
 
       - name: Format changed files
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && success()
         run: |
           npx biome check --write \
             packages/coding-agent/src/modes/interactive/interactive-mode.ts \
@@ -77,7 +91,7 @@ jobs:
             packages/coding-agent/test/session-rail-style.test.ts
 
       - name: Run focused Side Rail tests
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && success()
         run: |
           npx vitest --run \
             packages/coding-agent/test/session-rail-skill-state.test.ts \
@@ -86,15 +100,15 @@ jobs:
             packages/coding-agent/test/session-rail-style.test.ts
 
       - name: Run coding-agent tests
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && success()
         run: npm --prefix packages/coding-agent test
 
       - name: Run repository checks
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && success()
         run: npm run check
 
       - name: Commit the validated fix
-        if: steps.gate.outputs.run == 'true'
+        if: steps.gate.outputs.run == 'true' && success()
         run: |
           rm -f \
             .github/apply-side-rail-fix.py \
