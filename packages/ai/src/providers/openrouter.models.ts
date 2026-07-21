@@ -285,10 +285,6 @@ export const OPENROUTER_MODELS = values as {
 		id: "kwaipilot/kat-coder-pro-v2.5";
 		provider: "openrouter";
 	};
-	"meituan/longcat-2.0": Model<"openai-completions"> & {
-		id: "meituan/longcat-2.0";
-		provider: "openrouter";
-	};
 	"meta-llama/llama-3.1-70b-instruct": Model<"openai-completions"> & {
 		id: "meta-llama/llama-3.1-70b-instruct";
 		provider: "openrouter";
@@ -955,6 +951,10 @@ export const OPENROUTER_MODELS = values as {
 	};
 	"tencent/hy3-preview": Model<"openai-completions"> & {
 		id: "tencent/hy3-preview";
+		provider: "openrouter";
+	};
+	"tencent/hy3:free": Model<"openai-completions"> & {
+		id: "tencent/hy3:free";
 		provider: "openrouter";
 	};
 	"thedrummer/unslopnemo-12b": Model<"openai-completions"> & {
