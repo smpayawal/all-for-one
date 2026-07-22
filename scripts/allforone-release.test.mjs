@@ -29,7 +29,7 @@ test("requires the tag version to match the current standalone product version",
 	assert.equal(metadata.product, "All-For-One");
 	assert.equal(metadata.version, currentMetadata.version);
 	assert.equal(metadata.prerelease, currentMetadata.prerelease);
-	assert.equal(metadata.piBaseline, "0.80.10");
+	assert.equal(metadata.piBaseline, "0.81.1");
 	assert.deepEqual(metadata.commands, ["allforone", "afo", "pi"]);
 	assert.throws(() => validateAllForOneRelease(mismatchedTag), /does not match All-For-One version/);
 });
@@ -53,11 +53,11 @@ test("creates source-backed release notes and a complete manifest for the curren
 	assert.equal(manifest.product, "All-For-One");
 	assert.equal(manifest.version, currentMetadata.version);
 	assert.equal(manifest.prerelease, currentMetadata.prerelease);
-	assert.equal(manifest.piBaseline, "0.80.10");
+	assert.equal(manifest.piBaseline, "0.81.1");
 	assert.equal(manifest.commit, commit);
 	assert.deepEqual(manifest.assets.slice(0, RELEASE_ASSETS.length), RELEASE_ASSETS);
 	assert.ok(notes.includes(`All-For-One ${currentMetadata.version}`));
-	assert.match(notes, /Pi compatibility baseline: 0\.80\.10/);
+	assert.match(notes, /Pi compatibility baseline: 0\.81\.1/);
 	assert.match(notes, new RegExp(`Source commit: ${commit}`));
 });
 
