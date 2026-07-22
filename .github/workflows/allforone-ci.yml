@@ -73,7 +73,7 @@ jobs:
       - name: Check
         run: npm run check
 
-      - name: Focused coding-agent and All-For-One tests
+      - name: Focused tests group 1
         run: >-
           npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/coding-model-profile.test.ts
@@ -86,6 +86,11 @@ jobs:
           test/bash-process-tree.test.ts
           test/code-intel.test.ts
           test/repo-map.test.ts
+
+      - name: Focused tests group 2
+        if: always()
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/repo-map-deadline.test.ts
           test/validation-commands.test.ts
           test/validate-extension.test.ts
@@ -96,6 +101,11 @@ jobs:
           test/product-identity.test.ts
           test/args.test.ts
           test/settings-manager.test.ts
+
+      - name: Focused tests group 3
+        if: always()
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/system-prompt.test.ts
           test/tool-registry.test.ts
           test/resource-loader.test.ts
@@ -106,6 +116,11 @@ jobs:
           test/scoped-context.test.ts
           test/compaction-health.test.ts
           test/compaction-retention.test.ts
+
+      - name: Focused tests group 4
+        if: always()
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/compaction-validation.test.ts
           test/execution-integrity.test.ts
           test/suite/lax-message-content.test.ts
@@ -115,6 +130,11 @@ jobs:
           test/session-rail.test.ts
           test/suite/agent-session-runtime.test.ts
           test/suite/agent-session-bash-persistence.test.ts
+
+      - name: Focused tests group 5
+        if: always()
+        run: >-
+          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
           test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts
           test/suite/regressions/3592-no-builtin-tools-keeps-extension-tools.test.ts
           test/suite/regressions/5109-exclude-tools.test.ts
