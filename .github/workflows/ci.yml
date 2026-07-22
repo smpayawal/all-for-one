@@ -1,64 +1,63 @@
-name: Apply Compaction CI Repair
+name: CI
 
 on:
   push:
-    branches: [agent/fix-main-ci-after-pi-merge]
+    branches: [main]
+  pull_request:
+    branches: [main]
 
-permissions:
-  contents: write
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  apply-repair:
-    if: github.actor != 'github-actions[bot]'
+  build-check-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repair branch
+      - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          ref: agent/fix-main-ci-after-pi-merge
-          fetch-depth: 0
+          node-version: 22
+          cache: npm
 
-      - name: Apply cancellation guard and restore CI
-        shell: bash
+      - name: Install system dependencies
         run: |
-          python <<'PY'
-          from pathlib import Path
+          sudo apt-get update
+          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
+          sudo ln -s $(which fdfind) /usr/local/bin/fd
 
-          path = Path('packages/coding-agent/src/core/compaction/compaction.ts')
-          text = path.read_text()
-          old = '\t\tassertTurnPrefixSummaryValid(turnPrefixResult.text);'
-          new = '\t\tif (!signal?.aborted) assertTurnPrefixSummaryValid(turnPrefixResult.text);'
-          if text.count(old) != 1:
-              raise SystemExit(f'Expected one turn-prefix assertion, found {text.count(old)}')
-          text = text.replace(old, new, 1)
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
 
-          old = '''\t\tsummary = result.text;
-          \t\tsummaryUsage = result.usage;
-          \t}
-          
-          \tconst summaryForValidation = summary;
-          '''
-          new = '''\t\tsummary = result.text;
-          \t\tsummaryUsage = result.usage;
-          \t}
-          
-          \t// Cancellation is handled by the session caller before persistence. Keep the
-          \t// intermediate result structurally valid so repair validation cannot mask it.
-          \tif (signal?.aborted) summary = createStructuredSplitTurnHistoryFallback(previousSummary);
-          
-          \tconst summaryForValidation = summary;
-          '''
-          if text.count(old) != 1:
-              raise SystemExit(f'Expected one summary validation boundary, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1))
-          PY
-          git fetch --no-tags origin main
-          git checkout origin/main -- .github/workflows/ci.yml
+      - name: Build
+        run: npm run build
 
-      - name: Commit branch repair
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add packages/coding-agent/src/core/compaction/compaction.ts .github/workflows/ci.yml
-          git commit -m "fix(compaction): preserve cancellation through validation"
-          git push origin HEAD:agent/fix-main-ci-after-pi-merge
+      - name: Check publication policy
+        run: npm run check:publication-policy
+
+      - name: Check formatting and linting
+        run: npm exec -- biome check --error-on-warnings .
+
+      - name: Check pinned dependencies
+        run: npm run check:pinned-deps
+
+      - name: Check TypeScript imports
+        run: npm run check:ts-imports
+
+      - name: Check coding-agent shrinkwrap
+        run: npm run check:shrinkwrap
+
+      - name: Check coding-agent install lock
+        run: npm run check:install-lock:coding-agent
+
+      - name: Check TypeScript
+        run: npm exec -- tsgo --noEmit
+
+      - name: Check browser smoke configuration
+        run: npm run check:browser-smoke
+
+      - name: Test
+        run: npm test
