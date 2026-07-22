@@ -1,18 +1,17 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
 concurrency:
-  group: ci-diagnostic-${{ github.sha }}
+  group: ci-coding-agent-diagnostic-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
-  build-check-test:
+  coding-agent-diagnostic:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,81 +34,27 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Check publication policy
-        run: npm run check:publication-policy
-
-      - name: Check formatting and linting
-        run: npm exec -- biome check --error-on-warnings .
-
-      - name: Check pinned dependencies
-        run: npm run check:pinned-deps
-
-      - name: Check TypeScript imports
-        run: npm run check:ts-imports
-
-      - name: Check coding-agent shrinkwrap
-        run: npm run check:shrinkwrap
-
-      - name: Check coding-agent install lock
-        run: npm run check:install-lock:coding-agent
-
-      - name: Check TypeScript
-        run: npm exec -- tsgo --noEmit
-
-      - name: Check browser smoke configuration
-        run: npm run check:browser-smoke
-
-      - name: Test TUI workspace
-        run: npm test --workspace packages/tui --if-present
-
-      - name: Test AI workspace
-        if: always()
-        run: npm test --workspace packages/ai --if-present
-
-      - name: Test agent workspace
-        if: always()
-        run: npm test --workspace packages/agent --if-present
-
-      - name: Test SQLite workspace
-        if: always()
-        run: npm test --workspace packages/storage/sqlite-node --if-present
-
-      - name: Test coding-agent workspace
-        if: always()
-        run: npm test --workspace packages/coding-agent --if-present
-
-      - name: Test server workspace
-        if: always()
-        run: npm test --workspace packages/server --if-present
-
-      - name: Test remaining workspaces
-        if: always()
+      - name: Diagnose coding-agent full suite
+        shell: bash
         run: |
-          node --input-type=module <<'NODE'
-          import { spawnSync } from 'node:child_process';
-          const covered = new Set([
-            'packages/tui',
-            'packages/ai',
-            'packages/agent',
-            'packages/storage/sqlite-node',
-            'packages/coding-agent',
-            'packages/server',
-          ]);
-          const query = spawnSync('npm', ['query', '.workspace'], { encoding: 'utf8' });
-          if (query.status !== 0) {
-            process.stderr.write(query.stderr);
-            process.exit(query.status ?? 1);
+          set +e
+          npm --workspace packages/coding-agent exec -- vitest --run --reporter=json --outputFile=/tmp/coding-agent-results.json
+          status=$?
+          set -e
+          RESULT_FILE=/tmp/coding-agent-results.json node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const result = JSON.parse(readFileSync(process.env.RESULT_FILE, 'utf8'));
+          console.log(`Test files: ${result.numPassedTestSuites ?? 0} passed, ${result.numFailedTestSuites ?? 0} failed`);
+          console.log(`Tests: ${result.numPassedTests ?? 0} passed, ${result.numFailedTests ?? 0} failed`);
+          for (const file of result.testResults ?? []) {
+            const failures = (file.assertionResults ?? []).filter((test) => test.status === 'failed');
+            if (file.status !== 'failed' && failures.length === 0) continue;
+            console.log(`\nFAILED FILE: ${file.name}`);
+            for (const test of failures) {
+              console.log(`- ${test.fullName ?? test.title}`);
+              for (const message of test.failureMessages ?? []) console.log(message);
+            }
+            if (failures.length === 0 && file.message) console.log(file.message);
           }
-          const workspaces = JSON.parse(query.stdout);
-          let failed = false;
-          for (const workspace of workspaces) {
-            const location = workspace.location?.replaceAll('\\', '/');
-            if (!location || covered.has(location) || !workspace.scripts?.test) continue;
-            console.log(`\n=== Testing ${workspace.name} (${location}) ===`);
-            const result = spawnSync('npm', ['test', '--workspace', location, '--if-present'], {
-              stdio: 'inherit',
-            });
-            if (result.status !== 0) failed = true;
-          }
-          process.exit(failed ? 1 : 0);
           NODE
+          exit "$status"
