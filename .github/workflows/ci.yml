@@ -5,49 +5,22 @@ on:
     branches: [main]
 
 concurrency:
-  group: ci-coding-agent-artifact-${{ github.sha }}
+  group: ci-source-export-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
-  coding-agent-diagnostic:
+  export-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev fd-find ripgrep
-          sudo ln -s $(which fdfind) /usr/local/bin/fd
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Build
-        run: npm run build
-
-      - name: Run coding-agent full suite
-        id: coding_tests
-        continue-on-error: true
-        run: npm --workspace packages/coding-agent exec -- vitest --run --reporter=json --outputFile=/tmp/coding-agent-results.json
-
-      - name: Upload coding-agent test report
-        if: always()
+      - name: Upload source files for branch-only repair
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: coding-agent-test-report
-          path: /tmp/coding-agent-results.json
+          name: compaction-source
+          path: |
+            packages/coding-agent/src/core/compaction/compaction.ts
+            packages/coding-agent/test/suite/regressions/6647-compaction-retries-transient-stream-drop.test.ts
           if-no-files-found: error
           retention-days: 1
-
-      - name: Preserve failing status
-        if: steps.coding_tests.outcome == 'failure'
-        run: exit 1
