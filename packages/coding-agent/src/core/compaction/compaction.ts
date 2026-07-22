@@ -1049,7 +1049,7 @@ async function compactInternal(
 			retry,
 			callbacks,
 		);
-		assertTurnPrefixSummaryValid(turnPrefixResult.text);
+		if (!signal?.aborted) assertTurnPrefixSummaryValid(turnPrefixResult.text);
 		// Merge into single summary
 		summary = `${historyText}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult.text}`;
 		summaryUsage = historyUsage ? combineUsage(historyUsage, turnPrefixResult.usage) : turnPrefixResult.usage;
@@ -1073,6 +1073,10 @@ async function compactInternal(
 		summary = result.text;
 		summaryUsage = result.usage;
 	}
+
+	// Cancellation is handled by the session caller before persistence. Keep the
+	// intermediate result structurally valid so repair validation cannot mask it.
+	if (signal?.aborted) summary = createStructuredSplitTurnHistoryFallback(previousSummary);
 
 	const summaryForValidation = summary;
 

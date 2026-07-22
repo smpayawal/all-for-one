@@ -91,7 +91,14 @@ describe("#6647 compaction retries transient summarization failures", () => {
 			usage: createUsage(10),
 		});
 		const success: AssistantMessage = {
-			...fauxAssistantMessage("recovered summary"),
+			...fauxAssistantMessage(`## Original Request
+recovered summary
+
+## Early Progress
+- Retried transient summarization failures.
+
+## Context for Suffix
+- Compaction recovered successfully.`),
 			usage: createUsage(10),
 		};
 		const getCallCount = useScriptedStreamFn(harness, [error("terminated"), error("terminated"), success]);
