@@ -1,15 +1,16 @@
-import {
-	type ImageContent,
-	type Message,
-	type Model,
-	type SimpleStreamOptions,
-	streamSimple,
-	type TextContent,
-	type ThinkingBudgets,
-	type Transport,
+import { streamSimple } from "@earendil-works/pi-ai/compat";
+import type {
+	ImageContent,
+	Message,
+	Model,
+	SimpleStreamOptions,
+	TextContent,
+	ThinkingBudgets,
+	Transport,
 } from "@earendil-works/pi-ai/compat";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
 import { normalizeRuntimeError } from "./runtime-error.ts";
+import { getDefaultStreamFn } from "./stream-fn.ts";
 import type {
 	AfterToolCallContext,
 	AfterToolCallResult,
@@ -34,6 +35,17 @@ import type {
 import { AgentEventHandlerError } from "./types.ts";
 
 export type { QueueMode } from "./types.ts";
+
+function resolveDefaultStreamFunction(): StreamFn {
+	try {
+		return getDefaultStreamFn();
+	} catch (error) {
+		if (error instanceof Error && error.message.startsWith("No default stream function configured.")) {
+			return streamSimple;
+		}
+		throw error;
+	}
+}
 
 function defaultConvertToLlm(messages: AgentMessage[]): Message[] {
 	return messages.filter(
@@ -243,6 +255,15 @@ export class Agent {
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
 	public streamFn: StreamFn;
+
+	/** Pi 0.81-compatible alias for the pre-0.81 streamFn property. */
+	public get streamFunction(): StreamFn {
+		return this.streamFn;
+	}
+
+	public set streamFunction(value: StreamFn) {
+		this.streamFn = value;
+	}
 	public getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
 	public onPayload?: SimpleStreamOptions["onPayload"];
 	public onResponse?: SimpleStreamOptions["onResponse"];
@@ -279,7 +300,7 @@ export class Agent {
 		this._state = createMutableAgentState(options.initialState);
 		this.convertToLlm = options.convertToLlm ?? defaultConvertToLlm;
 		this.transformContext = options.transformContext;
-		this.streamFn = options.streamFn ?? streamSimple;
+		this.streamFn = options.streamFn ?? resolveDefaultStreamFunction();
 		this.getApiKey = options.getApiKey;
 		this.onPayload = options.onPayload;
 		this.onResponse = options.onResponse;
@@ -490,7 +511,7 @@ export class Agent {
 				this.createLoopConfig(options),
 				(event) => this.processEvents(event),
 				signal,
-				this.streamFn,
+				this.streamFunction,
 			);
 		});
 	}
@@ -502,7 +523,7 @@ export class Agent {
 				this.createLoopConfig(),
 				(event) => this.processEvents(event),
 				signal,
-				this.streamFn,
+				this.streamFunction,
 			);
 		});
 	}
