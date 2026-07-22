@@ -30,6 +30,7 @@ import type {
 	AssistantMessage,
 	AuthResult,
 	ImageContent,
+	Message,
 	Model,
 	ProviderHeaders,
 	TextContent,
@@ -146,6 +147,7 @@ import { type ToolOutputTelemetry, ToolOutputTelemetryStore } from "./tool-outpu
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
+import { addUsageToTotals, createUsageTotals } from "./usage-totals.ts";
 import {
 	discoverValidationCommands,
 	type ValidationCommandDiscovery,
@@ -153,7 +155,6 @@ import {
 } from "./validation-commands.ts";
 
 export type { ToolOutputTelemetry } from "./tool-output-telemetry.ts";
-import { addUsageToTotals, createUsageTotals } from "./usage-totals.ts";
 
 // ============================================================================
 // Skill Block Parsing

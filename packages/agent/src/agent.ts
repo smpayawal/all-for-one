@@ -1,4 +1,3 @@
-import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type {
 	ImageContent,
 	Message,
@@ -7,7 +6,7 @@ import type {
 	TextContent,
 	ThinkingBudgets,
 	Transport,
-} from "@earendil-works/pi-ai/compat";
+} from "@earendil-works/pi-ai";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.ts";
 import { normalizeRuntimeError } from "./runtime-error.ts";
 import { getDefaultStreamFn } from "./stream-fn.ts";
@@ -37,14 +36,7 @@ import { AgentEventHandlerError } from "./types.ts";
 export type { QueueMode } from "./types.ts";
 
 function resolveDefaultStreamFunction(): StreamFn {
-	try {
-		return getDefaultStreamFn();
-	} catch (error) {
-		if (error instanceof Error && error.message.startsWith("No default stream function configured.")) {
-			return streamSimple;
-		}
-		throw error;
-	}
+	return getDefaultStreamFn();
 }
 
 function defaultConvertToLlm(messages: AgentMessage[]): Message[] {

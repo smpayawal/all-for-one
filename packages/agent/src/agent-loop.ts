@@ -7,10 +7,9 @@ import {
 	type AssistantMessage,
 	type Context,
 	EventStream,
-	streamSimple,
 	type ToolResultMessage,
 	validateToolArguments,
-} from "@earendil-works/pi-ai/compat";
+} from "@earendil-works/pi-ai";
 import { normalizeRuntimeError } from "./runtime-error.ts";
 import { getDefaultStreamFn } from "./stream-fn.ts";
 import type {
@@ -32,14 +31,7 @@ export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
 function resolveStreamFunction(streamFn?: StreamFn): StreamFn {
 	if (streamFn) return streamFn;
-	try {
-		return getDefaultStreamFn();
-	} catch (error) {
-		if (error instanceof Error && error.message.startsWith("No default stream function configured.")) {
-			return streamSimple;
-		}
-		throw error;
-	}
+	return getDefaultStreamFn();
 }
 
 const EMPTY_USAGE = {
@@ -339,7 +331,7 @@ export function agentLoop(
 	prompts: AgentMessage[],
 	context: AgentContext,
 	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
+	signal?: AbortSignal,
 	streamFn?: StreamFn,
 ): EventStream<AgentEvent, AgentMessage[]> {
 	const stream = createAgentStream();
@@ -375,7 +367,7 @@ export function agentLoop(
 export function agentLoopContinue(
 	context: AgentContext,
 	config: AgentLoopConfig,
-	signal: AbortSignal | undefined,
+	signal?: AbortSignal,
 	streamFn?: StreamFn,
 ): EventStream<AgentEvent, AgentMessage[]> {
 	if (context.messages.length === 0) {
@@ -412,7 +404,7 @@ export async function runAgentLoop(
 	context: AgentContext,
 	config: AgentLoopConfig,
 	emit: AgentEventSink,
-	signal: AbortSignal | undefined,
+	signal?: AbortSignal,
 	streamFn?: StreamFn,
 ): Promise<AgentMessage[]> {
 	const newMessages: AgentMessage[] = [...prompts];
@@ -449,7 +441,7 @@ export async function runAgentLoopContinue(
 	context: AgentContext,
 	config: AgentLoopConfig,
 	emit: AgentEventSink,
-	signal: AbortSignal | undefined,
+	signal?: AbortSignal,
 	streamFn?: StreamFn,
 ): Promise<AgentMessage[]> {
 	if (context.messages.length === 0) {

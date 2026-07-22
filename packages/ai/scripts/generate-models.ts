@@ -18,6 +18,7 @@ import type {
 	OpenAICompletionsCompat,
 	OpenAIResponsesCompat,
 } from "../src/types.ts";
+import { ensureKimiCodingCompatibilityModels } from "./ensure-kimi-coding-compat.ts";
 import {
 	createModelDataManifest,
 	type ModelDataStructure,
@@ -2412,6 +2413,10 @@ async function generateModels() {
 		}
 	}
 
+	if (providers["kimi-coding"]) {
+		providers["kimi-coding"] = ensureKimiCodingCompatibilityModels(providers["kimi-coding"]);
+	}
+
 	const sortedProviderIds = Object.keys(providers).sort();
 	const jsonProviders: Record<string, Record<string, Model<any>>> = {};
 	for (const providerId of sortedProviderIds) {
@@ -2420,7 +2425,6 @@ async function generateModels() {
 			jsonProviders[providerId][modelId] = providers[providerId][modelId];
 		}
 	}
-
 	const serializeJson = (value: unknown) => `${JSON.stringify(value, null, generatorOptions.pretty ? 2 : undefined)}\n`;
 	const writeJson = (path: string, value: unknown) => writeFileSync(path, serializeJson(value));
 	let generatedDataProviderIds = sortedProviderIds;
