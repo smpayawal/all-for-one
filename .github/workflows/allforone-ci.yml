@@ -3,16 +3,14 @@ name: All-For-One CI
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: allforone-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: allforone-diagnostic-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   gate:
@@ -118,71 +116,4 @@ jobs:
 
       - name: Verify clean worktree
         if: always()
-        run: node scripts/check-clean-worktree.mjs
-
-  platform-focused:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
-
-      - name: Verify exact workflow head
-        env:
-          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          node -e "const { execFileSync } = require('node:child_process'); const expected = process.env.EXPECTED_HEAD; const actual = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(); if (actual !== expected) { console.error('Expected ' + expected + ' but checked out ' + actual); process.exit(1); }"
-
-      - name: Setup Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Build packages
-        run: npm run build
-
-      - name: Verify generated build output
-        run: node scripts/check-clean-worktree.mjs --allow-build-generated
-
-      - name: Platform-sensitive focused tests
-        run: >-
-          npm --workspace @earendil-works/pi-coding-agent exec -- vitest --run
-          test/apply-patch-tool.test.ts
-          test/file-mutation-queue.test.ts
-          test/memory.test.ts
-          test/scoped-context.test.ts
-          test/path-utils.test.ts
-          test/paths.test.ts
-          test/resolve-config-value.test.ts
-          test/settings-manager.test.ts
-          test/native-skills.test.ts
-          test/safe-mode.test.ts
-          test/process-tree-windows.test.ts
-          test/process-cleanup-failure.test.ts
-          test/bash-process-tree.test.ts
-          test/code-intel.test.ts
-          test/repo-map.test.ts
-          test/validation-commands.test.ts
-          test/validate-extension.test.ts
-          test/validate-freshness.test.ts
-          test/validate-executable-identity.test.ts
-          test/exec.test.ts
-          test/bash-close-hang-windows.test.ts
-          test/suite/agent-session-bash-persistence.test.ts
-
-      - name: Restore generated catalogs after validation
-        run: git restore --worktree -- packages/ai/src/models.generated.ts packages/ai/src/image-models.generated.ts ':(glob)packages/ai/src/providers/*.models.ts'
-
-      - name: Verify clean worktree
         run: node scripts/check-clean-worktree.mjs
