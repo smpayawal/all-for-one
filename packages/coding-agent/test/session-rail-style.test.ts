@@ -50,8 +50,8 @@ describe("session rail visual hierarchy", () => {
 		expect(plainLines.find((line) => line.includes("Working"))).toMatch(/^ {2,}Working/);
 		expect(plainLines.find((line) => line.includes("AGENTS.md"))).toMatch(/^ {2,}AGENTS\.md/);
 		expect(output).toContain("ACTIVE INSTRUCTIONS");
-		expect(output).not.toContain("systematic-debugging");
-		expect(output).not.toContain("SKILLS");
+		expect(output).toContain("SKILLS USED");
+		expect(output).toContain("systematic-debugging");
 		expect(output).toContain("SHORTCUTS");
 		expect(output).toContain("Esc — Interrupt");
 		expect(output).toContain("Ctrl+C / Ctrl+D — Clear / Exit");

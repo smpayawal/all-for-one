@@ -152,6 +152,11 @@ import { getExecutionGroupKey, splitAssistantMessageContent } from "./execution-
 import { getModelSearchText } from "./model-search.ts";
 import { getSessionRailLayout } from "./responsive-layout.ts";
 import {
+	createEmptySessionRailActivityState,
+	findSessionRailSkillName,
+	SessionRailSkillUsageTracker,
+} from "./session-rail-state.ts";
+import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
 	getEditorTheme,
@@ -349,6 +354,7 @@ export class InteractiveMode {
 	private sessionRailProgress: SessionRailProgress | undefined;
 	private sessionRailCompletedTools = 0;
 	private sessionRailFailedTools = 0;
+	private readonly sessionRailSkillUsage = new SessionRailSkillUsageTracker();
 	private loadedResourcesContainer: Container;
 	private chatContainer: Container;
 	private pendingMessagesContainer: Container;
@@ -1471,7 +1477,7 @@ export class InteractiveMode {
 			title: APP_TITLE,
 			shortcutSummary: this.getSessionRailShortcutSummary(),
 			agents: resourceLoader.getAgentsFiles().agentsFiles.map((file) => file.path),
-			skills: resourceLoader.getSkills().skills.map((skill) => skill.name),
+			skills: this.sessionRailSkillUsage?.usedSkills ?? [],
 			...(this.sessionRailProgress ? { progress: this.sessionRailProgress } : {}),
 			lifecycle: this.sessionRailLifecycle,
 			activeTools: Array.from(this.sessionRailActiveTools.values()),
@@ -1494,23 +1500,44 @@ export class InteractiveMode {
 		].join(" · ");
 	}
 
+	private resetSessionRailSession(): void {
+		const resetState = createEmptySessionRailActivityState();
+		this.sessionRailActiveTools.clear();
+		this.sessionRailRecentTools = resetState.recentTools;
+		this.sessionRailProgress = resetState.progress;
+		this.sessionRailCompletedTools = resetState.completedTools;
+		this.sessionRailFailedTools = resetState.failedTools;
+		this.sessionRailLifecycle = resetState.lifecycle;
+		this.sessionRailSkillUsage?.resetSession();
+		this.updateSessionRail?.();
+	}
+
 	private resetSessionRailTurn(): void {
 		this.sessionRailActiveTools.clear();
 		this.sessionRailRecentTools = [];
+		this.sessionRailSkillUsage?.resetTurn();
 		this.sessionRailCompletedTools = 0;
 		this.sessionRailFailedTools = 0;
 		this.sessionRailLifecycle = { kind: "agent" };
 		this.updateSessionRail?.();
 	}
 
-	private startSessionRailTool(toolCallId: string, toolName: string): void {
+	private startSessionRailTool(toolCallId: string, toolName: string, args?: unknown): void {
 		this.sessionRailLifecycle = { kind: "agent" };
 		this.sessionRailActiveTools.set(toolCallId, toolName);
+		const skillName = findSessionRailSkillName(
+			toolName,
+			args,
+			this.sessionManager.getCwd(),
+			this.session.resourceLoader.getSkills().skills,
+		);
+		this.sessionRailSkillUsage?.start(toolCallId, skillName);
 		this.updateSessionRail();
 	}
 
 	private finishSessionRailTool(toolCallId: string, toolName: string, isError: boolean): void {
 		this.sessionRailActiveTools.delete(toolCallId);
+		this.sessionRailSkillUsage?.finish(toolCallId, isError);
 		const toolEvent: SessionRailToolEvent = { toolName, status: isError ? "error" : "success" };
 		this.sessionRailRecentTools = [...this.sessionRailRecentTools, toolEvent].slice(-4);
 		if (isError) {
@@ -1844,6 +1871,7 @@ export class InteractiveMode {
 		this.unsubscribe = undefined;
 		this.applyRuntimeSettings();
 		if (options.renderBeforeBind) {
+			this.resetSessionRailSession?.();
 			this.renderCurrentSessionState();
 			this.subscribeToAgent();
 			await this.bindCurrentSessionExtensions();
@@ -3140,7 +3168,7 @@ export class InteractiveMode {
 				break;
 
 			case "tool_execution_start": {
-				this.startSessionRailTool?.(event.toolCallId, event.toolName);
+				this.startSessionRailTool?.(event.toolCallId, event.toolName, event.args);
 				let component = this.pendingTools.get(event.toolCallId);
 				if (!component) {
 					component = this.createToolExecutionComponent(event.toolName, event.toolCallId, event.args);
@@ -3176,7 +3204,8 @@ export class InteractiveMode {
 			}
 
 			case "agent_end":
-				this.sessionRailActiveTools?.clear();
+				this.sessionRailActiveTools.clear();
+				this.sessionRailSkillUsage?.clearPending();
 				this.updateSessionRail?.({ kind: "idle" });
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(false);
@@ -3525,6 +3554,7 @@ export class InteractiveMode {
 				if (textContent) {
 					const skillBlock = parseSkillBlock(textContent);
 					if (skillBlock) {
+						if (this.sessionRailSkillUsage?.record(skillBlock.name)) this.updateSessionRail();
 						// Render skill block (collapsible)
 						const component = new SkillInvocationMessageComponent(
 							skillBlock,

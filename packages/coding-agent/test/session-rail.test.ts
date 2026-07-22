@@ -103,8 +103,9 @@ describe("rail progress and activity formatting", () => {
 		expect(output).not.toContain("✓ bash");
 		expect(output).toContain("+1 more");
 		expect(output).not.toContain("PROJECT");
+		expect(output).toContain("SKILLS USED");
+		expect(output).toContain("frontend-skill");
 		expect(output).toContain("ACTIVE INSTRUCTIONS");
-		expect(output).not.toContain("SKILLS");
 	});
 
 	test("handles absent optional values without inventing metadata", () => {
