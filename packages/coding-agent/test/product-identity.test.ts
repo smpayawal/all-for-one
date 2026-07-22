@@ -20,7 +20,7 @@ function runProductCli(...args: string[]) {
 describe("All-For-One product identity", () => {
 	test("uses an independent product version with an explicit Pi baseline", () => {
 		expect(formatProductVersion()).toBe(`All-For-One ${PRODUCT.version} (Pi base ${PRODUCT.upstream.version})`);
-		expect(PRODUCT.upstream.version).toBe("0.80.10");
+		expect(PRODUCT.upstream.version).toBe("0.81.1");
 		expect(PRODUCT.repository).toBe("https://github.com/smpayawal/all-for-one");
 		expect(PRODUCT.aliases).toEqual(["afo", "pi"]);
 	});
