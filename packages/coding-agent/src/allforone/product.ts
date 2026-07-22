@@ -6,7 +6,7 @@ export const PRODUCT = {
 	repository: "https://github.com/smpayawal/all-for-one",
 	upstream: {
 		name: "Pi",
-		version: "0.80.10",
+		version: "0.81.1",
 		repository: "https://github.com/earendil-works/pi",
 	},
 } as const;
