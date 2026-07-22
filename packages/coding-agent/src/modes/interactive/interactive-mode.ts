@@ -86,6 +86,7 @@ import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.ts";
+import { getUsageCostBreakdown } from "../../core/usage-totals.ts";
 import { getChangelogPath, getNewEntries, normalizeChangelogLinks, parseChangelog } from "../../utils/changelog.ts";
 import { copyToClipboard, readClipboardText } from "../../utils/clipboard.ts";
 import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
@@ -151,6 +152,11 @@ import type { ToolActionStatus } from "./execution-group-state.ts";
 import { getExecutionGroupKey, splitAssistantMessageContent } from "./execution-groups.ts";
 import { getModelSearchText } from "./model-search.ts";
 import { getSessionRailLayout } from "./responsive-layout.ts";
+import {
+	createEmptySessionRailActivityState,
+	findSessionRailSkillName,
+	SessionRailSkillUsageTracker,
+} from "./session-rail-state.ts";
 import {
 	getAvailableThemes,
 	getAvailableThemesWithPaths,
@@ -349,6 +355,7 @@ export class InteractiveMode {
 	private sessionRailProgress: SessionRailProgress | undefined;
 	private sessionRailCompletedTools = 0;
 	private sessionRailFailedTools = 0;
+	private readonly sessionRailSkillUsage = new SessionRailSkillUsageTracker();
 	private loadedResourcesContainer: Container;
 	private chatContainer: Container;
 	private pendingMessagesContainer: Container;
@@ -887,6 +894,13 @@ export class InteractiveMode {
 	 */
 	async run(): Promise<void> {
 		await this.init();
+
+		if (!process.env.PI_OFFLINE) {
+			void this.session.modelRuntime
+				.refresh()
+				.then(() => this.updateAvailableProviderCount())
+				.catch(() => {});
+		}
 
 		// Start version check asynchronously
 		checkForNewPiVersion(this.version).then((newRelease) => {
@@ -1471,7 +1485,7 @@ export class InteractiveMode {
 			title: APP_TITLE,
 			shortcutSummary: this.getSessionRailShortcutSummary(),
 			agents: resourceLoader.getAgentsFiles().agentsFiles.map((file) => file.path),
-			skills: resourceLoader.getSkills().skills.map((skill) => skill.name),
+			skills: this.sessionRailSkillUsage?.usedSkills ?? [],
 			...(this.sessionRailProgress ? { progress: this.sessionRailProgress } : {}),
 			lifecycle: this.sessionRailLifecycle,
 			activeTools: Array.from(this.sessionRailActiveTools.values()),
@@ -1494,23 +1508,44 @@ export class InteractiveMode {
 		].join(" · ");
 	}
 
+	private resetSessionRailSession(): void {
+		const resetState = createEmptySessionRailActivityState();
+		this.sessionRailActiveTools.clear();
+		this.sessionRailRecentTools = resetState.recentTools;
+		this.sessionRailProgress = resetState.progress;
+		this.sessionRailCompletedTools = resetState.completedTools;
+		this.sessionRailFailedTools = resetState.failedTools;
+		this.sessionRailLifecycle = resetState.lifecycle;
+		this.sessionRailSkillUsage?.resetSession();
+		this.updateSessionRail?.();
+	}
+
 	private resetSessionRailTurn(): void {
 		this.sessionRailActiveTools.clear();
 		this.sessionRailRecentTools = [];
+		this.sessionRailSkillUsage?.resetTurn();
 		this.sessionRailCompletedTools = 0;
 		this.sessionRailFailedTools = 0;
 		this.sessionRailLifecycle = { kind: "agent" };
 		this.updateSessionRail?.();
 	}
 
-	private startSessionRailTool(toolCallId: string, toolName: string): void {
+	private startSessionRailTool(toolCallId: string, toolName: string, args?: unknown): void {
 		this.sessionRailLifecycle = { kind: "agent" };
 		this.sessionRailActiveTools.set(toolCallId, toolName);
+		const skillName = findSessionRailSkillName(
+			toolName,
+			args,
+			this.sessionManager.getCwd(),
+			this.session.resourceLoader.getSkills().skills,
+		);
+		this.sessionRailSkillUsage?.start(toolCallId, skillName);
 		this.updateSessionRail();
 	}
 
 	private finishSessionRailTool(toolCallId: string, toolName: string, isError: boolean): void {
 		this.sessionRailActiveTools.delete(toolCallId);
+		this.sessionRailSkillUsage?.finish(toolCallId, isError);
 		const toolEvent: SessionRailToolEvent = { toolName, status: isError ? "error" : "success" };
 		this.sessionRailRecentTools = [...this.sessionRailRecentTools, toolEvent].slice(-4);
 		if (isError) {
@@ -1844,6 +1879,7 @@ export class InteractiveMode {
 		this.unsubscribe = undefined;
 		this.applyRuntimeSettings();
 		if (options.renderBeforeBind) {
+			this.resetSessionRailSession?.();
 			this.renderCurrentSessionState();
 			this.subscribeToAgent();
 			await this.bindCurrentSessionExtensions();
@@ -3140,7 +3176,7 @@ export class InteractiveMode {
 				break;
 
 			case "tool_execution_start": {
-				this.startSessionRailTool?.(event.toolCallId, event.toolName);
+				this.startSessionRailTool?.(event.toolCallId, event.toolName, event.args);
 				let component = this.pendingTools.get(event.toolCallId);
 				if (!component) {
 					component = this.createToolExecutionComponent(event.toolName, event.toolCallId, event.args);
@@ -3176,7 +3212,8 @@ export class InteractiveMode {
 			}
 
 			case "agent_end":
-				this.sessionRailActiveTools?.clear();
+				this.sessionRailActiveTools.clear();
+				this.sessionRailSkillUsage?.clearPending();
 				this.updateSessionRail?.({ kind: "idle" });
 				if (this.settingsManager.getShowTerminalProgress()) {
 					this.ui.terminal.setProgress(false);
@@ -3286,6 +3323,32 @@ export class InteractiveMode {
 				if (!event.success) {
 					this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);
 				}
+				this.ui.requestRender();
+				break;
+			}
+
+			case "summarization_retry_scheduled": {
+				this.showError(event.errorMessage);
+				this.showStatusIndicator(
+					new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs),
+				);
+				this.ui.requestRender();
+				break;
+			}
+
+			case "summarization_retry_attempt_start": {
+				this.clearStatusIndicator("retry");
+				if (event.source === "branchSummary") {
+					this.showStatusIndicator(new BranchSummaryStatusIndicator(this.ui));
+				} else {
+					this.showStatusIndicator(new CompactionStatusIndicator(this.ui, event.reason));
+				}
+				this.ui.requestRender();
+				break;
+			}
+
+			case "summarization_retry_finished": {
+				this.clearStatusIndicator("retry");
 				this.ui.requestRender();
 				break;
 			}
@@ -3525,6 +3588,7 @@ export class InteractiveMode {
 				if (textContent) {
 					const skillBlock = parseSkillBlock(textContent);
 					if (skillBlock) {
+						if (this.sessionRailSkillUsage?.record(skillBlock.name)) this.updateSessionRail();
 						// Render skill block (collapsible)
 						const component = new SkillInvocationMessageComponent(
 							skillBlock,
@@ -4808,10 +4872,13 @@ export class InteractiveMode {
 		}
 	}
 
-	/** Update the footer's available provider count from current model candidates */
-	private async updateAvailableProviderCount(): Promise<void> {
-		const models = await this.getModelCandidates();
-		const uniqueProviders = new Set(models.map((m) => m.provider));
+	/** Update the footer's available provider count from the current snapshot without refreshing catalogs. */
+	private updateAvailableProviderCount(): void {
+		const models =
+			this.session.scopedModels.length > 0
+				? this.session.scopedModels.map((scoped) => scoped.model)
+				: this.session.modelRuntime.getAvailableSnapshot();
+		const uniqueProviders = new Set(models.map((model) => model.provider));
 		this.footerDataProvider.setAvailableProviderCount(uniqueProviders.size);
 	}
 
@@ -6293,22 +6360,9 @@ export class InteractiveMode {
 		const cacheWaste = computeCacheWaste(entries, this.session.modelRuntime);
 
 		// Cost/token totals per provider/model actually used (e.g. OpenRouter `auto`
-		// resolves to a concrete responseModel), sorted by cost descending.
-		const perModelMap = new Map<string, { key: string; cost: number; tokens: number }>();
-		for (const entry of entries) {
-			if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-			const message = entry.message;
-			const usage = message.usage;
-			const key = `${message.provider}/${message.responseModel ?? message.model}`;
-			let bucket = perModelMap.get(key);
-			if (!bucket) {
-				bucket = { key, cost: 0, tokens: 0 };
-				perModelMap.set(key, bucket);
-			}
-			bucket.cost += usage.cost.total;
-			bucket.tokens += usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-		}
-		const perModel = Array.from(perModelMap.values()).sort((a, b) => b.cost - a.cost);
+		// resolves to a concrete responseModel). Usage without model attribution is
+		// grouped separately so the breakdown reconciles with the session total.
+		const usageBreakdown = getUsageCostBreakdown(entries);
 
 		let info = `${theme.bold("Session Info")}\n\n`;
 		if (sessionName) {
@@ -6342,8 +6396,8 @@ export class InteractiveMode {
 		if (stats.cost > 0 || cacheWaste.missedTokens > 0) {
 			info += `\n${theme.bold("Cost")}\n`;
 			info += `${theme.fg("dim", "Total:")} $${stats.cost.toFixed(3)}`;
-			if (perModel.length > 1) {
-				for (const entry of perModel) {
+			if (usageBreakdown.length > 1) {
+				for (const entry of usageBreakdown) {
 					info += `\n  ${theme.fg("dim", `${entry.key}:`)} $${entry.cost.toFixed(3)} ${theme.fg("dim", `(${formatTokens(entry.tokens)} tokens)`)}`;
 				}
 			}

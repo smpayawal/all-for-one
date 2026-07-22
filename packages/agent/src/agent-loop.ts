@@ -7,11 +7,11 @@ import {
 	type AssistantMessage,
 	type Context,
 	EventStream,
-	streamSimple,
 	type ToolResultMessage,
 	validateToolArguments,
-} from "@earendil-works/pi-ai/compat";
+} from "@earendil-works/pi-ai";
 import { normalizeRuntimeError } from "./runtime-error.ts";
+import { getDefaultStreamFn } from "./stream-fn.ts";
 import type {
 	AfterToolCallResult,
 	AgentContext,
@@ -28,6 +28,11 @@ import type {
 import { AgentEventHandlerError } from "./types.ts";
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
+
+function resolveStreamFunction(streamFn?: StreamFn): StreamFn {
+	if (streamFn) return streamFn;
+	return getDefaultStreamFn();
+}
 
 const EMPTY_USAGE = {
 	input: 0,
@@ -417,7 +422,14 @@ export async function runAgentLoop(
 			await lifecycle.emit({ type: "message_end", message: prompt });
 		}
 
-		await runLoop(currentContext, newMessages, config, signal, lifecycle.emit.bind(lifecycle), streamFn);
+		await runLoop(
+			currentContext,
+			newMessages,
+			config,
+			signal,
+			lifecycle.emit.bind(lifecycle),
+			resolveStreamFunction(streamFn),
+		);
 	} catch (error) {
 		await lifecycle.terminalizeFailure(config, error, signal);
 		newMessages.splice(0, newMessages.length, ...lifecycle.completedMessages);
@@ -448,7 +460,14 @@ export async function runAgentLoopContinue(
 		await lifecycle.emit({ type: "agent_start" });
 		await lifecycle.emit({ type: "turn_start" });
 
-		await runLoop(currentContext, newMessages, config, signal, lifecycle.emit.bind(lifecycle), streamFn);
+		await runLoop(
+			currentContext,
+			newMessages,
+			config,
+			signal,
+			lifecycle.emit.bind(lifecycle),
+			resolveStreamFunction(streamFn),
+		);
 	} catch (error) {
 		await lifecycle.terminalizeFailure(config, error, signal);
 		newMessages.splice(0, newMessages.length, ...lifecycle.completedMessages);
@@ -496,7 +515,7 @@ async function runLoop(
 	initialConfig: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
-	streamFn?: StreamFn,
+	streamFunction: StreamFn,
 ): Promise<void> {
 	let currentContext = initialContext;
 	let config = initialConfig;
@@ -546,7 +565,7 @@ async function runLoop(
 			}
 
 			// Stream assistant response
-			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
+			const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFunction);
 			newMessages.push(message);
 
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
@@ -665,7 +684,7 @@ async function streamAssistantResponse(
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
-	streamFn?: StreamFn,
+	streamFunction: StreamFn,
 ): Promise<AssistantMessage> {
 	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
 	let messages = context.messages;
@@ -682,8 +701,6 @@ async function streamAssistantResponse(
 		messages: llmMessages,
 		tools: context.tools,
 	};
-
-	const streamFunction = streamFn || streamSimple;
 
 	// Resolve API key (important for expiring tokens)
 	const resolvedApiKey =
@@ -1166,6 +1183,7 @@ async function finalizeExecutedToolCall(
 						...result,
 						content: afterResult.content ?? result.content,
 						details: Object.hasOwn(afterResult, "details") ? afterResult.details : result.details,
+						usage: Object.hasOwn(afterResult, "usage") ? afterResult.usage : result.usage,
 						terminate: afterResult.terminate ?? result.terminate,
 					};
 					isError = afterResult.isError ?? isError;
@@ -1210,6 +1228,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
 		// so the null never enters session history or provider payloads.
 		content: finalized.result.content ?? [],
 		details: finalized.result.details,
+		usage: finalized.result.usage,
 		...(finalized.result.addedToolNames?.length ? { addedToolNames: finalized.result.addedToolNames } : {}),
 		isError: finalized.isError,
 		timestamp: Date.now(),
